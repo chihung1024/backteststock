@@ -25,7 +25,8 @@ Browser
 api/                         Python API
 public/                      靜態前端
 worker/                      Cloudflare Worker
- tests/                      Python 回歸測試
+tests/                       Python 回歸測試
+docs/                        部署與維運文件
 .github/workflows/           CI 與 Cloudflare 部署
 wrangler.jsonc               Cloudflare Worker 設定
 vercel.json                  Python API 設定
@@ -47,7 +48,7 @@ flask --app api.index run --port 5000
 ```bash
 cp .dev.vars.example .dev.vars
 # 將 BACKEND_ORIGIN 改成 http://127.0.0.1:5000
-npx wrangler dev
+npx --yes wrangler@4 dev
 ```
 
 ## 測試
@@ -57,6 +58,7 @@ python -m pytest -q
 ruff check api tests
 node --check public/app.js
 node --check worker/index.js
+npx --yes wrangler@4 deploy --dry-run
 ```
 
 ## 部署
@@ -79,7 +81,7 @@ https://backteststock-api.example.vercel.app
 在 Cloudflare Worker 設定 secret：
 
 ```bash
-npx wrangler secret put BACKEND_ORIGIN
+npx --yes wrangler@4 secret put BACKEND_ORIGIN
 ```
 
 值填入 Vercel API origin，不要附加 `/api`。
@@ -90,6 +92,8 @@ GitHub Actions secrets：
 - `CLOUDFLARE_ACCOUNT_ID`
 
 合併至 `main` 後，Cloudflare workflow 會部署前端與 Worker。
+
+完整步驟、Smoke Test 與 rollback 請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 ## 安全注意事項
 
