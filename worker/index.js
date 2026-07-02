@@ -43,6 +43,21 @@ function applySecurityHeaders(response, requestId) {
   });
 }
 
+async function readValidatedBody(request, requestId) {
+  if (request.method === "GET" || request.method === "HEAD") return undefined;
+
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (declaredLength > MAX_REQUEST_BYTES) {
+    return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
+  }
+
+  const body = await request.arrayBuffer();
+  if (body.byteLength > MAX_REQUEST_BYTES) {
+    return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
+  }
+  return body;
+}
+
 async function proxyApi(request, env, requestId) {
   const incomingUrl = new URL(request.url);
   const allowedMethods = API_ROUTES.get(incomingUrl.pathname);
@@ -57,10 +72,8 @@ async function proxyApi(request, env, requestId) {
     return jsonResponse({ error: "後端服務尚未設定。" }, 503, requestId);
   }
 
-  const contentLength = Number(request.headers.get("content-length") || "0");
-  if (contentLength > MAX_REQUEST_BYTES) {
-    return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
-  }
+  const requestBody = await readValidatedBody(request, requestId);
+  if (requestBody instanceof Response) return requestBody;
 
   let backendOrigin;
   try {
@@ -76,6 +89,7 @@ async function proxyApi(request, env, requestId) {
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
   const headers = new Headers(request.headers);
   headers.delete("host");
+  headers.delete("content-length");
   headers.delete("cf-connecting-ip");
   headers.delete("cf-ipcountry");
   headers.delete("cf-ray");
@@ -90,7 +104,7 @@ async function proxyApi(request, env, requestId) {
     const response = await fetch(target, {
       method: request.method,
       headers,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      body: requestBody,
       redirect: "manual",
       signal: controller.signal,
     });
