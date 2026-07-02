@@ -13,8 +13,6 @@ on:
 permissions:
   contents: read
 
-environment: production
-
 concurrency:
   group: cloudflare-production
   cancel-in-progress: false
@@ -23,6 +21,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: production
     steps:
       - uses: actions/checkout@v5
       - name: Deploy Worker and static assets
