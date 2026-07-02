@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     environment: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Deploy Worker and static assets
         uses: cloudflare/wrangler-action@v3
         with:
