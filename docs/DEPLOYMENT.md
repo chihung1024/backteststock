@@ -35,7 +35,7 @@ Do not paste token values into source files, issues, pull requests or chat messa
 The Cloudflare Worker needs a secret named `BACKEND_ORIGIN` containing the Vercel origin without `/api`:
 
 ```bash
-npx wrangler secret put BACKEND_ORIGIN
+npx --yes wrangler@4 secret put BACKEND_ORIGIN
 ```
 
 Example value:
@@ -48,12 +48,12 @@ For local development, copy `.dev.vars.example` to `.dev.vars`.
 
 ## 4. Deploy Cloudflare
 
-After CI passes, merge the reviewed pull request to `main`. The `Deploy Cloudflare Worker` workflow deploys:
+After CI passes and the pull request is merged, manually run the `Deploy Cloudflare Worker` workflow. It deploys:
 
 - `public/` as Cloudflare Static Assets.
 - `worker/index.js` as the API proxy and security layer.
 
-The GitHub `production` environment can be configured with required reviewers to prevent accidental deployment.
+The GitHub `production` environment can be configured with required reviewers to prevent accidental deployment. After the first production deployment and smoke test succeed, the workflow may be changed to deploy automatically on `main`.
 
 ## 5. Smoke tests
 
