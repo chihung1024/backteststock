@@ -91,7 +91,7 @@ GitHub Actions secrets：
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-合併至 `main` 後，Cloudflare workflow 會部署前端與 Worker。
+第一次部署請在 GitHub Actions 手動執行 `Deploy Cloudflare Worker`。完成 smoke test 後，再考慮改為合併至 `main` 自動部署。
 
 完整步驟、Smoke Test 與 rollback 請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
