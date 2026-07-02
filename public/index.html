@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="美股投資組合回測與個股績效掃描工具">
+  <title>Backtest Stock</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳至主要內容</a>
+
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">PORTFOLIO RESEARCH</p>
+      <h1>Backtest Stock</h1>
+      <p class="subtitle">投資組合回測、風險比較與個股績效掃描</p>
+    </div>
+    <div class="service-status" aria-live="polite">
+      <span id="status-dot" class="status-dot"></span>
+      <span id="service-status">檢查服務狀態…</span>
+    </div>
+  </header>
+
+  <nav class="tab-nav" aria-label="主要功能">
+    <button class="tab-button active" type="button" data-tab="backtest" aria-selected="true">投資組合回測</button>
+    <button class="tab-button" type="button" data-tab="scanner" aria-selected="false">個股掃描</button>
+    <button class="tab-button" type="button" data-tab="about" aria-selected="false">方法與限制</button>
+  </nav>
+
+  <main id="main-content">
+    <section id="backtest-panel" class="tab-panel" aria-labelledby="backtest-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">BACKTEST</p>
+          <h2 id="backtest-title">投資組合回測</h2>
+        </div>
+        <div class="toolbar">
+          <button id="add-portfolio" class="button secondary" type="button">新增投組</button>
+          <button id="save-config" class="button ghost" type="button">儲存設定</button>
+          <button id="export-config" class="button ghost" type="button">匯出 JSON</button>
+        </div>
+      </div>
+
+      <form id="backtest-form" novalidate>
+        <div class="control-grid panel">
+          <label>
+            <span>初始投資金額（USD）</span>
+            <input id="initial-amount" type="number" min="1" max="1000000000000" step="100" value="10000" inputmode="decimal">
+          </label>
+          <label>
+            <span>起始月份</span>
+            <input id="start-period" type="month" value="2015-01">
+          </label>
+          <label>
+            <span>結束月份</span>
+            <input id="end-period" type="month">
+          </label>
+          <label>
+            <span>再平衡週期</span>
+            <select id="rebalancing-period">
+              <option value="never">不再平衡</option>
+              <option value="annually" selected>每年</option>
+              <option value="quarterly">每季</option>
+              <option value="monthly">每月</option>
+            </select>
+          </label>
+          <label>
+            <span>比較基準</span>
+            <input id="benchmark" type="text" value="SPY" maxlength="20" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+
+        <datalist id="ticker-options"></datalist>
+        <div id="portfolio-list" class="portfolio-list"></div>
+
+        <div id="backtest-error" class="message error hidden" role="alert"></div>
+        <div class="submit-row">
+          <p class="form-note">調整後股價包含拆股及股息效果；未納入稅務、滑價與交易成本。</p>
+          <button id="run-backtest" class="button primary" type="submit">執行回測</button>
+        </div>
+      </form>
+
+      <section id="backtest-results" class="results hidden" aria-live="polite">
+        <div id="backtest-warning" class="message warning hidden"></div>
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">RESULTS</p>
+            <h3>績效結果</h3>
+          </div>
+          <div class="toolbar">
+            <label class="inline-control">
+              <span>圖表尺度</span>
+              <select id="chart-scale">
+                <option value="linear">線性</option>
+                <option value="log">對數</option>
+              </select>
+            </label>
+            <button id="export-results" class="button ghost" type="button">匯出結果</button>
+          </div>
+        </div>
+        <div class="chart-card">
+          <canvas id="portfolio-chart" aria-label="投資組合價值走勢圖"></canvas>
+          <div id="chart-legend" class="chart-legend"></div>
+        </div>
+        <div class="table-wrap">
+          <table id="metrics-table">
+            <caption class="sr-only">投資組合績效指標</caption>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="scanner-panel" class="tab-panel hidden" aria-labelledby="scanner-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SCANNER</p>
+          <h2 id="scanner-title">個股績效掃描</h2>
+        </div>
+      </div>
+
+      <div class="panel screener-panel">
+        <h3>基本面預篩選</h3>
+        <div class="control-grid scanner-controls">
+          <label>
+            <span>股票池</span>
+            <select id="screener-index">
+              <option value="sp500">S&amp;P 500</option>
+              <option value="nasdaq100">NASDAQ 100</option>
+              <option value="russell3000">Russell 3000</option>
+            </select>
+          </label>
+          <label>
+            <span>產業</span>
+            <select id="screener-sector">
+              <option value="any">任何產業</option>
+              <option value="Technology">科技</option>
+              <option value="Communication Services">通訊服務</option>
+              <option value="Healthcare">醫療保健</option>
+              <option value="Consumer Cyclical">非必需消費品</option>
+              <option value="Consumer Defensive">必需性消費品</option>
+              <option value="Financial Services">金融服務</option>
+              <option value="Industrials">工業</option>
+              <option value="Energy">能源</option>
+              <option value="Real Estate">房地產</option>
+              <option value="Basic Materials">原物料</option>
+              <option value="Utilities">公用事業</option>
+            </select>
+          </label>
+          <label>
+            <span>最低市值（億美元）</span>
+            <input id="screener-market-cap" type="number" min="0" step="10" value="100">
+          </label>
+          <label>
+            <span>最高本益比</span>
+            <input id="screener-pe" type="number" min="0" step="1" placeholder="不限">
+          </label>
+        </div>
+        <button id="run-screener" class="button secondary" type="button">篩選並匯入股票代碼</button>
+      </div>
+
+      <form id="scan-form" class="panel" novalidate>
+        <label>
+          <span>股票代碼</span>
+          <textarea id="scan-tickers" rows="5" placeholder="AAPL, MSFT, NVDA">AAPL, MSFT, NVDA, AMZN, GOOGL</textarea>
+          <small>以逗號、空白或換行分隔，單次最多 100 檔。</small>
+        </label>
+        <div class="control-grid scanner-controls">
+          <label>
+            <span>起始月份</span>
+            <input id="scan-start-period" type="month" value="2019-01">
+          </label>
+          <label>
+            <span>結束月份</span>
+            <input id="scan-end-period" type="month">
+          </label>
+          <label>
+            <span>比較基準</span>
+            <input id="scan-benchmark" type="text" value="SPY" maxlength="20" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div id="scan-error" class="message error hidden" role="alert"></div>
+        <div class="submit-row">
+          <span></span>
+          <button id="run-scan" class="button primary" type="submit">開始掃描</button>
+        </div>
+      </form>
+
+      <section id="scan-results" class="results hidden" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">SCAN RESULTS</p>
+            <h3>個股績效列表</h3>
+          </div>
+          <button id="export-scan" class="button ghost" type="button">匯出 CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table id="scan-table">
+            <caption class="sr-only">個股掃描結果</caption>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="about-panel" class="tab-panel hidden" aria-labelledby="about-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">METHODOLOGY</p>
+          <h2 id="about-title">方法與限制</h2>
+        </div>
+      </div>
+      <div class="information-grid">
+        <article class="panel">
+          <h3>計算方式</h3>
+          <p>使用調整後收盤價模擬持有股數，於指定週期第一個共同交易日依目標權重再平衡。</p>
+          <p>Sharpe、Sortino、Beta 與 Alpha 以日報酬計算並年化；無風險利率可由後端環境變數設定。</p>
+        </article>
+        <article class="panel">
+          <h3>資料限制</h3>
+          <p>目前行情由 yfinance 即時取得，可能受到來源延遲、限流、標的下市及公司行動資料品質影響。</p>
+          <p>使用現行指數成分做歷史篩選時存在存活者偏差。</p>
+        </article>
+        <article class="panel">
+          <h3>不包含項目</h3>
+          <p>未完整納入交易成本、滑價、稅務、匯率、融資成本及流動性限制。</p>
+          <p>結果僅供研究與教育用途，不構成投資建議或未來績效保證。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <div id="loading-overlay" class="loading-overlay hidden" role="status" aria-live="polite">
+    <div class="loading-card">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loading-message">正在處理…</p>
+      <button id="cancel-request" class="button ghost" type="button">取消</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Backtest Stock · Research tool only</p>
+  </footer>
+</body>
+</html>
