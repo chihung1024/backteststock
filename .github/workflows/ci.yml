@@ -19,7 +19,7 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -36,5 +36,7 @@ jobs:
         run: node --check public/app.js
       - name: Check Worker JavaScript
         run: node --check worker/index.js
-      - name: Validate JSON configuration
+      - name: Validate Vercel configuration
         run: python -m json.tool vercel.json > /dev/null
+      - name: Validate Cloudflare bundle
+        run: npx --yes wrangler@4 deploy --dry-run --outdir .wrangler-dry-run
