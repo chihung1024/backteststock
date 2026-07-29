@@ -80,7 +80,7 @@ python scripts/update_universes.py --report /tmp/universe-update-report.json
 
 ## 個股快速績效掃描 v2
 
-- Universe：S&P 500（IVV holdings 代理）、NASDAQ-100、SOXX holdings、Russell 2000（IWM holdings 代理）。
+- Universe：S&P 500（IVV holdings 代理）、NASDAQ-100（Nasdaq API，失敗時自動改用 QQQM holdings 代理）、SOXX holdings、Russell 2000（IWM holdings 代理）。
 - GitHub Actions 每週一、四自動更新，也可手動執行 `Update Universe Membership`。
 - 新版本完整寫入並驗證後才切換 `universe_current`；來源或內容驗證失敗時，舊版本繼續服務。
 - 預篩選結果顯示完整漏斗與明確的 25／50／100 檔取樣規則，不會靜默截斷。
@@ -106,13 +106,9 @@ https://backteststock-api.example.vercel.app
 
 ### Cloudflare Worker
 
-在 Cloudflare Worker 設定 secret：
-
-```bash
-npx --yes wrangler@4 secret put BACKEND_ORIGIN
-```
-
-值填入 Vercel API origin，不要附加 `/api`。
+Vercel API origin 是非敏感設定，放在 `wrangler.jsonc` 的
+`vars.BACKEND_ORIGIN`，值不要附加 `/api`。若部署到不同環境，請改成該環境的
+公開 HTTPS origin。
 
 GitHub Actions secrets：
 

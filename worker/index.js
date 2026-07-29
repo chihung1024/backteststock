@@ -189,7 +189,11 @@ async function getUniverseCatalog(env, requestId) {
   try {
     const result = await db.prepare(
       `SELECT
-         u.id, u.name, u.description, u.source_label, u.source_url, u.is_proxy, u.proxy_note,
+         u.id, u.name, u.description,
+         COALESCE(NULLIF(v.source_label, ''), u.source_label) AS source_label,
+         COALESCE(v.source_url, u.source_url) AS source_url,
+         COALESCE(v.is_proxy, u.is_proxy) AS is_proxy,
+         COALESCE(v.warning, u.proxy_note) AS proxy_note,
          v.id AS version_id, v.version, v.source_as_of, v.fetched_at, v.member_count
        FROM universes AS u
        LEFT JOIN universe_current AS c ON c.universe_id = u.id
@@ -214,7 +218,7 @@ async function loadUniverseSnapshot(env, universeId, requestId) {
   try {
     const row = await db.prepare(
       `SELECT
-         u.id, u.name, u.proxy_note,
+         u.id, u.name, COALESCE(v.warning, u.proxy_note) AS proxy_note,
          v.id AS version_id, v.version, v.source_as_of, v.fetched_at, v.member_count
        FROM universes AS u
        LEFT JOIN universe_current AS c ON c.universe_id = u.id

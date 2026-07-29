@@ -10,17 +10,18 @@
 | Universe ID | 顯示名稱 | 機器來源 | 合理數量 | 說明 |
 | --- | --- | --- | ---: | --- |
 | `sp500` | S&P 500（IVV holdings） | iShares IVV official holdings CSV | 480–530 | ETF 公開持股代理池 |
-| `nasdaq100` | NASDAQ-100 | Nasdaq official JSON API | 95–110 | 同公司多股別可能使證券數超過 100 |
+| `nasdaq100` | NASDAQ-100（自動備援） | Nasdaq official JSON API；失敗時 Invesco QQQM official holdings JSON | 95–110 | 備援版本會明確標示 ETF 代理池；同公司多股別可能使證券數超過 100 |
 | `soxx` | SOXX holdings | iShares SOXX official holdings CSV | 25–40 | ETF 股票持股 |
 | `russell2000` | Russell 2000（IWM holdings 代理） | iShares IWM official holdings CSV | 1,750–2,100 | 非 FTSE Russell 授權名單 |
 
 來源網址集中於 `scripts/update_universes.py`，並可用
-`UNIVERSE_SP500_URL`、`UNIVERSE_NASDAQ100_URL`、`UNIVERSE_SOXX_URL`、
+`UNIVERSE_SP500_URL`、`UNIVERSE_NASDAQ100_URL`、
+`UNIVERSE_NASDAQ100_FALLBACK_URL`、`UNIVERSE_SOXX_URL`、
 `UNIVERSE_RUSSELL2000_URL` 暫時覆寫。
 
 ## Update and last-good behavior
 
-1. 擷取官方 CSV／JSON，重試暫時性 429 與 5xx。
+1. 擷取官方 CSV／JSON，重試暫時性 429 與 5xx。Nasdaq 主要來源逾時、格式或完整性驗證失敗時，才嘗試 QQQM 備援來源。
 2. 僅保留股票資產，正規化 Yahoo 相容 ticker；例如 `BRKB` 對應 `BRK-B`，同時保存原始 ticker。
 3. 驗證資料日期、ticker 格式、重複值、合理數量、相對前版數量變動與成分更替率。
 4. 先建立 `staging` version，分批寫入 members，再回查筆數。
@@ -38,11 +39,12 @@
 ## D1 model
 
 - `universes`：穩定 ID、顯示名稱、資料來源與 proxy disclosure。
-- `universe_versions`：來源日、擷取日、checksum、筆數與狀態。
+- `universe_versions`：實際使用的來源、代理池標記、來源日、擷取日、checksum、筆數與狀態。
 - `universe_members`：正規化 ticker、原始 ticker、名稱、產業、權重與市值。
 - `universe_current`：每個 Universe 目前可服務的完整版本。
 
-Schema 位於 `migrations/0001_universe_versions.sql`。
+Schema 位於 `migrations/0001_universe_versions.sql`，來源版本欄位擴充位於
+`migrations/0002_versioned_source_metadata.sql`。
 
 ## API contracts
 

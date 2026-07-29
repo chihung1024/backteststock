@@ -60,6 +60,96 @@ def test_parse_nasdaq_json_uses_official_nested_rows():
     assert members[0].market_value == 2_900_000_000_000
 
 
+def test_parse_invesco_json_only_keeps_equity_security_types():
+    payload = {
+        "effectiveBusinessDate": "2026-07-28",
+        "holdings": [
+            {
+                "ticker": "AAPL",
+                "issuerName": "Apple Inc",
+                "securityTypeCode": "COM",
+                "percentageOfTotalNetAssets": 8.1,
+                "marketValueBase": 1_000,
+            },
+            {
+                "ticker": "ASML",
+                "issuerName": "ASML Holding NV",
+                "securityTypeCode": "DRNY",
+                "percentageOfTotalNetAssets": 1.2,
+                "marketValueBase": 500,
+            },
+            {
+                "ticker": "USD",
+                "issuerName": "US Dollar",
+                "securityTypeCode": "CURR",
+            },
+        ],
+    }
+    source_as_of, members = updater.parse_invesco_json(payload)
+    assert source_as_of == "2026-07-28"
+    assert [member.ticker for member in members] == ["AAPL", "ASML"]
+    assert members[0].weight == 8.1
+    assert members[0].market_value == 1_000
+
+
+def test_fetch_snapshot_uses_invesco_fallback_after_primary_timeout(monkeypatch):
+    fallback = updater.SourceEndpoint(
+        source_label="Invesco QQQM holdings",
+        source_url="https://example.com/qqqm",
+        adapter="invesco_json",
+        is_proxy=True,
+        proxy_note="QQQM proxy",
+    )
+    source = source_definition(
+        adapter="nasdaq_json",
+        fallbacks=(fallback,),
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "effectiveBusinessDate": "2026-07-28",
+                "holdings": [
+                    {
+                        "ticker": "AAPL",
+                        "issuerName": "Apple Inc",
+                        "securityTypeCode": "COM",
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "issuerName": "Microsoft Corp",
+                        "securityTypeCode": "COM",
+                    },
+                ],
+            }
+
+    class FakeSession:
+        def __init__(self):
+            self.urls = []
+
+        def get(self, url, timeout):
+            self.urls.append((url, timeout))
+            if url == source.source_url:
+                raise updater.requests.Timeout("primary timeout")
+            return FakeResponse()
+
+    monkeypatch.setattr(updater, "validate_source_date", lambda *_args: None)
+    session = FakeSession()
+    snapshot = updater.fetch_snapshot(session, source)
+
+    assert [url for url, _timeout in session.urls] == [
+        source.source_url,
+        fallback.source_url,
+    ]
+    assert snapshot.effective_source == fallback
+    assert snapshot.effective_source.is_proxy is True
+    assert [member.ticker for member in snapshot.members] == ["AAPL", "MSFT"]
+    assert updater.snapshot_report(snapshot, False, None)["fallbackUsed"] is True
+
+
 def test_validation_rejects_suspicious_member_count_change():
     members = (
         updater.Member("AAA", "AAA"),

@@ -36,11 +36,9 @@ deploys the Worker with the resolved UUID.
 
 ## 3. Configure the backend origin
 
-The Cloudflare Worker needs a secret named `BACKEND_ORIGIN` containing the Vercel origin without `/api`:
-
-```bash
-npx --yes wrangler@4 secret put BACKEND_ORIGIN
-```
+The Cloudflare Worker reads the non-secret Vercel origin from
+`vars.BACKEND_ORIGIN` in `wrangler.jsonc`. Keep the value as the public HTTPS
+origin without `/api`.
 
 Example value:
 

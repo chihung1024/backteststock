@@ -39,6 +39,16 @@ class UniverseUpdateError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class SourceEndpoint:
+    source_label: str
+    source_url: str
+    adapter: str
+    is_proxy: bool = False
+    proxy_note: str | None = None
+    read_timeout_seconds: int = 30
+
+
+@dataclass(frozen=True)
 class SourceDefinition:
     id: str
     name: str
@@ -51,6 +61,8 @@ class SourceDefinition:
     max_membership_churn_ratio: float
     is_proxy: bool = False
     proxy_note: str | None = None
+    read_timeout_seconds: int = 30
+    fallbacks: tuple[SourceEndpoint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +78,7 @@ class Member:
 @dataclass(frozen=True)
 class Snapshot:
     source: SourceDefinition
+    effective_source: SourceEndpoint
     source_as_of: str | None
     fetched_at: str
     checksum: str
@@ -107,6 +120,24 @@ SOURCES = (
         max_members=110,
         max_count_change_ratio=0.12,
         max_membership_churn_ratio=0.15,
+        read_timeout_seconds=12,
+        fallbacks=(
+            SourceEndpoint(
+                source_label="Invesco QQQM holdings",
+                source_url=os.environ.get(
+                    "UNIVERSE_NASDAQ100_FALLBACK_URL",
+                    "https://dng-api.invesco.com/cache/v1/accounts/en_US/"
+                    "shareclasses/46138G649/holdings/fund"
+                    "?idType=cusip&productType=ETF",
+                ),
+                adapter="invesco_json",
+                is_proxy=True,
+                proxy_note=(
+                    "Nasdaq 官方 API 本次不可用，已使用追蹤 Nasdaq-100 的 "
+                    "Invesco QQQM 公開持股代理池；可能存在追蹤誤差或調整時差。"
+                ),
+            ),
+        ),
     ),
     SourceDefinition(
         id="soxx",
@@ -313,6 +344,42 @@ def parse_nasdaq_json(payload: dict[str, Any]) -> tuple[str | None, list[Member]
     return source_as_of, members
 
 
+def parse_invesco_json(payload: dict[str, Any]) -> tuple[str | None, list[Member]]:
+    rows = payload.get("holdings")
+    if not isinstance(rows, list):
+        raise UniverseUpdateError("Invesco JSON holdings were not found")
+
+    source_as_of = iso_date(
+        clean_text(payload.get("effectiveBusinessDate"))
+        or clean_text(payload.get("effectiveDate"))
+    )
+    members = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("securityTypeCode") or "").strip().upper() not in {
+            "ADR",
+            "COM",
+            "DRNY",
+        }:
+            continue
+        source_ticker = str(row.get("ticker") or "").strip().upper()
+        try:
+            ticker = normalize_ticker(source_ticker)
+        except UniverseUpdateError:
+            continue
+        members.append(
+            Member(
+                ticker=ticker,
+                source_ticker=source_ticker,
+                company_name=clean_text(row.get("issuerName")),
+                weight=optional_float(row.get("percentageOfTotalNetAssets")),
+                market_value=optional_float(row.get("marketValueBase")),
+            )
+        )
+    return source_as_of, members
+
+
 def deduplicate_members(members: list[Member]) -> tuple[Member, ...]:
     by_ticker: dict[str, Member] = {}
     for member in members:
@@ -363,28 +430,70 @@ def fetch_snapshot(
     previous_member_count: int | None = None,
     previous_members: set[str] | None = None,
 ) -> Snapshot:
-    response = session.get(source.source_url, timeout=(10, 30))
-    response.raise_for_status()
-    if source.adapter == "ishares_csv":
-        source_as_of, raw_members = parse_ishares_csv(response.text)
-    elif source.adapter == "nasdaq_json":
-        source_as_of, raw_members = parse_nasdaq_json(response.json())
-    else:
-        raise UniverseUpdateError(f"unsupported adapter: {source.adapter}")
+    endpoints = (
+        SourceEndpoint(
+            source_label=source.source_label,
+            source_url=source.source_url,
+            adapter=source.adapter,
+            is_proxy=source.is_proxy,
+            proxy_note=source.proxy_note,
+            read_timeout_seconds=source.read_timeout_seconds,
+        ),
+        *source.fallbacks,
+    )
+    failures = []
 
-    validate_source_date(source.id, source_as_of)
-    members = deduplicate_members(raw_members)
-    validate_snapshot(source, members, previous_member_count, previous_members)
-    checksum = checksum_members(members)
-    fetched_at = utc_now()
-    version_date = source_as_of or fetched_at[:10]
-    return Snapshot(
-        source=source,
-        source_as_of=source_as_of,
-        fetched_at=fetched_at,
-        checksum=checksum,
-        version=f"{version_date}-{checksum[:12]}",
-        members=members,
+    for endpoint in endpoints:
+        try:
+            response = session.get(
+                endpoint.source_url,
+                timeout=(10, endpoint.read_timeout_seconds),
+            )
+            response.raise_for_status()
+            if endpoint.adapter == "ishares_csv":
+                source_as_of, raw_members = parse_ishares_csv(response.text)
+            elif endpoint.adapter == "nasdaq_json":
+                source_as_of, raw_members = parse_nasdaq_json(response.json())
+            elif endpoint.adapter == "invesco_json":
+                source_as_of, raw_members = parse_invesco_json(response.json())
+            else:
+                raise UniverseUpdateError(
+                    f"unsupported adapter: {endpoint.adapter}"
+                )
+
+            validate_source_date(source.id, source_as_of)
+            members = deduplicate_members(raw_members)
+            validate_snapshot(
+                source,
+                members,
+                previous_member_count,
+                previous_members,
+            )
+            checksum = checksum_members(members)
+            fetched_at = utc_now()
+            version_date = source_as_of or fetched_at[:10]
+            return Snapshot(
+                source=source,
+                effective_source=endpoint,
+                source_as_of=source_as_of,
+                fetched_at=fetched_at,
+                checksum=checksum,
+                version=f"{version_date}-{checksum[:12]}",
+                members=members,
+            )
+        except (
+            UniverseUpdateError,
+            requests.RequestException,
+            ValueError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            failures.append(f"{endpoint.source_label}: {exc}")
+
+    raise UniverseUpdateError(
+        "all configured sources failed (" + "; ".join(failures) + ")"
     )
 
 
@@ -461,6 +570,7 @@ class D1Client:
 
     def publish(self, snapshot: Snapshot) -> str:
         source = snapshot.source
+        effective_source = snapshot.effective_source
         version_id = str(
             uuid.uuid5(
                 uuid.NAMESPACE_URL, f"backteststock:{source.id}:{snapshot.version}"
@@ -496,12 +606,16 @@ class D1Client:
 
         self.query(
             """INSERT INTO universe_versions (
-                 id, universe_id, version, source_as_of, fetched_at, source_url,
-                 checksum, member_count, status, warning
-               ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'staging', ?9)
+                 id, universe_id, version, source_as_of, fetched_at, source_label,
+                 source_url, is_proxy, checksum, member_count, status, warning
+               ) VALUES (
+                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'staging', ?11
+               )
                ON CONFLICT(universe_id, version) DO UPDATE SET
                  fetched_at = excluded.fetched_at,
+                 source_label = excluded.source_label,
                  source_url = excluded.source_url,
+                 is_proxy = excluded.is_proxy,
                  checksum = excluded.checksum,
                  member_count = excluded.member_count,
                  warning = excluded.warning""",
@@ -511,10 +625,12 @@ class D1Client:
                 snapshot.version,
                 snapshot.source_as_of,
                 snapshot.fetched_at,
-                source.source_url,
+                effective_source.source_label,
+                effective_source.source_url,
+                int(effective_source.is_proxy),
                 snapshot.checksum,
                 len(snapshot.members),
-                source.proxy_note,
+                effective_source.proxy_note,
             ],
         )
 
@@ -598,11 +714,12 @@ class D1Client:
 def snapshot_report(
     snapshot: Snapshot, published: bool, version_id: str | None
 ) -> dict[str, Any]:
+    effective_source = snapshot.effective_source
     return {
         "id": snapshot.source.id,
         "name": snapshot.source.name,
-        "source": snapshot.source.source_label,
-        "sourceUrl": snapshot.source.source_url,
+        "source": effective_source.source_label,
+        "sourceUrl": effective_source.source_url,
         "sourceAsOf": snapshot.source_as_of,
         "fetchedAt": snapshot.fetched_at,
         "version": snapshot.version,
@@ -610,8 +727,9 @@ def snapshot_report(
         "memberCount": len(snapshot.members),
         "published": published,
         "versionId": version_id,
-        "isProxy": snapshot.source.is_proxy,
-        "proxyNote": snapshot.source.proxy_note,
+        "isProxy": effective_source.is_proxy,
+        "proxyNote": effective_source.proxy_note,
+        "fallbackUsed": effective_source.source_url != snapshot.source.source_url,
     }
 
 
