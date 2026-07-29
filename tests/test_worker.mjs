@@ -78,6 +78,36 @@ test("GET /api/v2/universes reads the D1 current-version catalog", async () => {
   assert.equal(payload.data[0].memberCount, 30);
 });
 
+test("GET /api/v2/universes exposes current-version fallback metadata", async () => {
+  const response = await worker.fetch(
+    new Request("https://example.com/api/v2/universes"),
+    {
+      DB: mockDatabase({
+        catalog: [
+          {
+            id: "nasdaq100",
+            name: "NASDAQ-100",
+            description: "Fallback capable",
+            source_label: "Invesco QQQM holdings",
+            source_url: "https://example.com/qqqm",
+            is_proxy: 1,
+            proxy_note: "QQQM proxy",
+            version_id: "version-id",
+            version: "2026-07-28-abc",
+            source_as_of: "2026-07-28",
+            fetched_at: new Date().toISOString(),
+            member_count: 103,
+          },
+        ],
+      }),
+    },
+  );
+  const payload = await response.json();
+  assert.equal(payload.data[0].source.label, "Invesco QQQM holdings");
+  assert.equal(payload.data[0].source.isProxy, true);
+  assert.ok(payload.data[0].warnings.includes("QQQM proxy"));
+});
+
 test("POST /api/v2/screener injects the trusted D1 snapshot", async () => {
   const originalFetch = globalThis.fetch;
   let forwarded;
