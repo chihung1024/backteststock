@@ -23,8 +23,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
-    env:
-      UNIVERSE_NASDAQ100_RELAY_URL: https://backteststock.chired.workers.dev/api/v2/sources/qqqm-holdings
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6

@@ -60,6 +60,20 @@ def test_parse_nasdaq_json_uses_official_nested_rows():
     assert members[0].market_value == 2_900_000_000_000
 
 
+def test_parse_nasdaq_giw_json_uses_official_free_weighting_rows():
+    payload = {
+        "iTotalRecords": 2,
+        "aaData": [
+            {"Symbol": "AAPL", "Name": "APPLE INC."},
+            {"Symbol": "GOOGL", "Name": "ALPHABET CL A CMN"},
+        ],
+    }
+    source_as_of, members = updater.parse_nasdaq_giw_json(payload, "2026-07-29")
+    assert source_as_of == "2026-07-29"
+    assert [member.ticker for member in members] == ["AAPL", "GOOGL"]
+    assert members[1].company_name == "ALPHABET CL A CMN"
+
+
 def test_parse_invesco_json_only_keeps_equity_security_types():
     payload = {
         "effectiveBusinessDate": "2026-07-28",
@@ -150,20 +164,18 @@ def test_fetch_snapshot_uses_invesco_fallback_after_primary_timeout(monkeypatch)
     assert updater.snapshot_report(snapshot, False, None)["fallbackUsed"] is True
 
 
-def test_fetch_snapshot_uses_relay_but_discloses_official_source(monkeypatch):
-    official_url = "https://official.example.com/qqqm"
-    relay_url = "https://edge.example.com/api/v2/sources/qqqm-holdings"
-    relay = updater.SourceEndpoint(
-        source_label="Invesco QQQM holdings via edge relay",
+def test_fetch_snapshot_uses_giw_post_but_discloses_official_page(monkeypatch):
+    official_url = "https://indexes.example.com/Index/Weighting/NDX"
+    data_url = "https://indexes.example.com/Index/WeightingData"
+    giw = updater.SourceEndpoint(
+        source_label="Nasdaq Global Index Watch",
         source_url=official_url,
-        fetch_url=relay_url,
-        adapter="invesco_json",
-        is_proxy=True,
-        proxy_note="QQQM edge relay",
+        fetch_url=data_url,
+        adapter="nasdaq_giw_json",
     )
     source = source_definition(
         adapter="nasdaq_json",
-        fallbacks=(relay,),
+        fallbacks=(giw,),
     )
 
     class FakeResponse:
@@ -172,18 +184,10 @@ def test_fetch_snapshot_uses_relay_but_discloses_official_source(monkeypatch):
 
         def json(self):
             return {
-                "effectiveBusinessDate": "2026-07-28",
-                "holdings": [
-                    {
-                        "ticker": "AAPL",
-                        "issuerName": "Apple Inc",
-                        "securityTypeCode": "COM",
-                    },
-                    {
-                        "ticker": "MSFT",
-                        "issuerName": "Microsoft Corp",
-                        "securityTypeCode": "COM",
-                    },
+                "iTotalRecords": 2,
+                "aaData": [
+                    {"Symbol": "AAPL", "Name": "APPLE INC."},
+                    {"Symbol": "MSFT", "Name": "MICROSOFT CORP"},
                 ],
             }
 
@@ -193,8 +197,12 @@ def test_fetch_snapshot_uses_relay_but_discloses_official_source(monkeypatch):
 
         def get(self, url, timeout):
             self.urls.append(url)
-            if url == source.source_url:
-                raise updater.requests.Timeout("primary timeout")
+            raise updater.requests.Timeout("primary timeout")
+
+        def post(self, url, data, headers, timeout):
+            self.urls.append(url)
+            self.data = data
+            self.headers = headers
             return FakeResponse()
 
     monkeypatch.setattr(updater, "validate_source_date", lambda *_args: None)
@@ -202,10 +210,22 @@ def test_fetch_snapshot_uses_relay_but_discloses_official_source(monkeypatch):
     snapshot = updater.fetch_snapshot(session, source)
     report = updater.snapshot_report(snapshot, False, None)
 
-    assert session.urls == [source.source_url, relay_url]
-    assert snapshot.effective_source == relay
+    assert session.urls == [source.source_url, data_url]
+    assert session.data["id"] == "NDX"
+    assert session.data["timeOfDay"] == "SOD"
+    assert session.headers["X-Requested-With"] == "XMLHttpRequest"
+    assert snapshot.effective_source == giw
     assert report["sourceUrl"] == official_url
+    assert report["isProxy"] is False
     assert report["fallbackUsed"] is True
+
+
+def test_recent_weekdays_skips_weekend():
+    assert updater.recent_weekdays(updater.date(2026, 7, 27), 3) == (
+        updater.date(2026, 7, 27),
+        updater.date(2026, 7, 24),
+        updater.date(2026, 7, 23),
+    )
 
 
 def test_validation_rejects_suspicious_member_count_change():
