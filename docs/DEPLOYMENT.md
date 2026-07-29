@@ -30,6 +30,10 @@ Create:
 
 Do not paste token values into source files, issues, pull requests or chat messages.
 
+The token must include Workers Scripts edit and D1 edit permissions. The deploy workflow resolves a
+database named `backteststock-universe`, creates it in APAC when absent, applies D1 migrations, and then
+deploys the Worker with the resolved UUID.
+
 ## 3. Configure the backend origin
 
 The Cloudflare Worker needs a secret named `BACKEND_ORIGIN` containing the Vercel origin without `/api`:
@@ -48,10 +52,15 @@ For local development, copy `.dev.vars.example` to `.dev.vars`.
 
 ## 4. Deploy Cloudflare
 
-After CI passes and the pull request is merged, manually run the `Deploy Cloudflare Worker` workflow. It deploys:
+After CI passes and the pull request is merged, manually run the `Deploy Cloudflare Worker` workflow. It:
 
+- Resolves or creates `backteststock-universe`.
+- Applies `migrations/*.sql` remotely.
 - `public/` as Cloudflare Static Assets.
 - `worker/index.js` as the API proxy and security layer.
+
+Then run `Update Universe Membership` once with `dry_run=false`. Confirm all four sources are published
+in the uploaded `universe-update-report` artifact. The same workflow runs every Monday and Thursday.
 
 The GitHub `production` environment can be configured with required reviewers to prevent accidental deployment. After the first production deployment and smoke test succeed, the workflow may be changed to deploy automatically on `main`.
 
@@ -62,8 +71,10 @@ Run after every production deployment:
 ```text
 GET /api/edge-health
 GET /api/health
+GET /api/v2/universes
 POST /api/backtest with one 100% SPY portfolio
 POST /api/scan with SPY and QQQ
+POST /api/v2/screener with one available Universe and limit 25
 ```
 
 Confirm:
@@ -73,9 +84,14 @@ Confirm:
 - `/api/debug` returns 404.
 - Error responses do not contain stack traces or environment variables.
 - Cloudflare and Vercel logs share the `x-request-id` response header.
+- All four Universes show `available: true`, a source date, version, and non-zero member count.
+- The Russell 2000 option visibly discloses that IWM holdings are a proxy.
 
 ## Rollback
 
 - Cloudflare: roll back to the previous Worker deployment or disable the route/custom domain.
 - Vercel: promote the previous deployment.
+- D1 data: point `universe_current.version_id` back to a retained prior version if only constituent data
+  needs rollback.
+- Full pre-stage rollback: restore GitHub Release tag `backup-2026-07-29-5e841f1`.
 - Do not revoke the old backend until Cloudflare smoke tests and user journeys pass.

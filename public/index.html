@@ -121,14 +121,18 @@
       </div>
 
       <div class="panel screener-panel">
-        <h3>基本面預篩選</h3>
+        <div class="panel-heading">
+          <div>
+            <h3>Universe 基礎池與基本面預篩選</h3>
+            <p class="form-note">成分股採版本化快照；資料更新失敗時自動沿用上一個有效版本。</p>
+          </div>
+          <span id="universe-status" class="status-badge">載入 Universe…</span>
+        </div>
         <div class="control-grid scanner-controls">
           <label>
-            <span>股票池</span>
+            <span>Universe 基礎池</span>
             <select id="screener-index">
-              <option value="sp500">S&amp;P 500</option>
-              <option value="nasdaq100">NASDAQ 100</option>
-              <option value="russell3000">Russell 3000</option>
+              <option value="">載入中…</option>
             </select>
           </label>
           <label>
@@ -156,15 +160,38 @@
             <span>最高本益比</span>
             <input id="screener-pe" type="number" min="0" step="1" placeholder="不限">
           </label>
+          <label>
+            <span>最多回測檔數</span>
+            <select id="screener-limit">
+              <option value="25">25 檔</option>
+              <option value="50">50 檔</option>
+              <option value="100" selected>100 檔</option>
+            </select>
+          </label>
+          <label>
+            <span>超額結果取樣排序</span>
+            <select id="screener-sort">
+              <option value="marketCap-desc">市值由大到小</option>
+              <option value="marketCap-asc">市值由小到大</option>
+              <option value="trailingPE-asc">本益比由低到高</option>
+              <option value="ticker-asc">代碼字母順序</option>
+            </select>
+          </label>
         </div>
-        <button id="run-screener" class="button secondary" type="button">篩選並匯入股票代碼</button>
+        <div id="universe-meta" class="universe-meta" aria-live="polite"></div>
+        <div id="screener-warning" class="message warning hidden"></div>
+        <div class="submit-row">
+          <p class="form-note">若通過條件超過上限，系統會依上方排序明確取樣並顯示截斷警示。</p>
+          <button id="run-screener" class="button secondary" type="button">篩選並建立回測清單</button>
+        </div>
+        <div id="screener-funnel" class="funnel-grid hidden" aria-live="polite"></div>
       </div>
 
       <form id="scan-form" class="panel" novalidate>
         <label>
           <span>股票代碼</span>
           <textarea id="scan-tickers" rows="5" placeholder="AAPL, MSFT, NVDA">AAPL, MSFT, NVDA, AMZN, GOOGL</textarea>
-          <small>以逗號、空白或換行分隔，單次最多 100 檔。</small>
+          <small>可直接手動輸入作為備援；以逗號、空白或換行分隔，整批最多 100 檔。</small>
         </label>
         <div class="control-grid scanner-controls">
           <label>
@@ -180,10 +207,17 @@
             <input id="scan-benchmark" type="text" value="SPY" maxlength="20" autocomplete="off" spellcheck="false">
           </label>
         </div>
+        <div id="scan-progress" class="scan-progress hidden" aria-live="polite">
+          <div class="progress-track"><span id="scan-progress-bar"></span></div>
+          <span id="scan-progress-label">準備掃描…</span>
+        </div>
         <div id="scan-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <span></span>
-          <button id="run-scan" class="button primary" type="submit">開始掃描</button>
+          <p class="form-note">每批 25 檔、最多 2 批並行；失敗批次會自動重試一次。</p>
+          <div class="toolbar">
+            <button id="retry-scan" class="button ghost hidden" type="button">重試失敗標的</button>
+            <button id="run-scan" class="button primary" type="submit">開始集體回測</button>
+          </div>
         </div>
       </form>
 
@@ -195,6 +229,8 @@
           </div>
           <button id="export-scan" class="button ghost" type="button">匯出 CSV</button>
         </div>
+        <div id="scan-context" class="result-context hidden"></div>
+        <div id="scan-summary" class="summary-grid"></div>
         <div class="table-wrap">
           <table id="scan-table">
             <caption class="sr-only">個股掃描結果</caption>

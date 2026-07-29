@@ -35,6 +35,7 @@ def test_calculate_metrics_does_not_mutate_input_and_self_beta_is_one():
     original_columns = history.columns.tolist()
     metrics = api.calculate_metrics(history, history)
     assert history.columns.tolist() == original_columns
+    assert metrics["total_return"] > 0
     assert metrics["cagr"] > 0
     assert metrics["mdd"] <= 0
     assert metrics["beta"] == pytest.approx(1.0, abs=1e-10)
@@ -162,3 +163,96 @@ def test_all_tickers_is_available_for_autocomplete(client, monkeypatch):
     response = client.get("/api/all-tickers")
     assert response.status_code == 200
     assert response.get_json() == ["AAPL", "MSFT"]
+
+
+def test_scan_reports_total_return_and_data_coverage(client, monkeypatch):
+    prices = business_prices(("AAA", "SPY"), 260)
+    monkeypatch.setattr(api, "download_data_silently", lambda *args, **kwargs: prices)
+    response = client.post(
+        "/api/scan",
+        json={
+            "tickers": ["AAA"],
+            "benchmark": "SPY",
+            "startYear": 2023,
+            "startMonth": 1,
+            "endYear": 2023,
+            "endMonth": 12,
+        },
+    )
+    assert response.status_code == 200
+    result = response.get_json()[0]
+    assert result["total_return"] > 0
+    assert 0 < result["data_coverage"] <= 1
+    assert result["trading_days"] == 260
+    assert result["data_start"] == "2023-01-02"
+
+
+def test_v2_screener_returns_versioned_funnel_and_explicit_truncation(
+    client, monkeypatch
+):
+    stocks = [
+        {
+            "ticker": "AAA",
+            "sector": "Technology",
+            "marketCap": 300e9,
+            "trailingPE": 25,
+        },
+        {
+            "ticker": "BBB",
+            "sector": "Technology",
+            "marketCap": 200e9,
+            "trailingPE": 20,
+        },
+        {
+            "ticker": "CCC",
+            "sector": "Financial Services",
+            "marketCap": 100e9,
+            "trailingPE": 15,
+        },
+    ]
+    monkeypatch.setattr(
+        api,
+        "get_preprocessed_dataset",
+        lambda: {"data": stocks, "asOf": "2026-07-28", "warning": None},
+    )
+    response = client.post(
+        "/api/v2/screener",
+        json={
+            "_universe": {
+                "id": "sp500",
+                "name": "S&P 500（IVV holdings）",
+                "version": "2026-07-28-abc",
+                "sourceAsOf": "2026-07-28",
+                "proxyNote": "proxy disclosure",
+                "members": ["AAA", "BBB", "CCC", "MISSING"],
+            },
+            "universe": "sp500",
+            "sector": "Technology",
+            "filters": {"marketCap": {"min": 100e9}},
+            "sort": "marketCap-desc",
+            "limit": 1,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["universe"]["version"] == "2026-07-28-abc"
+    assert payload["funnel"] == {
+        "universeCount": 4,
+        "fundamentalsAvailable": 3,
+        "sectorMatches": 2,
+        "passedFilters": 2,
+        "selectedForScan": 1,
+    }
+    assert payload["candidates"][0]["ticker"] == "AAA"
+    assert payload["truncated"] is True
+    assert any("proxy disclosure" in warning for warning in payload["warnings"])
+    assert any("缺少基本面" in warning for warning in payload["warnings"])
+
+
+def test_v2_screener_rejects_missing_worker_snapshot(client):
+    response = client.post(
+        "/api/v2/screener",
+        json={"universe": "sp500", "limit": 25},
+    )
+    assert response.status_code == 400
+    assert "Universe" in response.get_json()["error"]

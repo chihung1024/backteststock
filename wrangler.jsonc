@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "backteststock",
-  "compatibility_date": "2026-07-02",
+  "compatibility_date": "2026-07-29",
+  "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.js",
   "assets": {
     "directory": "./public",
@@ -9,6 +10,12 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "backteststock-universe"
+    }
+  ],
   "observability": {
     "enabled": true
   }

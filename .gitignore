@@ -3,7 +3,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+node_modules/
 .env
 .dev.vars
 .wrangler/
+wrangler.production.jsonc
+universe-update-report.json
 .DS_Store
