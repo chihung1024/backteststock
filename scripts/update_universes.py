@@ -12,7 +12,7 @@ import re
 import sys
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +30,9 @@ INVESCO_QQQM_HOLDINGS_URL = (
     "shareclasses/46138G649/holdings/fund"
     "?idType=cusip&productType=ETF"
 )
-DEFAULT_NASDAQ100_RELAY_URL = (
-    "https://backteststock.chired.workers.dev/api/v2/sources/qqqm-holdings"
-)
+NASDAQ_GIW_SOURCE_URL = "https://indexes.nasdaq.com/Index/Weighting/NDX"
+NASDAQ_GIW_DATA_URL = "https://indexes.nasdaq.com/Index/WeightingData"
+NASDAQ_GIW_LOOKBACK_WEEKDAYS = 7
 
 TICKER_ALIASES = {
     "BRKA": "BRK-A",
@@ -72,6 +72,7 @@ class SourceDefinition:
     max_members: int
     max_count_change_ratio: float
     max_membership_churn_ratio: float
+    fetch_url: str | None = None
     is_proxy: bool = False
     proxy_note: str | None = None
     read_timeout_seconds: int = 30
@@ -123,18 +124,27 @@ SOURCES = (
     SourceDefinition(
         id="nasdaq100",
         name="NASDAQ-100",
-        source_label="Nasdaq official API",
-        source_url=os.environ.get(
-            "UNIVERSE_NASDAQ100_URL",
-            "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
+        source_label="Nasdaq Global Index Watch",
+        source_url=NASDAQ_GIW_SOURCE_URL,
+        fetch_url=os.environ.get(
+            "UNIVERSE_NASDAQ100_GIW_URL",
+            NASDAQ_GIW_DATA_URL,
         ),
-        adapter="nasdaq_json",
+        adapter="nasdaq_giw_json",
         min_members=95,
         max_members=110,
         max_count_change_ratio=0.12,
         max_membership_churn_ratio=0.15,
-        read_timeout_seconds=12,
         fallbacks=(
+            SourceEndpoint(
+                source_label="Nasdaq official API",
+                source_url=os.environ.get(
+                    "UNIVERSE_NASDAQ100_URL",
+                    "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
+                ),
+                adapter="nasdaq_json",
+                read_timeout_seconds=12,
+            ),
             SourceEndpoint(
                 source_label="Invesco QQQM holdings",
                 source_url=os.environ.get(
@@ -147,22 +157,6 @@ SOURCES = (
                     "Nasdaq 官方 API 本次不可用，已使用追蹤 Nasdaq-100 的 "
                     "Invesco QQQM 公開持股代理池；可能存在追蹤誤差或調整時差。"
                 ),
-            ),
-            SourceEndpoint(
-                source_label="Invesco QQQM holdings via edge relay",
-                source_url=INVESCO_QQQM_HOLDINGS_URL,
-                fetch_url=os.environ.get(
-                    "UNIVERSE_NASDAQ100_RELAY_URL",
-                    DEFAULT_NASDAQ100_RELAY_URL,
-                ),
-                adapter="invesco_json",
-                is_proxy=True,
-                proxy_note=(
-                    "Nasdaq 官方 API 與 Invesco 直連本次皆不可用，已透過固定目的地的 "
-                    "Cloudflare edge relay 取得 Invesco QQQM 公開持股代理池；"
-                    "可能存在追蹤誤差或調整時差。"
-                ),
-                read_timeout_seconds=20,
             ),
         ),
     ),
@@ -371,6 +365,37 @@ def parse_nasdaq_json(payload: dict[str, Any]) -> tuple[str | None, list[Member]
     return source_as_of, members
 
 
+def parse_nasdaq_giw_json(
+    payload: dict[str, Any], source_as_of: str
+) -> tuple[str, list[Member]]:
+    rows = payload.get("aaData")
+    if not isinstance(rows, list):
+        raise UniverseUpdateError("Nasdaq GIW JSON rows were not found")
+    reported_count = payload.get("iTotalRecords")
+    if reported_count is not None and int(reported_count) != len(rows):
+        raise UniverseUpdateError(
+            "Nasdaq GIW reported count does not match returned rows"
+        )
+
+    members = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source_ticker = str(row.get("Symbol") or "").strip().upper()
+        try:
+            ticker = normalize_ticker(source_ticker)
+        except UniverseUpdateError:
+            continue
+        members.append(
+            Member(
+                ticker=ticker,
+                source_ticker=source_ticker,
+                company_name=clean_text(row.get("Name")),
+            )
+        )
+    return source_as_of, members
+
+
 def parse_invesco_json(payload: dict[str, Any]) -> tuple[str | None, list[Member]]:
     rows = payload.get("holdings")
     if not isinstance(rows, list):
@@ -405,6 +430,50 @@ def parse_invesco_json(payload: dict[str, Any]) -> tuple[str | None, list[Member
             )
         )
     return source_as_of, members
+
+
+def recent_weekdays(start: date, limit: int) -> tuple[date, ...]:
+    candidates = []
+    cursor = start
+    while len(candidates) < limit:
+        if cursor.weekday() < 5:
+            candidates.append(cursor)
+        cursor -= timedelta(days=1)
+    return tuple(candidates)
+
+
+def fetch_nasdaq_giw(
+    session: requests.Session,
+    endpoint: SourceEndpoint,
+) -> tuple[str, list[Member]]:
+    for trade_date in recent_weekdays(
+        datetime.now(UTC).date(),
+        NASDAQ_GIW_LOOKBACK_WEEKDAYS,
+    ):
+        response = session.post(
+            endpoint.request_url,
+            data={
+                "id": "NDX",
+                "tradeDate": f"{trade_date.isoformat()}T00:00:00.000",
+                "timeOfDay": "SOD",
+            },
+            headers={
+                "Referer": NASDAQ_GIW_SOURCE_URL,
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            timeout=(10, endpoint.read_timeout_seconds),
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("aaData") if isinstance(payload, dict) else None
+        if isinstance(rows, list) and rows:
+            return parse_nasdaq_giw_json(payload, trade_date.isoformat())
+        if not isinstance(rows, list):
+            raise UniverseUpdateError("Nasdaq GIW returned an invalid payload")
+    raise UniverseUpdateError(
+        "Nasdaq GIW returned no rows for the last "
+        f"{NASDAQ_GIW_LOOKBACK_WEEKDAYS} weekdays"
+    )
 
 
 def deduplicate_members(members: list[Member]) -> tuple[Member, ...]:
@@ -462,6 +531,7 @@ def fetch_snapshot(
             source_label=source.source_label,
             source_url=source.source_url,
             adapter=source.adapter,
+            fetch_url=source.fetch_url,
             is_proxy=source.is_proxy,
             proxy_note=source.proxy_note,
             read_timeout_seconds=source.read_timeout_seconds,
@@ -472,21 +542,24 @@ def fetch_snapshot(
 
     for endpoint in endpoints:
         try:
-            response = session.get(
-                endpoint.request_url,
-                timeout=(10, endpoint.read_timeout_seconds),
-            )
-            response.raise_for_status()
-            if endpoint.adapter == "ishares_csv":
-                source_as_of, raw_members = parse_ishares_csv(response.text)
-            elif endpoint.adapter == "nasdaq_json":
-                source_as_of, raw_members = parse_nasdaq_json(response.json())
-            elif endpoint.adapter == "invesco_json":
-                source_as_of, raw_members = parse_invesco_json(response.json())
+            if endpoint.adapter == "nasdaq_giw_json":
+                source_as_of, raw_members = fetch_nasdaq_giw(session, endpoint)
             else:
-                raise UniverseUpdateError(
-                    f"unsupported adapter: {endpoint.adapter}"
+                response = session.get(
+                    endpoint.request_url,
+                    timeout=(10, endpoint.read_timeout_seconds),
                 )
+                response.raise_for_status()
+                if endpoint.adapter == "ishares_csv":
+                    source_as_of, raw_members = parse_ishares_csv(response.text)
+                elif endpoint.adapter == "nasdaq_json":
+                    source_as_of, raw_members = parse_nasdaq_json(response.json())
+                elif endpoint.adapter == "invesco_json":
+                    source_as_of, raw_members = parse_invesco_json(response.json())
+                else:
+                    raise UniverseUpdateError(
+                        f"unsupported adapter: {endpoint.adapter}"
+                    )
 
             validate_source_date(source.id, source_as_of)
             members = deduplicate_members(raw_members)
