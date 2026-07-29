@@ -19,24 +19,32 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Worker dependencies
+        run: npm ci
       - name: Compile Python
-        run: python -m compileall -q api/index.py
+        run: python -m compileall -q api/index.py scripts/update_universes.py
       - name: Lint Python
-        run: ruff check api/index.py tests/test_api.py
-      - name: Test Python API
-        run: python -m pytest -q tests/test_api.py
-      - name: Check browser JavaScript
-        run: node --check public/app.js
-      - name: Check Worker JavaScript
-        run: node --check worker/index.js
+        run: ruff check api scripts tests
+      - name: Test Python
+        run: python -m pytest -q
+      - name: Check JavaScript
+        run: npm run check
+      - name: Test Worker
+        run: npm run test:worker
       - name: Validate Vercel configuration
         run: python -m json.tool vercel.json > /dev/null
+      - name: Apply D1 migrations locally
+        run: npx wrangler d1 migrations apply backteststock-universe --local
       - name: Validate Cloudflare bundle
-        run: npx --yes wrangler@4 deploy --dry-run --outdir .wrangler-dry-run
+        run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run

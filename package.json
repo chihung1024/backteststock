@@ -1,0 +1,14 @@
+{
+  "name": "backteststock",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check public/app.js && node --check worker/index.js",
+    "test:worker": "node --test tests/test_worker.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260729.1",
+    "wrangler": "4.115.0"
+  }
+}

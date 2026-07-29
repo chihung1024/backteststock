@@ -20,9 +20,16 @@ EPSILON = 1e-9
 MAX_PORTFOLIOS = 5
 MAX_ASSETS_PER_PORTFOLIO = 50
 MAX_SCAN_TICKERS = 100
+MAX_UNIVERSE_MEMBERS = 3_000
 MIN_YEAR = 1980
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=_-]{1,20}$")
 ALLOWED_REBALANCING_PERIODS = {"never", "annually", "quarterly", "monthly"}
+ALLOWED_SCREENER_SORTS = {
+    "marketCap-desc",
+    "marketCap-asc",
+    "trailingPE-asc",
+    "ticker-asc",
+}
 SCREENER_NUMERIC_FIELDS = {
     "marketCap",
     "trailingPE",
@@ -43,6 +50,10 @@ cache = TTLCache(maxsize=128, ttl=600)
 
 class ValidationError(ValueError):
     """Raised when an API request does not satisfy the public contract."""
+
+
+class DataSourceError(RuntimeError):
+    """Raised when a configured upstream dataset is unavailable or malformed."""
 
 
 def error_response(message, status=400):
@@ -83,8 +94,10 @@ def parse_period(data):
     except (KeyError, TypeError, ValueError) as exc:
         raise ValidationError("起訖年月格式不正確。") from exc
 
-    current_year = pd.Timestamp.utcnow().year
-    if not (MIN_YEAR <= start_year <= current_year and MIN_YEAR <= end_year <= current_year):
+    current_year = pd.Timestamp.now(tz="UTC").year
+    if not (
+        MIN_YEAR <= start_year <= current_year and MIN_YEAR <= end_year <= current_year
+    ):
         raise ValidationError(f"年份必須介於 {MIN_YEAR} 與 {current_year} 之間。")
     if not (1 <= start_month <= 12 and 1 <= end_month <= 12):
         raise ValidationError("月份必須介於 1 與 12 之間。")
@@ -126,28 +139,35 @@ def validate_portfolios(raw_portfolios, default_rebalancing_period):
         raw_tickers = raw.get("tickers")
         raw_weights = raw.get("weights")
         if not isinstance(raw_tickers, list) or not isinstance(raw_weights, list):
-            raise ValidationError(f'投資組合「{name}」缺少股票代碼或權重。')
+            raise ValidationError(f"投資組合「{name}」缺少股票代碼或權重。")
         if not raw_tickers or len(raw_tickers) != len(raw_weights):
-            raise ValidationError(f'投資組合「{name}」的股票代碼與權重數量不一致。')
+            raise ValidationError(f"投資組合「{name}」的股票代碼與權重數量不一致。")
         if len(raw_tickers) > MAX_ASSETS_PER_PORTFOLIO:
-            raise ValidationError(f'投資組合「{name}」最多可包含 {MAX_ASSETS_PER_PORTFOLIO} 項資產。')
+            raise ValidationError(
+                f"投資組合「{name}」最多可包含 {MAX_ASSETS_PER_PORTFOLIO} 項資產。"
+            )
 
         tickers = [normalize_ticker(ticker) for ticker in raw_tickers]
         if len(set(tickers)) != len(tickers):
-            raise ValidationError(f'投資組合「{name}」包含重複股票代碼。')
+            raise ValidationError(f"投資組合「{name}」包含重複股票代碼。")
 
         try:
             weights = [float(weight) for weight in raw_weights]
         except (TypeError, ValueError) as exc:
-            raise ValidationError(f'投資組合「{name}」包含無效權重。') from exc
-        if any(not math.isfinite(weight) or weight <= 0 or weight > 100 for weight in weights):
-            raise ValidationError(f'投資組合「{name}」的每項權重必須介於 0 與 100 之間。')
+            raise ValidationError(f"投資組合「{name}」包含無效權重。") from exc
+        if any(
+            not math.isfinite(weight) or weight <= 0 or weight > 100
+            for weight in weights
+        ):
+            raise ValidationError(
+                f"投資組合「{name}」的每項權重必須介於 0 與 100 之間。"
+            )
         if abs(sum(weights) - 100.0) > 0.01:
-            raise ValidationError(f'投資組合「{name}」的總權重必須為 100%。')
+            raise ValidationError(f"投資組合「{name}」的總權重必須為 100%。")
 
         period = raw.get("rebalancingPeriod", default_rebalancing_period)
         if period not in ALLOWED_REBALANCING_PERIODS:
-            raise ValidationError(f'投資組合「{name}」的再平衡週期無效。')
+            raise ValidationError(f"投資組合「{name}」的再平衡週期無效。")
 
         validated.append(
             {
@@ -160,9 +180,12 @@ def validate_portfolios(raw_portfolios, default_rebalancing_period):
     return validated
 
 
-def calculate_metrics(portfolio_history, benchmark_history=None, risk_free_rate=RISK_FREE_RATE):
+def calculate_metrics(
+    portfolio_history, benchmark_history=None, risk_free_rate=RISK_FREE_RATE
+):
     values = portfolio_history["value"].dropna().astype(float).copy()
     empty_result = {
+        "total_return": 0.0,
         "cagr": 0.0,
         "mdd": 0.0,
         "volatility": 0.0,
@@ -174,38 +197,63 @@ def calculate_metrics(portfolio_history, benchmark_history=None, risk_free_rate=
     if len(values) < 2 or values.iloc[0] <= EPSILON:
         return empty_result
 
+    total_return = values.iloc[-1] / values.iloc[0] - 1
     years = (values.index[-1] - values.index[0]).days / DAYS_PER_YEAR
     cagr = (values.iloc[-1] / values.iloc[0]) ** (1 / years) - 1 if years > 0 else 0.0
     drawdown = values / values.cummax() - 1
     mdd = float(drawdown.min())
     daily_returns = values.pct_change().dropna()
     if len(daily_returns) < 2:
-        return {**empty_result, "cagr": float(cagr), "mdd": mdd}
+        return {
+            **empty_result,
+            "total_return": float(total_return),
+            "cagr": float(cagr),
+            "mdd": mdd,
+        }
 
     daily_risk_free_rate = (1 + risk_free_rate) ** (1 / TRADING_DAYS_PER_YEAR) - 1
     excess_returns = daily_returns - daily_risk_free_rate
     annual_std = float(daily_returns.std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR))
     annualized_excess_return = float(excess_returns.mean() * TRADING_DAYS_PER_YEAR)
-    sharpe_ratio = annualized_excess_return / annual_std if annual_std > EPSILON else 0.0
-    downside_deviation = float(
-        np.sqrt(np.square(np.minimum(excess_returns, 0)).mean()) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    sharpe_ratio = (
+        annualized_excess_return / annual_std if annual_std > EPSILON else 0.0
     )
-    sortino_ratio = annualized_excess_return / downside_deviation if downside_deviation > EPSILON else 0.0
+    downside_deviation = float(
+        np.sqrt(np.square(np.minimum(excess_returns, 0)).mean())
+        * np.sqrt(TRADING_DAYS_PER_YEAR)
+    )
+    sortino_ratio = (
+        annualized_excess_return / downside_deviation
+        if downside_deviation > EPSILON
+        else 0.0
+    )
 
     beta = None
     alpha = None
     if benchmark_history is not None and not benchmark_history.empty:
-        benchmark_returns = benchmark_history["value"].dropna().astype(float).pct_change().dropna()
-        aligned = pd.concat([daily_returns, benchmark_returns], axis=1, join="inner").dropna()
+        benchmark_returns = (
+            benchmark_history["value"].dropna().astype(float).pct_change().dropna()
+        )
+        aligned = pd.concat(
+            [daily_returns, benchmark_returns], axis=1, join="inner"
+        ).dropna()
         aligned.columns = ["portfolio", "benchmark"]
         if len(aligned) > 1:
             benchmark_variance = float(aligned["benchmark"].var(ddof=1))
             if benchmark_variance > EPSILON:
-                beta = float(aligned["portfolio"].cov(aligned["benchmark"]) / benchmark_variance)
+                beta = float(
+                    aligned["portfolio"].cov(aligned["benchmark"]) / benchmark_variance
+                )
                 portfolio_mean = float(aligned["portfolio"].mean())
                 benchmark_mean = float(aligned["benchmark"].mean())
                 alpha = float(
-                    (portfolio_mean - (daily_risk_free_rate + beta * (benchmark_mean - daily_risk_free_rate)))
+                    (
+                        portfolio_mean
+                        - (
+                            daily_risk_free_rate
+                            + beta * (benchmark_mean - daily_risk_free_rate)
+                        )
+                    )
                     * TRADING_DAYS_PER_YEAR
                 )
 
@@ -213,6 +261,7 @@ def calculate_metrics(portfolio_history, benchmark_history=None, risk_free_rate=
         return float(value) if value is not None and np.isfinite(value) else default
 
     return {
+        "total_return": finite_or_default(total_return, 0.0),
         "cagr": finite_or_default(cagr, 0.0),
         "mdd": finite_or_default(mdd, 0.0),
         "volatility": finite_or_default(annual_std, 0.0),
@@ -238,7 +287,9 @@ def get_rebalancing_dates(df_prices, period):
     return set(first_dates[1:])
 
 
-def run_simulation(portfolio_config, price_data, initial_amount, benchmark_history=None):
+def run_simulation(
+    portfolio_config, price_data, initial_amount, benchmark_history=None
+):
     tickers = portfolio_config["tickers"]
     weights = np.asarray(portfolio_config["weights"], dtype=float) / 100.0
     df_prices = price_data[tickers].dropna().astype(float).copy()
@@ -246,7 +297,9 @@ def run_simulation(portfolio_config, price_data, initial_amount, benchmark_histo
         return None
 
     portfolio_history = pd.Series(index=df_prices.index, dtype=float, name="value")
-    rebalancing_dates = get_rebalancing_dates(df_prices, portfolio_config["rebalancingPeriod"])
+    rebalancing_dates = get_rebalancing_dates(
+        df_prices, portfolio_config["rebalancingPeriod"]
+    )
     shares = (initial_amount * weights) / df_prices.iloc[0]
     portfolio_history.iloc[0] = initial_amount
 
@@ -276,8 +329,13 @@ def validate_data_completeness(df_prices_raw, tickers, requested_start_date):
         if ticker not in df_prices_raw.columns:
             continue
         first_valid_date = df_prices_raw[ticker].first_valid_index()
-        if first_valid_date is not None and first_valid_date > requested_start_date + pd.offsets.BDay(5):
-            problematic_tickers.append({"ticker": ticker, "start_date": first_valid_date.strftime("%Y-%m-%d")})
+        if (
+            first_valid_date is not None
+            and first_valid_date > requested_start_date + pd.offsets.BDay(5)
+        ):
+            problematic_tickers.append(
+                {"ticker": ticker, "start_date": first_valid_date.strftime("%Y-%m-%d")}
+            )
     return problematic_tickers
 
 
@@ -322,12 +380,20 @@ def backtest_handler():
         if default_period not in ALLOWED_REBALANCING_PERIODS:
             raise ValidationError("再平衡週期無效。")
         portfolios = validate_portfolios(data.get("portfolios"), default_period)
-        benchmark_ticker = normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
+        benchmark_ticker = (
+            normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
+        )
 
         portfolio_tickers = deduplicate(
             ticker for portfolio in portfolios for ticker in portfolio["tickers"]
         )
-        download_tickers = tuple(sorted(set(portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else []))))
+        download_tickers = tuple(
+            sorted(
+                set(
+                    portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else [])
+                )
+            )
+        )
         prices_raw = download_data_silently(
             download_tickers,
             start_date.strftime("%Y-%m-%d"),
@@ -340,18 +406,27 @@ def backtest_handler():
             if ticker not in prices_raw.columns or prices_raw[ticker].isna().all()
         ]
         if failed_tickers:
-            raise ValidationError(f"無法獲取以下股票代碼的數據: {', '.join(failed_tickers)}")
+            raise ValidationError(
+                f"無法獲取以下股票代碼的數據: {', '.join(failed_tickers)}"
+            )
 
-        problematic = validate_data_completeness(prices_raw, portfolio_tickers, start_date)
+        problematic = validate_data_completeness(
+            prices_raw, portfolio_tickers, start_date
+        )
         warning_message = None
         if problematic:
-            details = ", ".join(f"{item['ticker']} (從 {item['start_date']} 開始)" for item in problematic)
+            details = ", ".join(
+                f"{item['ticker']} (從 {item['start_date']} 開始)"
+                for item in problematic
+            )
             warning_message = f"部分資產資料起始日晚於選擇日期；各投資組合使用其共同可用交易日。受影響資產：{details}"
 
         benchmark_history = None
         benchmark_result = None
         if benchmark_ticker:
-            benchmark_history = normalized_benchmark_history(prices_raw[benchmark_ticker], initial_amount)
+            benchmark_history = normalized_benchmark_history(
+                prices_raw[benchmark_ticker], initial_amount
+            )
             if benchmark_history is not None:
                 benchmark_metrics = calculate_metrics(benchmark_history)
                 benchmark_result = {
@@ -367,13 +442,17 @@ def backtest_handler():
 
         results = []
         for portfolio in portfolios:
-            result = run_simulation(portfolio, prices_raw, initial_amount, benchmark_history)
+            result = run_simulation(
+                portfolio, prices_raw, initial_amount, benchmark_history
+            )
             if result:
                 results.append(result)
         if not results:
             raise ValidationError("沒有足夠的共同交易日來進行回測。")
 
-        return jsonify({"data": results, "benchmark": benchmark_result, "warning": warning_message})
+        return jsonify(
+            {"data": results, "benchmark": benchmark_result, "warning": warning_message}
+        )
     except ValidationError as exc:
         return error_response(str(exc), 400)
     except Exception:
@@ -392,8 +471,12 @@ def scan_handler():
         tickers = deduplicate(normalize_ticker(ticker) for ticker in raw_tickers)
         if len(tickers) > MAX_SCAN_TICKERS:
             raise ValidationError(f"單次最多掃描 {MAX_SCAN_TICKERS} 檔標的。")
-        benchmark_ticker = normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
-        download_tickers = tuple(sorted(set(tickers + ([benchmark_ticker] if benchmark_ticker else []))))
+        benchmark_ticker = (
+            normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
+        )
+        download_tickers = tuple(
+            sorted(set(tickers + ([benchmark_ticker] if benchmark_ticker else [])))
+        )
         prices_raw = download_data_silently(
             download_tickers,
             start_date.strftime("%Y-%m-%d"),
@@ -407,6 +490,10 @@ def scan_handler():
                 benchmark_history = benchmark_prices.to_frame("value")
 
         results = []
+        requested_business_days = max(
+            len(pd.bdate_range(start_date, end_exclusive - pd.Timedelta(days=1))),
+            1,
+        )
         for ticker in tickers:
             if ticker not in prices_raw.columns or prices_raw[ticker].dropna().empty:
                 results.append({"ticker": ticker, "error": "指定範圍內無數據"})
@@ -417,7 +504,17 @@ def scan_handler():
             if problematic:
                 note = f"(從 {problematic[0]['start_date']} 開始)"
             metrics = calculate_metrics(prices.to_frame("value"), benchmark_history)
-            results.append({"ticker": ticker, **metrics, "note": note})
+            results.append(
+                {
+                    "ticker": ticker,
+                    **metrics,
+                    "data_start": prices.index[0].strftime("%Y-%m-%d"),
+                    "data_end": prices.index[-1].strftime("%Y-%m-%d"),
+                    "trading_days": len(prices),
+                    "data_coverage": min(len(prices) / requested_business_days, 1.0),
+                    "note": note,
+                }
+            )
         return jsonify(results)
     except ValidationError as exc:
         return error_response(str(exc), 400)
@@ -427,15 +524,25 @@ def scan_handler():
 
 
 @cached(cache)
-def get_preprocessed_data():
+def get_preprocessed_dataset():
     if not GIST_RAW_URL:
-        raise RuntimeError("GIST_RAW_URL 環境變數未設定。")
+        raise DataSourceError("GIST_RAW_URL 環境變數未設定。")
     response = requests.get(GIST_RAW_URL, timeout=10)
     response.raise_for_status()
     payload = response.json()
-    if not isinstance(payload, list):
-        raise RuntimeError("預處理股票資料格式不正確。")
-    return payload
+    if isinstance(payload, list):
+        return {"data": payload, "asOf": None, "warning": None}
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise DataSourceError("預處理股票資料格式不正確。")
+    return {
+        "data": payload["data"],
+        "asOf": payload.get("asOf"),
+        "warning": payload.get("warning"),
+    }
+
+
+def get_preprocessed_data():
+    return get_preprocessed_dataset()["data"]
 
 
 def stock_matches_filters(stock, filters):
@@ -458,6 +565,190 @@ def stock_matches_filters(stock, filters):
     return True
 
 
+def normalize_universe_snapshot(raw_snapshot):
+    if not isinstance(raw_snapshot, dict):
+        raise ValidationError("Universe 快照格式不正確。")
+    universe_id = str(raw_snapshot.get("id") or "").strip().lower()
+    version = str(raw_snapshot.get("version") or "").strip()
+    raw_members = raw_snapshot.get("members")
+    if not universe_id or not version or not isinstance(raw_members, list):
+        raise ValidationError("Universe 快照缺少必要欄位。")
+    if not raw_members or len(raw_members) > MAX_UNIVERSE_MEMBERS:
+        raise ValidationError(
+            f"Universe 成分股數量必須介於 1 與 {MAX_UNIVERSE_MEMBERS} 之間。"
+        )
+
+    members = []
+    for raw_member in raw_members:
+        ticker = (
+            raw_member.get("ticker") if isinstance(raw_member, dict) else raw_member
+        )
+        members.append(normalize_ticker(ticker))
+    return {
+        "id": universe_id,
+        "name": str(raw_snapshot.get("name") or universe_id).strip()[:120],
+        "version": version[:120],
+        "sourceAsOf": raw_snapshot.get("sourceAsOf"),
+        "fetchedAt": raw_snapshot.get("fetchedAt"),
+        "proxyNote": raw_snapshot.get("proxyNote"),
+        "members": deduplicate(members),
+    }
+
+
+def candidate_from_stock(stock, ticker):
+    candidate = {"ticker": ticker}
+    for field in (
+        "name",
+        "companyName",
+        "sector",
+        "industry",
+        "marketCap",
+        "trailingPE",
+        "dividendYield",
+        "returnOnEquity",
+        "revenueGrowth",
+        "earningsGrowth",
+    ):
+        value = stock.get(field)
+        if value is not None:
+            candidate[field] = value
+    return candidate
+
+
+def sort_screener_candidates(candidates, sort_name):
+    def numeric_value(candidate, field, missing):
+        try:
+            value = float(candidate.get(field))
+            return value if math.isfinite(value) else missing
+        except (TypeError, ValueError):
+            return missing
+
+    if sort_name == "marketCap-asc":
+        return sorted(
+            candidates,
+            key=lambda item: (
+                numeric_value(item, "marketCap", math.inf),
+                item["ticker"],
+            ),
+        )
+    if sort_name == "trailingPE-asc":
+        return sorted(
+            candidates,
+            key=lambda item: (
+                numeric_value(item, "trailingPE", math.inf),
+                item["ticker"],
+            ),
+        )
+    if sort_name == "ticker-asc":
+        return sorted(candidates, key=lambda item: item["ticker"])
+    return sorted(
+        candidates,
+        key=lambda item: (-numeric_value(item, "marketCap", -math.inf), item["ticker"]),
+    )
+
+
+@app.route("/api/v2/screener", methods=["POST"])
+def screener_v2_handler():
+    """Filter a Worker-resolved, versioned Universe against fundamentals."""
+    try:
+        data = require_json_object()
+        snapshot = normalize_universe_snapshot(data.get("_universe"))
+        sector = str(data.get("sector") or "any").strip()
+        filters = data.get("filters") if isinstance(data.get("filters"), dict) else {}
+        sort_name = str(data.get("sort") or "marketCap-desc")
+        if sort_name not in ALLOWED_SCREENER_SORTS:
+            raise ValidationError("不支援的排序方式。")
+        try:
+            limit = int(data.get("limit", MAX_SCAN_TICKERS))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("回測檔數上限格式不正確。") from exc
+        if not 1 <= limit <= MAX_SCAN_TICKERS:
+            raise ValidationError(
+                f"回測檔數上限必須介於 1 與 {MAX_SCAN_TICKERS} 之間。"
+            )
+
+        dataset = get_preprocessed_dataset()
+        fundamentals = {}
+        for stock in dataset["data"]:
+            if not isinstance(stock, dict):
+                continue
+            try:
+                ticker = normalize_ticker(stock.get("ticker"))
+            except ValidationError:
+                continue
+            fundamentals[ticker] = stock
+
+        candidates = []
+        fundamentals_available = 0
+        sector_matches = 0
+        for ticker in snapshot["members"]:
+            stock = fundamentals.get(ticker)
+            if stock is None:
+                continue
+            fundamentals_available += 1
+            if sector != "any" and stock.get("sector") != sector:
+                continue
+            sector_matches += 1
+            if not stock_matches_filters(stock, filters):
+                continue
+            candidates.append(candidate_from_stock(stock, ticker))
+
+        candidates = sort_screener_candidates(candidates, sort_name)
+        passed_filters = len(candidates)
+        selected = candidates[:limit]
+        warnings = []
+        if snapshot["proxyNote"]:
+            warnings.append(snapshot["proxyNote"])
+        if dataset["warning"]:
+            warnings.append(str(dataset["warning"]))
+        missing_fundamentals = len(snapshot["members"]) - fundamentals_available
+        if missing_fundamentals:
+            warnings.append(
+                f"{missing_fundamentals} 檔 Universe 成分股缺少基本面資料，未納入條件篩選。"
+            )
+        if passed_filters > limit:
+            warnings.append(
+                f"共有 {passed_filters} 檔通過條件；依「{sort_name}」明確取前 {limit} 檔供回測。"
+            )
+
+        return jsonify(
+            {
+                "universe": {
+                    key: snapshot[key]
+                    for key in (
+                        "id",
+                        "name",
+                        "version",
+                        "sourceAsOf",
+                        "fetchedAt",
+                        "proxyNote",
+                    )
+                },
+                "fundamentalsAsOf": dataset["asOf"],
+                "funnel": {
+                    "universeCount": len(snapshot["members"]),
+                    "fundamentalsAvailable": fundamentals_available,
+                    "sectorMatches": sector_matches,
+                    "passedFilters": passed_filters,
+                    "selectedForScan": len(selected),
+                },
+                "candidates": selected,
+                "truncated": passed_filters > limit,
+                "sort": sort_name,
+                "limit": limit,
+                "warnings": warnings,
+            }
+        )
+    except ValidationError as exc:
+        return error_response(str(exc), 400)
+    except RuntimeError as exc:
+        logger.error("V2 screener configuration error: %s", exc)
+        return error_response("篩選器基本面資料來源尚未正確設定。", 503)
+    except Exception:
+        logger.exception("Unexpected error in v2 screener endpoint")
+        return error_response("篩選器發生未預期的錯誤。", 500)
+
+
 @app.route("/api/screener", methods=["POST"])
 def screener_handler():
     try:
@@ -475,7 +766,11 @@ def screener_handler():
             "russell3000": "in_russell3000",
         }
         membership_field = membership_fields.get(index_name)
-        base_pool = [stock for stock in all_stocks if not membership_field or stock.get(membership_field)]
+        base_pool = [
+            stock
+            for stock in all_stocks
+            if not membership_field or stock.get(membership_field)
+        ]
 
         filtered = []
         for stock in base_pool:
