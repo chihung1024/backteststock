@@ -72,6 +72,7 @@ class SourceDefinition:
     max_members: int
     max_count_change_ratio: float
     max_membership_churn_ratio: float
+    fetch_url: str | None = None
     is_proxy: bool = False
     proxy_note: str | None = None
     read_timeout_seconds: int = 30
@@ -123,27 +124,26 @@ SOURCES = (
     SourceDefinition(
         id="nasdaq100",
         name="NASDAQ-100",
-        source_label="Nasdaq official API",
-        source_url=os.environ.get(
-            "UNIVERSE_NASDAQ100_URL",
-            "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
+        source_label="Nasdaq Global Index Watch",
+        source_url=NASDAQ_GIW_SOURCE_URL,
+        fetch_url=os.environ.get(
+            "UNIVERSE_NASDAQ100_GIW_URL",
+            NASDAQ_GIW_DATA_URL,
         ),
-        adapter="nasdaq_json",
+        adapter="nasdaq_giw_json",
         min_members=95,
         max_members=110,
         max_count_change_ratio=0.12,
         max_membership_churn_ratio=0.15,
-        read_timeout_seconds=12,
         fallbacks=(
             SourceEndpoint(
-                source_label="Nasdaq Global Index Watch",
-                source_url=NASDAQ_GIW_SOURCE_URL,
-                fetch_url=os.environ.get(
-                    "UNIVERSE_NASDAQ100_GIW_URL",
-                    NASDAQ_GIW_DATA_URL,
+                source_label="Nasdaq official API",
+                source_url=os.environ.get(
+                    "UNIVERSE_NASDAQ100_URL",
+                    "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
                 ),
-                adapter="nasdaq_giw_json",
-                read_timeout_seconds=20,
+                adapter="nasdaq_json",
+                read_timeout_seconds=12,
             ),
             SourceEndpoint(
                 source_label="Invesco QQQM holdings",
@@ -531,6 +531,7 @@ def fetch_snapshot(
             source_label=source.source_label,
             source_url=source.source_url,
             adapter=source.adapter,
+            fetch_url=source.fetch_url,
             is_proxy=source.is_proxy,
             proxy_note=source.proxy_note,
             read_timeout_seconds=source.read_timeout_seconds,

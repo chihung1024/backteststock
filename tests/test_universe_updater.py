@@ -164,18 +164,14 @@ def test_fetch_snapshot_uses_invesco_fallback_after_primary_timeout(monkeypatch)
     assert updater.snapshot_report(snapshot, False, None)["fallbackUsed"] is True
 
 
-def test_fetch_snapshot_uses_giw_post_but_discloses_official_page(monkeypatch):
+def test_fetch_snapshot_uses_giw_data_but_discloses_official_page(monkeypatch):
     official_url = "https://indexes.example.com/Index/Weighting/NDX"
     data_url = "https://indexes.example.com/Index/WeightingData"
-    giw = updater.SourceEndpoint(
+    source = source_definition(
         source_label="Nasdaq Global Index Watch",
         source_url=official_url,
         fetch_url=data_url,
         adapter="nasdaq_giw_json",
-    )
-    source = source_definition(
-        adapter="nasdaq_json",
-        fallbacks=(giw,),
     )
 
     class FakeResponse:
@@ -195,10 +191,6 @@ def test_fetch_snapshot_uses_giw_post_but_discloses_official_page(monkeypatch):
         def __init__(self):
             self.urls = []
 
-        def get(self, url, timeout):
-            self.urls.append(url)
-            raise updater.requests.Timeout("primary timeout")
-
         def post(self, url, data, headers, timeout):
             self.urls.append(url)
             self.data = data
@@ -210,14 +202,14 @@ def test_fetch_snapshot_uses_giw_post_but_discloses_official_page(monkeypatch):
     snapshot = updater.fetch_snapshot(session, source)
     report = updater.snapshot_report(snapshot, False, None)
 
-    assert session.urls == [source.source_url, data_url]
+    assert session.urls == [data_url]
     assert session.data["id"] == "NDX"
     assert session.data["timeOfDay"] == "SOD"
     assert session.headers["X-Requested-With"] == "XMLHttpRequest"
-    assert snapshot.effective_source == giw
+    assert snapshot.effective_source.source_label == "Nasdaq Global Index Watch"
     assert report["sourceUrl"] == official_url
     assert report["isProxy"] is False
-    assert report["fallbackUsed"] is True
+    assert report["fallbackUsed"] is False
 
 
 def test_recent_weekdays_skips_weekend():

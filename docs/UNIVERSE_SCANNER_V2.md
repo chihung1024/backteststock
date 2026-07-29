@@ -10,7 +10,7 @@
 | Universe ID | 顯示名稱 | 機器來源 | 合理數量 | 說明 |
 | --- | --- | --- | ---: | --- |
 | `sp500` | S&P 500（IVV holdings） | iShares IVV official holdings CSV | 480–530 | ETF 公開持股代理池 |
-| `nasdaq100` | NASDAQ-100（自動備援） | Nasdaq official JSON API；失敗時 Nasdaq Global Index Watch；再失敗時 Invesco QQQM official holdings JSON | 95–110 | GIW 是官方成分資料；QQQM 備援版本會明確標示 ETF 代理池；同公司多股別可能使證券數超過 100 |
+| `nasdaq100` | NASDAQ-100（自動備援） | Nasdaq Global Index Watch；失敗時 Nasdaq official JSON API；再失敗時 Invesco QQQM official holdings JSON | 95–110 | GIW 是官方成分資料；QQQM 備援版本會明確標示 ETF 代理池；同公司多股別可能使證券數超過 100 |
 | `soxx` | SOXX holdings | iShares SOXX official holdings CSV | 25–40 | ETF 股票持股 |
 | `russell2000` | Russell 2000（IWM holdings 代理） | iShares IWM official holdings CSV | 1,750–2,100 | 非 FTSE Russell 授權名單 |
 
@@ -22,7 +22,7 @@
 
 ## Update and last-good behavior
 
-1. 擷取官方 CSV／JSON，重試暫時性 429 與 5xx。Nasdaq 主要 API 逾時、格式或完整性驗證失敗時，先查詢 Nasdaq Global Index Watch 最近 7 個工作日的官方 NDX 成分；GIW 也失敗時才使用 QQQM 公開持股代理池。
+1. 擷取官方 CSV／JSON，重試暫時性 429 與 5xx。NASDAQ-100 先查詢 Nasdaq Global Index Watch 最近 7 個工作日的官方 NDX 成分；GIW 失敗時依序嘗試舊 Nasdaq 公開 API 與 QQQM 公開持股代理池。
 2. 僅保留股票資產，正規化 Yahoo 相容 ticker；例如 `BRKB` 對應 `BRK-B`，同時保存原始 ticker。
 3. 驗證資料日期、ticker 格式、重複值、合理數量、相對前版數量變動與成分更替率。
 4. 先建立 `staging` version，分批寫入 members，再回查筆數。
