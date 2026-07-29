@@ -71,11 +71,14 @@ python -m pytest -q
 ruff check api scripts tests
 npm run check
 npm run test:worker
+npx playwright install chromium
+npm run test:e2e
 npx wrangler d1 migrations apply backteststock-universe --local
 npx wrangler deploy --dry-run
 python scripts/update_universes.py --report /tmp/universe-update-report.json
 ```
 
+Playwright 測試會以真實瀏覽器驗證前端初始化、Universe 預篩選與集體回測操作流程。
 最後一行是即時來源乾跑，只驗證、不寫入 D1。
 
 ## 個股快速績效掃描 v2
