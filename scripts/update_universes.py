@@ -25,6 +25,14 @@ ISHARES_DATE_PATTERN = re.compile(r'Fund Holdings as of,"([^"]+)"')
 DEFAULT_REPORT_PATH = Path("universe-update-report.json")
 MEMBER_INSERT_CHUNK_SIZE = 12
 MAX_RETAINED_VERSIONS = 12
+INVESCO_QQQM_HOLDINGS_URL = (
+    "https://dng-api.invesco.com/cache/v1/accounts/en_US/"
+    "shareclasses/46138G649/holdings/fund"
+    "?idType=cusip&productType=ETF"
+)
+DEFAULT_NASDAQ100_RELAY_URL = (
+    "https://backteststock.chired.workers.dev/api/v2/sources/qqqm-holdings"
+)
 
 TICKER_ALIASES = {
     "BRKA": "BRK-A",
@@ -43,9 +51,14 @@ class SourceEndpoint:
     source_label: str
     source_url: str
     adapter: str
+    fetch_url: str | None = None
     is_proxy: bool = False
     proxy_note: str | None = None
     read_timeout_seconds: int = 30
+
+    @property
+    def request_url(self) -> str:
+        return self.fetch_url or self.source_url
 
 
 @dataclass(frozen=True)
@@ -126,9 +139,7 @@ SOURCES = (
                 source_label="Invesco QQQM holdings",
                 source_url=os.environ.get(
                     "UNIVERSE_NASDAQ100_FALLBACK_URL",
-                    "https://dng-api.invesco.com/cache/v1/accounts/en_US/"
-                    "shareclasses/46138G649/holdings/fund"
-                    "?idType=cusip&productType=ETF",
+                    INVESCO_QQQM_HOLDINGS_URL,
                 ),
                 adapter="invesco_json",
                 is_proxy=True,
@@ -136,6 +147,22 @@ SOURCES = (
                     "Nasdaq 官方 API 本次不可用，已使用追蹤 Nasdaq-100 的 "
                     "Invesco QQQM 公開持股代理池；可能存在追蹤誤差或調整時差。"
                 ),
+            ),
+            SourceEndpoint(
+                source_label="Invesco QQQM holdings via edge relay",
+                source_url=INVESCO_QQQM_HOLDINGS_URL,
+                fetch_url=os.environ.get(
+                    "UNIVERSE_NASDAQ100_RELAY_URL",
+                    DEFAULT_NASDAQ100_RELAY_URL,
+                ),
+                adapter="invesco_json",
+                is_proxy=True,
+                proxy_note=(
+                    "Nasdaq 官方 API 與 Invesco 直連本次皆不可用，已透過固定目的地的 "
+                    "Cloudflare edge relay 取得 Invesco QQQM 公開持股代理池；"
+                    "可能存在追蹤誤差或調整時差。"
+                ),
+                read_timeout_seconds=20,
             ),
         ),
     ),
@@ -446,7 +473,7 @@ def fetch_snapshot(
     for endpoint in endpoints:
         try:
             response = session.get(
-                endpoint.source_url,
+                endpoint.request_url,
                 timeout=(10, endpoint.read_timeout_seconds),
             )
             response.raise_for_status()

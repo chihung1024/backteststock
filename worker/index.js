@@ -9,8 +9,13 @@ const API_ROUTES = new Map([
 
 const MAX_REQUEST_BYTES = 256 * 1024;
 const API_TIMEOUT_MS = 45_000;
+const SOURCE_TIMEOUT_MS = 15_000;
+const SOURCE_MAX_BYTES = 512 * 1024;
+const SOURCE_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const UNIVERSE_STALE_MS = 10 * 24 * 60 * 60 * 1000;
 const UNIVERSE_ID_PATTERN = /^[a-z0-9-]{2,40}$/;
+const INVESCO_QQQM_HOLDINGS_URL =
+  "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/46138G649/holdings/fund?idType=cusip&productType=ETF";
 
 function jsonResponse(payload, status, requestId) {
   return new Response(JSON.stringify(payload), {
@@ -44,6 +49,106 @@ function applySecurityHeaders(response, requestId) {
     statusText: response.statusText,
     headers,
   });
+}
+
+function sanitizeQqqmHoldings(payload) {
+  const sourceDate = String(
+    payload?.effectiveBusinessDate || payload?.effectiveDate || "",
+  ).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) {
+    throw new Error("source date is missing or invalid");
+  }
+  if (!Array.isArray(payload?.holdings)) {
+    throw new Error("holdings are missing");
+  }
+
+  const holdings = payload.holdings
+    .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    .map((row) => ({
+      ticker: row.ticker,
+      issuerName: row.issuerName,
+      securityTypeCode: row.securityTypeCode,
+      percentageOfTotalNetAssets: row.percentageOfTotalNetAssets,
+      marketValueBase: row.marketValueBase,
+    }));
+  if (holdings.length < 95 || holdings.length > 200) {
+    throw new Error(`unexpected holdings count: ${holdings.length}`);
+  }
+
+  return {
+    effectiveBusinessDate: sourceDate,
+    holdings,
+  };
+}
+
+async function getQqqmHoldingsSource(request, requestId) {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), SOURCE_TIMEOUT_MS);
+
+  try {
+    const upstream = await fetch(INVESCO_QQQM_HOLDINGS_URL, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "user-agent":
+          "Mozilla/5.0 (compatible; BacktestStockUniverseRelay/1.0; +https://github.com/chihung1024/backteststock)",
+      },
+      redirect: "error",
+      signal: controller.signal,
+      cf: {
+        cacheTtlByStatus: {
+          "200-299": SOURCE_CACHE_TTL_SECONDS,
+          "400-599": 0,
+        },
+      },
+    });
+    if (!upstream.ok) {
+      throw new Error(`upstream status ${upstream.status}`);
+    }
+
+    const declaredLength = Number(upstream.headers.get("content-length") || "0");
+    if (declaredLength > SOURCE_MAX_BYTES) {
+      throw new Error("upstream response is too large");
+    }
+    const rawBody = await upstream.arrayBuffer();
+    if (rawBody.byteLength > SOURCE_MAX_BYTES) {
+      throw new Error("upstream response is too large");
+    }
+
+    const payload = JSON.parse(new TextDecoder().decode(rawBody));
+    const sanitized = sanitizeQqqmHoldings(payload);
+    return new Response(JSON.stringify(sanitized), {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "public, max-age=300",
+        "x-content-type-options": "nosniff",
+        "x-request-id": requestId,
+        "x-source-origin": "dng-api.invesco.com",
+      },
+    });
+  } catch (error) {
+    const timedOut = controller.signal.aborted;
+    console.error("QQQM source relay failure", {
+      requestId,
+      message: String(error),
+    });
+    return jsonResponse(
+      {
+        error: timedOut
+          ? "Invesco 來源回應逾時。"
+          : "Invesco 來源暫時無法讀取。",
+      },
+      timedOut ? 504 : 502,
+      requestId,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function readValidatedBody(request, requestId) {
@@ -316,8 +421,10 @@ async function runVersionedScreener(request, env, requestId) {
 
 export {
   getUniverseCatalog,
+  getQqqmHoldingsSource,
   loadUniverseSnapshot,
   runVersionedScreener,
+  sanitizeQqqmHoldings,
   universeFromRow,
 };
 
@@ -344,6 +451,10 @@ export default {
         return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
       }
       return getUniverseCatalog(env, requestId);
+    }
+
+    if (url.pathname === "/api/v2/sources/qqqm-holdings") {
+      return getQqqmHoldingsSource(request, requestId);
     }
 
     const universeMatch = url.pathname.match(/^\/api\/v2\/universes\/([a-z0-9-]+)$/);
