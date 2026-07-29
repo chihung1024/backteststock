@@ -4,11 +4,13 @@
   "type": "module",
   "scripts": {
     "check": "node --check public/app.js && node --check worker/index.js",
+    "test:e2e": "playwright test",
     "test:worker": "node --test tests/test_worker.mjs",
     "types": "wrangler types"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260729.1",
+    "@playwright/test": "1.62.0",
     "wrangler": "4.115.0"
   }
 }

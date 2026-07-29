@@ -237,7 +237,7 @@ function renderPortfolios() {
         createElement("span", { text: assetIndex === 0 ? "股票代碼" : "" }),
         createElement("input", {
           value: asset.ticker,
-          list: "ticker-options",
+          attributes: { list: "ticker-options" },
           maxLength: 20,
           autocomplete: "off",
           spellcheck: false,
