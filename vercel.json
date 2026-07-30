@@ -1,9 +1,11 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/index.py", "use": "@vercel/python" }
+    { "src": "api/index.py", "use": "@vercel/python" },
+    { "src": "api/scan.py", "use": "@vercel/python" }
   ],
   "routes": [
+    { "src": "/api/scan", "dest": "api/scan.py" },
     { "src": "/api/(.*)", "dest": "api/index.py" }
   ]
 }
