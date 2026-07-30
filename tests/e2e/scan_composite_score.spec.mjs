@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const scoreKey = "sortino_alpha_beta_mdd_score";
+const scoreLabel = "Sortino×Alpha/(1+Beta)/|MDD|";
 
 const scanResults = [
   {
@@ -25,8 +26,8 @@ const scanResults = [
     ticker: "MSFT",
     status: "ok",
     retryable: false,
-    total_return: 0.18,
-    cagr: 0.18,
+    total_return: 0.30,
+    cagr: 0.30,
     volatility: 0.24,
     mdd: -0.12,
     sharpe_ratio: 0.9,
@@ -67,7 +68,7 @@ async function fulfillJson(route, body) {
   });
 }
 
-test("adds the requested composite score using raw scan metrics", async ({ page }) => {
+test("adds and sorts the requested composite score using raw scan metrics", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, ["NVDA", "MSFT", "ZERO"]));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
@@ -81,7 +82,10 @@ test("adds the requested composite score using raw scan metrics", async ({ page 
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   const scoreHeader = page.locator(`#scan-table th[data-composite-metric="${scoreKey}"]`);
-  await expect(scoreHeader).toHaveText("Sortino×Alpha/(1+Beta)/|MDD|");
+  const tickerCells = page.locator("#scan-table tbody tr th:first-child");
+  await expect(scoreHeader).toHaveText(scoreLabel);
+  await expect(scoreHeader).toHaveClass(/sortable/);
+  await expect(scoreHeader).toHaveAttribute("data-sort-key", scoreKey);
 
   const nvdaRow = page.locator("#scan-table tbody tr", { hasText: "NVDA" });
   const msftRow = page.locator("#scan-table tbody tr", { hasText: "MSFT" });
@@ -90,4 +94,16 @@ test("adds the requested composite score using raw scan metrics", async ({ page 
   await expect(nvdaRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.2595");
   await expect(msftRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.1951");
   await expect(zeroRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("—");
+
+  await expect(tickerCells).toHaveText(["MSFT", "NVDA", "ZERO"]);
+
+  await scoreHeader.click();
+  await expect(scoreHeader).toHaveText(`${scoreLabel} ▼`);
+  await expect(scoreHeader).toHaveAttribute("aria-sort", "descending");
+  await expect(tickerCells).toHaveText(["NVDA", "MSFT", "ZERO"]);
+
+  await scoreHeader.click();
+  await expect(scoreHeader).toHaveText(`${scoreLabel} ▲`);
+  await expect(scoreHeader).toHaveAttribute("aria-sort", "ascending");
+  await expect(tickerCells).toHaveText(["MSFT", "NVDA", "ZERO"]);
 });
