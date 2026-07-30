@@ -1,8 +1,12 @@
 const TABLE_SELECTOR = "#scan-table";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
 const SCORE_KEY = "sortino_alpha_beta_mdd_score";
 const SCORE_LABEL = "Sortino×Alpha/(1+Beta)/|MDD|";
 const SCORE_DESCRIPTION = "Sortino × Alpha ÷ (1 + Beta) ÷ |最大回撤|";
+const REQUIRED_METRICS = ["sortino_ratio", "alpha", "beta", "mdd"];
 
+const rawResults = new Map();
+const originalFetch = window.fetch.bind(window);
 let observer;
 let updateScheduled = false;
 
@@ -12,6 +16,10 @@ function normalizeHeaderLabel(value) {
     .trim();
 }
 
+function normalizeTicker(value) {
+  return String(value || "").trim().split(/\s+/u)[0].toUpperCase();
+}
+
 function parseMetric(value, percent = false) {
   const text = String(value || "").trim();
   if (!text || text === "—") return null;
@@ -19,6 +27,12 @@ function parseMetric(value, percent = false) {
   const numeric = Number(text.replaceAll(",", "").replace("%", ""));
   if (!Number.isFinite(numeric)) return null;
   return percent ? numeric / 100 : numeric;
+}
+
+function rawMetric(item, key) {
+  if (item?.[key] == null) return null;
+  const numeric = Number(item[key]);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function calculateScore(sortino, alpha, beta, mdd) {
@@ -33,6 +47,52 @@ function calculateScore(sortino, alpha, beta, mdd) {
   const score = (sortino * alpha) / betaDenominator / drawdownDenominator;
   return Number.isFinite(score) ? score : null;
 }
+
+function captureRawResults(payload) {
+  if (!Array.isArray(payload)) return;
+
+  let changed = false;
+  payload.forEach((item) => {
+    const ticker = normalizeTicker(item?.ticker);
+    if (!ticker) return;
+
+    const hasMetric = REQUIRED_METRICS.some((key) => rawMetric(item, key) != null);
+    if (!hasMetric) return;
+
+    rawResults.set(ticker, item);
+    changed = true;
+  });
+
+  if (changed) scheduleScoreColumnUpdate();
+}
+
+function restoreSavedRawResults() {
+  try {
+    const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
+    captureRawResults(job?.results);
+  } catch (error) {
+    console.warn("Unable to restore raw scan metrics", error);
+  }
+}
+
+function isScanRequest(input) {
+  try {
+    const requestUrl = typeof input === "string" || input instanceof URL ? input : input?.url;
+    return new URL(requestUrl, window.location.href).pathname === "/api/scan";
+  } catch {
+    return false;
+  }
+}
+
+window.fetch = async function fetchWithScanMetricCapture(input, init) {
+  const response = await originalFetch(input, init);
+
+  if (response.ok && isScanRequest(input)) {
+    response.clone().json().then(captureRawResults).catch(() => {});
+  }
+
+  return response;
+};
 
 function setScoreCell(cell, score, inputs) {
   cell.dataset.compositeMetric = SCORE_KEY;
@@ -49,9 +109,9 @@ function setScoreCell(cell, score, inputs) {
   cell.title = [
     SCORE_DESCRIPTION,
     `Sortino ${inputs.sortino}`,
-    `Alpha ${(inputs.alpha * 100).toFixed(2)}%`,
+    `Alpha ${(inputs.alpha * 100).toFixed(4)}%`,
     `Beta ${inputs.beta}`,
-    `MDD ${(inputs.mdd * 100).toFixed(2)}%`,
+    `MDD ${(inputs.mdd * 100).toFixed(4)}%`,
   ].join(" · ");
 }
 
@@ -60,7 +120,9 @@ function updateScoreColumn() {
   const headerRow = table?.tHead?.rows?.[0];
   if (!table || !headerRow) return;
 
-  const originalHeaders = [...headerRow.cells];
+  const originalHeaders = [...headerRow.cells].filter(
+    (cell) => cell.dataset.compositeMetric !== SCORE_KEY,
+  );
   const headerIndexes = new Map(
     originalHeaders.map((cell, index) => [normalizeHeaderLabel(cell.textContent), index]),
   );
@@ -91,11 +153,13 @@ function updateScoreColumn() {
     );
     if (originalCells.length <= Math.max(mddIndex, sortinoIndex, betaIndex, alphaIndex)) return;
 
+    const ticker = normalizeTicker(originalCells[0].textContent);
+    const rawItem = rawResults.get(ticker);
     const inputs = {
-      mdd: parseMetric(originalCells[mddIndex].textContent, true),
-      sortino: parseMetric(originalCells[sortinoIndex].textContent),
-      beta: parseMetric(originalCells[betaIndex].textContent),
-      alpha: parseMetric(originalCells[alphaIndex].textContent, true),
+      mdd: rawMetric(rawItem, "mdd") ?? parseMetric(originalCells[mddIndex].textContent, true),
+      sortino: rawMetric(rawItem, "sortino_ratio") ?? parseMetric(originalCells[sortinoIndex].textContent),
+      beta: rawMetric(rawItem, "beta") ?? parseMetric(originalCells[betaIndex].textContent),
+      alpha: rawMetric(rawItem, "alpha") ?? parseMetric(originalCells[alphaIndex].textContent, true),
     };
     const score = calculateScore(inputs.sortino, inputs.alpha, inputs.beta, inputs.mdd);
 
@@ -131,6 +195,7 @@ function initializeScoreColumn() {
 
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
+  restoreSavedRawResults();
   scheduleScoreColumnUpdate();
 }
 
