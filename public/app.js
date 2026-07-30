@@ -1,4 +1,5 @@
 const STORAGE_KEY = "backteststock-state-v1";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
   ["cagr", "年化報酬率", "percent", "positive"],
@@ -21,8 +22,9 @@ const SCAN_METRICS = [
   ["data_coverage", "資料覆蓋率", "percent", ""],
   ["trading_days", "交易日", "integer", ""],
 ];
-const SCAN_CHUNK_SIZE = 25;
-const SCAN_CONCURRENCY = 2;
+const SCAN_CHUNK_SIZE = 100;
+const SCAN_REQUEST_RETRIES = 3;
+const SCAN_RETRY_DELAYS_MS = [1_500, 5_000, 15_000, 30_000, 60_000];
 
 const currentMonth = new Date().toISOString().slice(0, 7);
 const defaultState = {
@@ -57,11 +59,14 @@ let state = loadState();
 let latestBacktest = null;
 let latestScan = [];
 let latestScreener = null;
-let lastFailedScanTickers = [];
 let universeCatalog = [];
 let activeControllers = new Set();
 let cancelRequested = false;
 let scanSort = { key: "cagr", direction: "desc" };
+let activeScanJob = null;
+let scanExecutionRunning = false;
+let scanPage = 1;
+let scanPageSize = 100;
 let tickerUniverse = [];
 
 const dom = {
@@ -85,6 +90,11 @@ const dom = {
   scanProgress: document.querySelector("#scan-progress"),
   scanProgressBar: document.querySelector("#scan-progress-bar"),
   scanProgressLabel: document.querySelector("#scan-progress-label"),
+  scanPagination: document.querySelector("#scan-pagination"),
+  scanPagePrev: document.querySelector("#scan-page-prev"),
+  scanPageNext: document.querySelector("#scan-page-next"),
+  scanPageStatus: document.querySelector("#scan-page-status"),
+  scanPageSize: document.querySelector("#scan-page-size"),
   screenerIndex: document.querySelector("#screener-index"),
   screenerWarning: document.querySelector("#screener-warning"),
   screenerFunnel: document.querySelector("#screener-funnel"),
@@ -139,7 +149,7 @@ function parsePeriod(period) {
 }
 
 function formatMetric(value, type) {
-  if (value == null || !Number.isFinite(Number(value))) return "N/A";
+  if (value == null || !Number.isFinite(Number(value))) return "—";
   const numeric = Number(value);
   if (type === "percent") return `${(numeric * 100).toFixed(2)}%`;
   if (type === "integer") return Math.round(numeric).toLocaleString("zh-TW");
@@ -188,12 +198,17 @@ async function apiFetch(path, options = {}, timeoutMs = 50_000) {
       ? await response.json()
       : { error: await response.text() };
     if (!response.ok) {
-      throw new Error(payload.error || `HTTP ${response.status}`);
+      const error = new Error(payload.error || `HTTP ${response.status}`);
+      error.status = response.status;
+      error.retryable = response.status === 408
+        || response.status === 429
+        || response.status >= 500;
+      throw error;
     }
     return payload;
   } catch (error) {
     if (controller.signal.aborted) {
-      if (controller.signal.reason === "timeout") throw new Error("請求逾時，請縮小日期或股票範圍後重試。");
+      if (controller.signal.reason === "timeout") throw new Error("行情服務回應逾時，系統將保留進度並自動重試。");
       throw new Error("請求已取消。");
     }
     throw error;
@@ -595,13 +610,14 @@ function parseTickers(value) {
 function buildScanPayload(tickerOverride = null) {
   const tickers = tickerOverride || parseTickers(document.querySelector("#scan-tickers").value);
   if (!tickers.length) throw new Error("請至少輸入一個股票代碼。");
-  if (tickers.length > 100) throw new Error("整批最多掃描 100 檔股票。");
   const start = parsePeriod(document.querySelector("#scan-start-period").value);
   const end = parsePeriod(document.querySelector("#scan-end-period").value);
   if (start.year * 12 + start.month > end.year * 12 + end.month) throw new Error("結束月份必須晚於或等於起始月份。");
+  const benchmark = sanitizeTicker(document.querySelector("#scan-benchmark").value);
+  if (!benchmark) throw new Error("請指定比較基準，以完整計算 Beta 與 Alpha。");
   return {
     tickers,
-    benchmark: sanitizeTicker(document.querySelector("#scan-benchmark").value),
+    benchmark,
     startYear: start.year,
     startMonth: start.month,
     endYear: end.year,
@@ -617,66 +633,35 @@ function setScanProgress(completed, total, message) {
   dom.loadingMessage.textContent = message;
 }
 
+async function waitWithCancellation(durationMs) {
+  const deadline = Date.now() + durationMs;
+  while (Date.now() < deadline) {
+    if (cancelRequested) throw new Error("請求已取消。");
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+  }
+}
+
 async function scanChunk(payload, tickers) {
   let lastError;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= SCAN_REQUEST_RETRIES; attempt += 1) {
     if (cancelRequested) throw new Error("請求已取消。");
     try {
       return await apiFetch("/api/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...payload, tickers }),
-      }, 70_000);
+      }, 250_000);
     } catch (error) {
       lastError = error;
-      if (cancelRequested || attempt === 2) break;
+      if (
+        cancelRequested
+        || error.retryable === false
+        || attempt === SCAN_REQUEST_RETRIES
+      ) break;
+      await waitWithCancellation(SCAN_RETRY_DELAYS_MS[attempt - 1]);
     }
   }
   throw lastError;
-}
-
-async function scanInBatches(payload) {
-  const chunks = [];
-  for (let index = 0; index < payload.tickers.length; index += SCAN_CHUNK_SIZE) {
-    chunks.push(payload.tickers.slice(index, index + SCAN_CHUNK_SIZE));
-  }
-
-  const results = [];
-  const failedTickers = [];
-  let nextChunk = 0;
-  let completedTickers = 0;
-
-  async function worker() {
-    while (!cancelRequested) {
-      const chunkIndex = nextChunk;
-      nextChunk += 1;
-      if (chunkIndex >= chunks.length) return;
-      const chunk = chunks[chunkIndex];
-      try {
-        results.push(...await scanChunk(payload, chunk));
-      } catch (error) {
-        if (cancelRequested) return;
-        failedTickers.push(...chunk);
-        results.push(...chunk.map((ticker) => ({
-          ticker,
-          error: `批次重試失敗：${error.message}`,
-        })));
-      } finally {
-        completedTickers += chunk.length;
-        setScanProgress(
-          completedTickers,
-          payload.tickers.length,
-          `已完成 ${completedTickers} / ${payload.tickers.length} 檔`,
-        );
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(SCAN_CONCURRENCY, chunks.length) }, () => worker()),
-  );
-  if (cancelRequested) throw new Error("請求已取消。");
-  return { results, failedTickers };
 }
 
 function scanMatchesLatestScreener(tickers) {
@@ -685,39 +670,218 @@ function scanMatchesLatestScreener(tickers) {
   return tickers.every((ticker) => selected.has(ticker));
 }
 
-async function executeScan(payload, mergeResults = false) {
+function createScanJob(payload) {
+  const screenerContext = scanMatchesLatestScreener(payload.tickers)
+    ? {
+      universe: structuredClone(latestScreener.universe),
+      fundamentalsAsOf: latestScreener.fundamentalsAsOf,
+      funnel: structuredClone(latestScreener.funnel),
+    }
+    : null;
+  return {
+    version: 2,
+    id: crypto.randomUUID(),
+    status: "running",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    payload: structuredClone(payload),
+    screenerContext,
+    pending: [...payload.tickers],
+    results: [],
+    attempts: {},
+    retryRound: 0,
+  };
+}
+
+function saveScanJob(job) {
+  job.updatedAt = new Date().toISOString();
+  try {
+    localStorage.setItem(SCAN_JOB_STORAGE_KEY, JSON.stringify(job));
+  } catch (error) {
+    console.warn("Unable to persist scan progress", error);
+  }
+}
+
+function loadScanJob() {
+  try {
+    const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
+    if (
+      job?.version === 2
+      && Array.isArray(job?.payload?.tickers)
+      && job.payload.tickers.length
+      && Array.isArray(job.pending)
+      && Array.isArray(job.results)
+    ) {
+      const allowed = new Set(job.payload.tickers);
+      const resultMap = new Map(
+        job.results
+          .filter((item) => item?.ticker && allowed.has(item.ticker))
+          .map((item) => [item.ticker, item]),
+      );
+      job.results = job.payload.tickers
+        .map((ticker) => resultMap.get(ticker))
+        .filter(Boolean);
+      const settled = new Set(job.results.map((item) => item.ticker));
+      job.pending = job.payload.tickers.filter((ticker) => !settled.has(ticker));
+      if (!job.pending.length) job.status = "completed";
+      else if (job.status === "completed") job.status = "paused";
+      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
+      return job;
+    }
+  } catch (error) {
+    console.warn("Unable to restore scan progress", error);
+  }
+  return null;
+}
+
+function clearScanJob() {
+  localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
+}
+
+function restoreScanControls(payload) {
+  document.querySelector("#scan-tickers").value = payload.tickers.join(", ");
+  document.querySelector("#scan-start-period").value = `${payload.startYear}-${String(payload.startMonth).padStart(2, "0")}`;
+  document.querySelector("#scan-end-period").value = `${payload.endYear}-${String(payload.endMonth).padStart(2, "0")}`;
+  document.querySelector("#scan-benchmark").value = payload.benchmark;
+}
+
+function orderedJobResults(job, resultMap) {
+  return job.payload.tickers.map((ticker) => resultMap.get(ticker)).filter(Boolean);
+}
+
+function renderScanJobState(job, message) {
+  const total = job.payload.tickers.length;
+  const settled = job.results.length;
+  latestScan = [...job.results];
+  setScanProgress(settled, total, message || `已取得 ${settled} / ${total} 檔，未完成 ${job.pending.length} 檔`);
+  renderScanTable();
+  renderScanSummary();
+  renderScanContext(Boolean(job.screenerContext));
+  dom.scanResults.classList.remove("hidden");
+}
+
+async function processScanJob(job) {
+  const resultMap = new Map(job.results.map((item) => [item.ticker, item]));
+  let retryOnlyBatches = 0;
+
+  while (job.pending.length && !cancelRequested) {
+    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
+    let response = [];
+    let requestError = null;
+    try {
+      response = await scanChunk(job.payload, chunk);
+    } catch (error) {
+      if (error.retryable === false) throw error;
+      requestError = error;
+    }
+
+    if (cancelRequested) {
+      job.pending.unshift(...chunk);
+      break;
+    }
+
+    const responseMap = new Map(
+      (Array.isArray(response) ? response : [])
+        .filter((item) => item?.ticker)
+        .map((item) => [item.ticker, item]),
+    );
+    let newlySettled = 0;
+    for (const ticker of chunk) {
+      const item = responseMap.get(ticker);
+      if (!requestError && item && item.retryable !== true && item.status !== "pending") {
+        resultMap.set(ticker, item);
+        newlySettled += 1;
+      } else {
+        job.pending.push(ticker);
+        job.attempts[ticker] = Number(job.attempts[ticker] || 0) + 1;
+      }
+    }
+
+    job.results = orderedJobResults(job, resultMap);
+    if (newlySettled) {
+      retryOnlyBatches = 0;
+      job.retryRound = 0;
+    } else {
+      retryOnlyBatches += 1;
+    }
+    job.status = "running";
+    saveScanJob(job);
+    renderScanJobState(
+      job,
+      requestError
+        ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，系統持續重試`
+        : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,
+    );
+
+    if (job.pending.length && retryOnlyBatches >= 2) {
+      job.retryRound = Number(job.retryRound || 0) + 1;
+      const delay = SCAN_RETRY_DELAYS_MS[
+        Math.min(job.retryRound - 1, SCAN_RETRY_DELAYS_MS.length - 1)
+      ];
+      const seconds = Math.ceil(delay / 1000);
+      retryOnlyBatches = 0;
+      renderScanJobState(
+        job,
+        `上游暫時未完整回傳，${seconds} 秒後自動繼續；已取得 ${job.results.length} / ${job.payload.tickers.length} 檔`,
+      );
+      await waitWithCancellation(delay);
+    }
+  }
+}
+
+async function executeScan(payload, existingJob = null) {
+  if (scanExecutionRunning) return;
+  scanExecutionRunning = true;
   cancelRequested = false;
   setMessage(dom.scanError);
-  showLoading(`準備分批掃描 ${payload.tickers.length} 檔股票…`);
-  setScanProgress(0, payload.tickers.length, `準備分批掃描 ${payload.tickers.length} 檔股票…`);
+  const job = existingJob || createScanJob(payload);
+  activeScanJob = job;
+  job.status = "running";
+  if (!existingJob) {
+    latestScan = [];
+    scanPage = 1;
+  }
+  restoreScanControls(job.payload);
+  saveScanJob(job);
+  showLoading(`準備循序取得 ${job.payload.tickers.length} 檔完整行情…`);
+  renderScanJobState(
+    job,
+    `準備循序取得 ${job.results.length} / ${job.payload.tickers.length} 檔完整行情…`,
+  );
   try {
-    const { results, failedTickers } = await scanInBatches(payload);
-    lastFailedScanTickers = failedTickers;
-    document.querySelector("#retry-scan").classList.toggle("hidden", !failedTickers.length);
-
-    if (mergeResults) {
-      const byTicker = new Map(latestScan.map((item) => [item.ticker, item]));
-      results.forEach((item) => byTicker.set(item.ticker, item));
-      latestScan = [...byTicker.values()];
+    await processScanJob(job);
+    if (cancelRequested) {
+      job.status = "paused";
+      saveScanJob(job);
+      document.querySelector("#retry-scan").classList.remove("hidden");
+      setMessage(dom.scanError, `回測已暫停；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，按「繼續未完成回測」即可接續。`);
     } else {
-      latestScan = results;
+      job.status = "completed";
+      job.pending = [];
+      latestScan = [...job.results];
+      saveScanJob(job);
+      document.querySelector("#retry-scan").classList.add("hidden");
+      renderScanJobState(job, `完整取得 ${job.results.length} / ${job.payload.tickers.length} 檔`);
+      setMessage(dom.scanError);
+      dom.scanResults.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-    renderScanTable();
-    renderScanSummary();
-    renderScanContext(scanMatchesLatestScreener(payload.tickers));
-    dom.scanResults.classList.remove("hidden");
-    if (failedTickers.length) {
-      setMessage(
-        dom.scanError,
-        `${failedTickers.length} 檔所在批次重試後仍失敗，可使用「重試失敗標的」。`,
-      );
-    }
-    dom.scanResults.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    setMessage(dom.scanError, error.message);
-    if (!mergeResults) dom.scanResults.classList.add("hidden");
+    if (error.retryable === false) {
+      clearScanJob();
+      activeScanJob = null;
+      document.querySelector("#retry-scan").classList.add("hidden");
+      setMessage(dom.scanError, error.message);
+    } else {
+      job.status = "paused";
+      saveScanJob(job);
+      document.querySelector("#retry-scan").classList.remove("hidden");
+      setMessage(dom.scanError, cancelRequested
+        ? `回測已暫停；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔。`
+        : `進度已保存；系統可由目前的 ${job.results.length} / ${job.payload.tickers.length} 檔接續。`);
+    }
   } finally {
     hideLoading();
+    scanExecutionRunning = false;
   }
 }
 
@@ -730,12 +894,29 @@ async function runScan(event) {
   }
 }
 
-async function retryFailedScan() {
-  if (!lastFailedScanTickers.length) return;
+async function retryIncompleteScan() {
+  const job = activeScanJob?.pending?.length ? activeScanJob : loadScanJob();
+  if (!job?.pending?.length) return;
   try {
-    await executeScan(buildScanPayload(lastFailedScanTickers), true);
+    await executeScan(job.payload, job);
   } catch (error) {
     setMessage(dom.scanError, error.message);
+  }
+}
+
+function restorePersistedScan() {
+  const job = loadScanJob();
+  if (!job) return;
+  activeScanJob = job;
+  latestScan = [...job.results];
+  restoreScanControls(job.payload);
+  renderScanJobState(
+    job,
+    `已還原 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,
+  );
+  document.querySelector("#retry-scan").classList.toggle("hidden", !job.pending.length);
+  if (job.status === "running" && job.pending.length) {
+    setTimeout(() => executeScan(job.payload, job), 0);
   }
 }
 
@@ -747,6 +928,10 @@ function renderScanTable() {
     const b = Number(right[scanSort.key]);
     return scanSort.direction === "asc" ? a - b : b - a;
   });
+  const totalPages = Math.max(1, Math.ceil(sorted.length / scanPageSize));
+  scanPage = Math.min(Math.max(scanPage, 1), totalPages);
+  const pageStart = (scanPage - 1) * scanPageSize;
+  const visibleRows = sorted.slice(pageStart, pageStart + scanPageSize);
 
   const columns = [
     ["ticker", "股票代碼", "text"],
@@ -767,7 +952,7 @@ function renderScanTable() {
   thead.append(headerRow);
 
   const tbody = createElement("tbody");
-  sorted.forEach((item) => {
+  visibleRows.forEach((item) => {
     const row = createElement("tr");
     row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));
     SCAN_METRICS.forEach(([key, , type, className], index) => {
@@ -777,11 +962,15 @@ function renderScanTable() {
       }));
     });
     row.append(createElement("td", {
-      text: item.error ? "—" : `${item.data_start || "N/A"} ～ ${item.data_end || "N/A"}`,
+      text: item.error ? "—" : `${item.data_start || "—"} ～ ${item.data_end || "—"}`,
     }));
     tbody.append(row);
   });
   dom.scanTable.replaceChildren(thead, tbody);
+  dom.scanPagination.classList.toggle("hidden", sorted.length <= scanPageSize);
+  dom.scanPageStatus.textContent = `第 ${scanPage.toLocaleString("zh-TW")} / ${totalPages.toLocaleString("zh-TW")} 頁`;
+  dom.scanPagePrev.disabled = scanPage <= 1;
+  dom.scanPageNext.disabled = scanPage >= totalPages;
 }
 
 function median(values) {
@@ -792,14 +981,21 @@ function median(values) {
 }
 
 function renderScanSummary() {
-  const valid = latestScan.filter((item) => !item.error);
+  const valid = latestScan.filter((item) => !item.error && item.retryable !== true);
+  const failed = latestScan.filter((item) => Boolean(item.error));
+  const total = activeScanJob?.payload?.tickers?.length || latestScan.length;
+  const unfinished = activeScanJob?.status === "completed"
+    ? 0
+    : Number(activeScanJob?.pending?.length || 0);
   const numeric = (key) => valid.map((item) => Number(item[key])).filter(Number.isFinite);
   const average = (key) => {
     const values = numeric(key);
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   };
   const cards = [
-    ["成功標的", `${valid.length} / ${latestScan.length}`],
+    ["成功標的", `${valid.length} / ${total}`],
+    ["失敗標的", failed.length.toLocaleString("zh-TW")],
+    ["未完成", unfinished.toLocaleString("zh-TW")],
     ["CAGR 中位數", formatMetric(median(numeric("cagr")), "percent")],
     ["平均波動率", formatMetric(average("volatility"), "percent")],
     ["平均最大回撤", formatMetric(average("mdd"), "percent")],
@@ -817,12 +1013,13 @@ function renderScanSummary() {
 }
 
 function renderScanContext(showUniverse) {
-  if (!showUniverse || !latestScreener) {
+  const context = activeScanJob?.screenerContext || latestScreener;
+  if (!showUniverse || !context) {
     dom.scanContext.classList.add("hidden");
     dom.scanContext.textContent = "";
     return;
   }
-  const { universe, fundamentalsAsOf, funnel } = latestScreener;
+  const { universe, fundamentalsAsOf, funnel } = context;
   dom.scanContext.textContent = [
     `Universe：${universe.name}`,
     `版本：${universe.version}`,
@@ -885,6 +1082,12 @@ async function runScreener() {
   const maxPe = Number(document.querySelector("#screener-pe").value);
   if (Number.isFinite(marketCap) && marketCap > 0) filters.marketCap = { min: marketCap * 1e8 };
   if (Number.isFinite(maxPe) && maxPe > 0) filters.trailingPE = { max: maxPe };
+  const rawLimit = document.querySelector("#screener-limit").value.trim();
+  const limit = rawLimit ? Number(rawLimit) : null;
+  if (limit != null && (!Number.isSafeInteger(limit) || limit < 1)) {
+    setMessage(dom.scanError, "最多回測檔數必須是大於 0 的整數；留空則回測全部。");
+    return;
+  }
 
   showLoading("正在執行基本面預篩選…");
   try {
@@ -895,7 +1098,7 @@ async function runScreener() {
         universe: universe.id,
         sector: document.querySelector("#screener-sector").value,
         filters,
-        limit: Number(document.querySelector("#screener-limit").value),
+        limit,
         sort: document.querySelector("#screener-sort").value,
       }),
     });
@@ -1050,7 +1253,7 @@ function bindEvents() {
   document.querySelector("#export-config").addEventListener("click", exportConfig);
   document.querySelector("#export-results").addEventListener("click", exportResults);
   document.querySelector("#export-scan").addEventListener("click", exportScan);
-  document.querySelector("#retry-scan").addEventListener("click", retryFailedScan);
+  document.querySelector("#retry-scan").addEventListener("click", retryIncompleteScan);
   dom.screenerIndex.addEventListener("change", renderUniverseMeta);
   document.querySelector("#cancel-request").addEventListener("click", () => {
     cancelRequested = true;
@@ -1066,6 +1269,20 @@ function bindEvents() {
       scanSort.key = key;
       scanSort.direction = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
     }
+    scanPage = 1;
+    renderScanTable();
+  });
+  dom.scanPagePrev.addEventListener("click", () => {
+    scanPage = Math.max(1, scanPage - 1);
+    renderScanTable();
+  });
+  dom.scanPageNext.addEventListener("click", () => {
+    scanPage += 1;
+    renderScanTable();
+  });
+  dom.scanPageSize.addEventListener("change", () => {
+    scanPageSize = Number(dom.scanPageSize.value) || 100;
+    scanPage = 1;
     renderScanTable();
   });
   window.addEventListener("resize", () => latestBacktest && renderBacktestResults(latestBacktest));
@@ -1077,3 +1294,4 @@ bindEvents();
 checkHealth();
 loadTickerUniverse();
 loadUniverses();
+restorePersistedScan();

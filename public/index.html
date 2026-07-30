@@ -161,15 +161,11 @@
             <input id="screener-pe" type="number" min="0" step="1" placeholder="不限">
           </label>
           <label>
-            <span>最多回測檔數</span>
-            <select id="screener-limit">
-              <option value="25">25 檔</option>
-              <option value="50">50 檔</option>
-              <option value="100" selected>100 檔</option>
-            </select>
+            <span>最多回測檔數（留空＝全部）</span>
+            <input id="screener-limit" type="number" min="1" step="1" inputmode="numeric" placeholder="全部">
           </label>
           <label>
-            <span>超額結果取樣排序</span>
+            <span>處理與顯示順序</span>
             <select id="screener-sort">
               <option value="marketCap-desc">市值由大到小</option>
               <option value="marketCap-asc">市值由小到大</option>
@@ -181,7 +177,7 @@
         <div id="universe-meta" class="universe-meta" aria-live="polite"></div>
         <div id="screener-warning" class="message warning hidden"></div>
         <div class="submit-row">
-          <p class="form-note">若通過條件超過上限，系統會依上方排序明確取樣並顯示截斷警示。</p>
+          <p class="form-note">預設回測全部通過條件的股票；只有填入數字時，才依上方順序取前 N 檔。</p>
           <button id="run-screener" class="button secondary" type="button">篩選並建立回測清單</button>
         </div>
         <div id="screener-funnel" class="funnel-grid hidden" aria-live="polite"></div>
@@ -191,7 +187,7 @@
         <label>
           <span>股票代碼</span>
           <textarea id="scan-tickers" rows="5" placeholder="AAPL, MSFT, NVDA">AAPL, MSFT, NVDA, AMZN, GOOGL</textarea>
-          <small>可直接手動輸入作為備援；以逗號、空白或換行分隔，整批最多 100 檔。</small>
+          <small>可直接手動輸入任意數量；以逗號、空白或換行分隔，系統會自動分批處理。</small>
         </label>
         <div class="control-grid scanner-controls">
           <label>
@@ -213,9 +209,9 @@
         </div>
         <div id="scan-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">每批 25 檔、最多 2 批並行；失敗批次會自動重試一次。</p>
+          <p class="form-note">優先每批 100 檔一次取得並逐檔驗收；只重排實際缺漏標的，並在此瀏覽器保存未完成進度。</p>
           <div class="toolbar">
-            <button id="retry-scan" class="button ghost hidden" type="button">重試失敗標的</button>
+            <button id="retry-scan" class="button ghost hidden" type="button">繼續未完成回測</button>
             <button id="run-scan" class="button primary" type="submit">開始集體回測</button>
           </div>
         </div>
@@ -236,6 +232,19 @@
             <caption class="sr-only">個股掃描結果</caption>
           </table>
         </div>
+        <div id="scan-pagination" class="pagination hidden" aria-label="掃描結果分頁">
+          <button id="scan-page-prev" class="button ghost compact" type="button">上一頁</button>
+          <span id="scan-page-status">第 1 / 1 頁</span>
+          <label class="pagination-size">
+            <span>每頁</span>
+            <select id="scan-page-size">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+            </select>
+          </label>
+          <button id="scan-page-next" class="button ghost compact" type="button">下一頁</button>
+        </div>
       </section>
     </section>
 
@@ -253,8 +262,8 @@
           <p>Sharpe、Sortino、Beta 與 Alpha 以日報酬計算並年化；無風險利率可由後端環境變數設定。</p>
         </article>
         <article class="panel">
-          <h3>資料限制</h3>
-          <p>目前行情由 yfinance 即時取得，可能受到來源延遲、限流、標的下市及公司行動資料品質影響。</p>
+          <h3>資料完整性</h3>
+          <p>行情逐檔取得並驗證；來源暫時缺漏時不產生半套結果，而是保存已完成進度並自動接續。</p>
           <p>使用現行指數成分做歷史篩選時存在存活者偏差。</p>
         </article>
         <article class="panel">

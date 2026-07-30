@@ -2,8 +2,9 @@
 
 ## Scope
 
-第一階段以 additive design 實作；既有 `/api/backtest`、`/api/scan`、`/api/screener`
-契約不變。新功能位於 `/api/v2/*`，D1 或 Universe 更新故障不會阻斷手動代碼掃描與投資組合回測。
+第一階段以 additive design 實作；新功能位於 `/api/v2/*`，D1 或 Universe 更新故障不會
+阻斷手動代碼掃描與投資組合回測。第二階段保留既有成功結果欄位，並為 `/api/scan`
+增加 `status`、`retryable` 與暫時缺漏契約，避免把不完整上游回傳誤判成最終結果。
 
 ## Universe sources
 
@@ -80,25 +81,39 @@ Schema 位於 `migrations/0001_universe_versions.sql`，來源版本欄位擴充
     "fundamentalsAvailable": 500,
     "sectorMatches": 500,
     "passedFilters": 132,
-    "selectedForScan": 100
+    "selectedForScan": 132
   },
   "candidates": [],
-  "truncated": true,
+  "limit": null,
+  "truncated": false,
   "warnings": []
 }
 ```
 
-`passedFilters > limit` 時，API 依明示的排序取前 `limit` 檔並回傳警示；不是靜默截斷。
+`limit` 留空或為 `null` 時納入所有通過條件的股票。只有使用者輸入正整數上限，且
+`passedFilters > limit` 時，API 才依明示的排序取前 `limit` 檔並回傳截斷說明。
 
 ## Scanner execution
 
-- 整批最多 100 檔。
-- 瀏覽器每 25 檔呼叫一次既有 `/api/scan`。
-- 最大併發數 2。
-- 失敗批次自動重試一次，仍失敗者顯示錯誤並提供重試按鈕。
+- 使用者的整批清單不設檔數上限；手動輸入超過 100 檔仍會完整執行。
+- 瀏覽器每 100 檔循序呼叫 `/api/scan`。API 保留單一 HTTP request 的防護上限，但不限制
+  整個瀏覽器掃描工作的總數。
+- Python 行情層優先使用多股票 `download()`，每次最多 100 檔、16 個下載執行緒；每次
+  回傳後逐檔驗證，最多嘗試 3 輪且每輪只補抓尚未解析的股票。只有非空且通過正規化的
+  成功序列會逐檔快取，批次 HTTP 200 不再等同整批成功。
+- 每批回應逐檔核對。暫時缺漏以 `status=pending`、`retryable=true` 回傳，瀏覽器只將
+  該股票重新排隊；比較基準缺漏時整批重試，避免產生 Beta／Alpha 空值。
+- HTTP 暫時性錯誤每批先重試 3 次；仍未完整時持續以最高 60 秒退避，不把暫時缺漏
+  寫成最終失敗。
+- 工作的 payload、已完成結果及未完成佇列保存在 `localStorage`，完整完成結果會保留到
+  下一次掃描。使用者取消時暫停；頁面重整或重新開啟後，只接續未完成股票，不重跑成功結果。
+- 完成條件是 `pending` 佇列為空；結果區持續明列成功、失敗與未完成數量。
+- 結果表預設每頁 100 筆，支援 50／100／250 筆分頁，避免完整 Russell 2000 結果造成
+  大量 DOM 節點。
 - 每檔結果包含總報酬、CAGR、波動、MDD、Sharpe、Sortino、Beta、Alpha、
   實際資料起訖日、交易日與資料覆蓋率。
-- 群組摘要包含成功數、CAGR 中位數、平均波動、平均回撤、平均 Sharpe 與平均資料覆蓋。
+- 群組摘要包含成功、失敗、未完成、CAGR 中位數、平均波動、平均回撤、平均 Sharpe
+  與平均資料覆蓋。
 - CSV 匯出包含所有上述欄位與個別錯誤。
 
 ## Fundamental data

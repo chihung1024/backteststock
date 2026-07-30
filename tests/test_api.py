@@ -167,7 +167,9 @@ def test_all_tickers_is_available_for_autocomplete(client, monkeypatch):
 
 def test_scan_reports_total_return_and_data_coverage(client, monkeypatch):
     prices = business_prices(("AAA", "SPY"), 260)
-    monkeypatch.setattr(api, "download_data_silently", lambda *args, **kwargs: prices)
+    monkeypatch.setattr(
+        api, "download_data_reliably", lambda *args, **kwargs: (prices, {})
+    )
     response = client.post(
         "/api/scan",
         json={
@@ -181,10 +183,152 @@ def test_scan_reports_total_return_and_data_coverage(client, monkeypatch):
     )
     assert response.status_code == 200
     result = response.get_json()[0]
+    assert result["status"] == "ok"
+    assert result["retryable"] is False
     assert result["total_return"] > 0
     assert 0 < result["data_coverage"] <= 1
     assert result["trading_days"] == 260
     assert result["data_start"] == "2023-01-02"
+
+
+def bulk_prices(tickers, periods=5):
+    dates = pd.bdate_range("2023-01-02", periods=periods)
+    columns = pd.MultiIndex.from_product([["Close"], tickers])
+    values = np.column_stack(
+        [np.linspace(100 + index, 104 + index, periods) for index in range(len(tickers))]
+    )
+    return pd.DataFrame(values, index=dates, columns=columns)
+
+
+def test_bulk_download_uses_one_large_call_and_individual_success_cache(monkeypatch):
+    api.price_cache.clear()
+    calls = []
+
+    def fake_download(tickers, **kwargs):
+        calls.append((tickers, kwargs))
+        return bulk_prices(tickers)
+
+    monkeypatch.setattr(api.yf, "download", fake_download)
+
+    prices, failures = api.download_data_reliably(
+        ["AAA", "BBB", "SPY"], "2023-01-01", "2023-02-01"
+    )
+    cached_prices, cached_failures = api.download_data_reliably(
+        ["AAA", "BBB", "SPY"], "2023-01-01", "2023-02-01"
+    )
+
+    assert failures == {}
+    assert cached_failures == {}
+    assert list(prices.columns) == ["AAA", "BBB", "SPY"]
+    assert prices.equals(cached_prices)
+    assert len(calls) == 1
+    assert calls[0][0] == ["AAA", "BBB", "SPY"]
+    assert calls[0][1]["threads"] == 3
+    assert calls[0][1]["repair"] is True
+
+
+def test_bulk_download_retries_only_symbols_missing_from_http_200(
+    monkeypatch,
+):
+    api.price_cache.clear()
+    calls = []
+
+    def fake_download(tickers, **_kwargs):
+        calls.append(tickers)
+        if len(calls) == 1:
+            return bulk_prices(["AAA", "SPY"])
+        return bulk_prices(["BBB"])
+
+    monkeypatch.setattr(api.yf, "download", fake_download)
+    monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
+
+    prices, failures = api.download_data_reliably(
+        ["AAA", "BBB", "SPY"], "2023-01-01", "2023-02-01"
+    )
+
+    assert failures == {}
+    assert list(prices.columns) == ["AAA", "BBB", "SPY"]
+    assert calls == [["AAA", "BBB", "SPY"], ["BBB"]]
+
+
+def test_bulk_download_never_caches_an_unresolved_symbol(monkeypatch):
+    api.price_cache.clear()
+    calls = []
+
+    def fake_download(tickers, **_kwargs):
+        calls.append(tickers)
+        available = [ticker for ticker in tickers if ticker == "AAA"]
+        return bulk_prices(available) if available else pd.DataFrame()
+
+    monkeypatch.setattr(api.yf, "download", fake_download)
+    monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
+
+    prices, failures = api.download_data_reliably(
+        ["AAA", "BBB"], "2023-01-01", "2023-02-01"
+    )
+
+    assert list(prices.columns) == ["AAA"]
+    assert set(failures) == {"BBB"}
+    assert ("AAA", "2023-01-01", "2023-02-01") in api.price_cache
+    assert ("BBB", "2023-01-01", "2023-02-01") not in api.price_cache
+    assert calls == [["AAA", "BBB"], ["BBB"], ["BBB"]]
+
+
+def test_scan_keeps_partial_success_and_marks_missing_ticker_for_retry(
+    client, monkeypatch
+):
+    prices = business_prices(("AAA", "SPY"), 260)
+    monkeypatch.setattr(
+        api,
+        "download_data_reliably",
+        lambda *args, **kwargs: (prices, {"BBB": RuntimeError("temporary")}),
+    )
+    response = client.post(
+        "/api/scan",
+        json={
+            "tickers": ["AAA", "BBB"],
+            "benchmark": "SPY",
+            "startYear": 2023,
+            "startMonth": 1,
+            "endYear": 2023,
+            "endMonth": 12,
+        },
+    )
+
+    assert response.status_code == 200
+    results = {item["ticker"]: item for item in response.get_json()}
+    assert results["AAA"]["status"] == "ok"
+    assert results["AAA"]["beta"] is not None
+    assert results["AAA"]["alpha"] is not None
+    assert results["BBB"] == {
+        "ticker": "BBB",
+        "status": "pending",
+        "retryable": True,
+        "error_code": "market_data_temporarily_unavailable",
+    }
+
+
+def test_scan_retries_whole_chunk_when_benchmark_is_missing(client, monkeypatch):
+    prices = business_prices(("AAA",), 260)
+    monkeypatch.setattr(
+        api,
+        "download_data_reliably",
+        lambda *args, **kwargs: (prices, {"SPY": RuntimeError("temporary")}),
+    )
+    response = client.post(
+        "/api/scan",
+        json={
+            "tickers": ["AAA"],
+            "benchmark": "SPY",
+            "startYear": 2023,
+            "startMonth": 1,
+            "endYear": 2023,
+            "endMonth": 12,
+        },
+    )
+
+    assert response.status_code == 503
+    assert "自動重試" in response.get_json()["error"]
 
 
 def test_v2_screener_returns_versioned_funnel_and_explicit_truncation(
@@ -247,6 +391,46 @@ def test_v2_screener_returns_versioned_funnel_and_explicit_truncation(
     assert payload["truncated"] is True
     assert any("proxy disclosure" in warning for warning in payload["warnings"])
     assert any("缺少基本面" in warning for warning in payload["warnings"])
+
+
+def test_v2_screener_defaults_to_every_candidate(client, monkeypatch):
+    stocks = [
+        {"ticker": "AAA", "sector": "Technology", "marketCap": 300e9},
+        {"ticker": "BBB", "sector": "Technology", "marketCap": 200e9},
+        {"ticker": "CCC", "sector": "Technology", "marketCap": 100e9},
+    ]
+    monkeypatch.setattr(
+        api,
+        "get_preprocessed_dataset",
+        lambda: {"data": stocks, "asOf": "2026-07-30", "warning": None},
+    )
+
+    response = client.post(
+        "/api/v2/screener",
+        json={
+            "_universe": {
+                "id": "sp500",
+                "name": "S&P 500（IVV holdings）",
+                "version": "2026-07-30-abc",
+                "sourceAsOf": "2026-07-30",
+                "members": ["AAA", "BBB", "CCC"],
+            },
+            "universe": "sp500",
+            "sort": "marketCap-desc",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["limit"] is None
+    assert payload["truncated"] is False
+    assert payload["funnel"]["passedFilters"] == 3
+    assert payload["funnel"]["selectedForScan"] == 3
+    assert [item["ticker"] for item in payload["candidates"]] == [
+        "AAA",
+        "BBB",
+        "CCC",
+    ]
 
 
 def test_v2_screener_rejects_missing_worker_snapshot(client):
