@@ -7,6 +7,7 @@
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/scan-composite-score.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -260,6 +261,7 @@
           <h3>計算方式</h3>
           <p>使用調整後收盤價模擬持有股數，於指定週期第一個共同交易日依目標權重再平衡。</p>
           <p>Sharpe、Sortino、Beta 與 Alpha 以日報酬計算並年化；無風險利率可由後端環境變數設定。</p>
+          <p>個股績效列表另顯示 Sortino × Alpha ÷ (1 + Beta) ÷ |最大回撤|；必要數據缺漏、Beta = -1 或最大回撤為 0 時不計算。</p>
         </article>
         <article class="panel">
           <h3>資料完整性</h3>
