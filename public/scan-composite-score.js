@@ -9,6 +9,8 @@ const rawResults = new Map();
 const originalFetch = window.fetch.bind(window);
 let observer;
 let updateScheduled = false;
+let activeSortKey = "cagr";
+let activeSortDirection = "desc";
 
 function normalizeHeaderLabel(value) {
   return String(value || "")
@@ -46,6 +48,38 @@ function calculateScore(sortino, alpha, beta, mdd) {
 
   const score = (sortino * alpha) / betaDenominator / drawdownDenominator;
   return Number.isFinite(score) ? score : null;
+}
+
+function scoreFromItem(item) {
+  return calculateScore(
+    rawMetric(item, "sortino_ratio"),
+    rawMetric(item, "alpha"),
+    rawMetric(item, "beta"),
+    rawMetric(item, "mdd"),
+  );
+}
+
+function scoreSortGetter() {
+  const score = scoreFromItem(this);
+  if (score != null) return score;
+  return activeSortDirection === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+}
+
+function installScoreSortGetter() {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, SCORE_KEY);
+  if (descriptor?.get === scoreSortGetter) return;
+  if (descriptor) return;
+
+  Object.defineProperty(Object.prototype, SCORE_KEY, {
+    configurable: true,
+    enumerable: false,
+    get: scoreSortGetter,
+  });
+}
+
+function removeScoreSortGetter() {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, SCORE_KEY);
+  if (descriptor?.get === scoreSortGetter) delete Object.prototype[SCORE_KEY];
 }
 
 function captureRawResults(payload) {
@@ -134,13 +168,25 @@ function updateScoreColumn() {
   if (!scoreHeader) {
     scoreHeader = document.createElement("th");
     scoreHeader.scope = "col";
-    scoreHeader.textContent = SCORE_LABEL;
-    scoreHeader.title = SCORE_DESCRIPTION;
     scoreHeader.dataset.compositeMetric = SCORE_KEY;
 
     const alphaHeader = originalHeaders[headerIndexes.get("Alpha")];
     alphaHeader.insertAdjacentElement("afterend", scoreHeader);
   }
+
+  const sortIndicator = activeSortKey === SCORE_KEY
+    ? (activeSortDirection === "asc" ? " ▲" : " ▼")
+    : "";
+  scoreHeader.textContent = `${SCORE_LABEL}${sortIndicator}`;
+  scoreHeader.title = `${SCORE_DESCRIPTION}；點擊可依全部掃描結果排序。`;
+  scoreHeader.classList.add("sortable");
+  scoreHeader.dataset.sortKey = SCORE_KEY;
+  scoreHeader.setAttribute(
+    "aria-sort",
+    activeSortKey === SCORE_KEY
+      ? (activeSortDirection === "asc" ? "ascending" : "descending")
+      : "none",
+  );
 
   const mddIndex = headerIndexes.get("最大回撤");
   const sortinoIndex = headerIndexes.get("Sortino");
@@ -173,6 +219,23 @@ function updateScoreColumn() {
   });
 }
 
+function handleTableSortClick(event) {
+  const header = event.target.closest("th[data-sort-key]");
+  if (!header) return;
+
+  const key = header.dataset.sortKey;
+  if (activeSortKey === key) {
+    activeSortDirection = activeSortDirection === "asc" ? "desc" : "asc";
+  } else {
+    activeSortKey = key;
+    activeSortDirection = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
+  }
+
+  if (activeSortKey === SCORE_KEY) installScoreSortGetter();
+  else removeScoreSortGetter();
+  scheduleScoreColumnUpdate();
+}
+
 function scheduleScoreColumnUpdate() {
   if (updateScheduled) return;
   updateScheduled = true;
@@ -195,6 +258,7 @@ function initializeScoreColumn() {
 
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
+  table.addEventListener("click", handleTableSortClick, true);
   restoreSavedRawResults();
   scheduleScoreColumnUpdate();
 }
