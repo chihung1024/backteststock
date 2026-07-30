@@ -2,6 +2,8 @@ import logging
 import math
 import os
 import re
+import threading
+import time
 from collections.abc import Iterable
 
 import numpy as np
@@ -21,6 +23,11 @@ MAX_PORTFOLIOS = 5
 MAX_ASSETS_PER_PORTFOLIO = 50
 MAX_SCAN_TICKERS = 100
 MAX_UNIVERSE_MEMBERS = 3_000
+MARKET_DATA_ATTEMPTS = 3
+MARKET_DATA_BACKOFF_SECONDS = (0.0, 1.5, 5.0)
+MARKET_DATA_TIMEOUT_SECONDS = 8
+MARKET_DATA_DOWNLOAD_THREADS = 16
+MARKET_DATA_BATCH_SIZE = 100
 MIN_YEAR = 1980
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=_-]{1,20}$")
 ALLOWED_REBALANCING_PERIODS = {"never", "annually", "quarterly", "monthly"}
@@ -46,6 +53,8 @@ except ValueError:
 
 GIST_RAW_URL = os.environ.get("GIST_RAW_URL")
 cache = TTLCache(maxsize=128, ttl=600)
+price_cache = TTLCache(maxsize=512, ttl=3600)
+price_cache_lock = threading.RLock()
 
 
 class ValidationError(ValueError):
@@ -339,28 +348,145 @@ def validate_data_completeness(df_prices_raw, tickers, requested_start_date):
     return problematic_tickers
 
 
-@cached(cache)
-def download_data_silently(tickers, start_date, end_date):
-    chunks = [tickers[index : index + 15] for index in range(0, len(tickers), 15)]
-    data_frames = []
-    for chunk in chunks:
-        downloaded = yf.download(
-            list(chunk),
-            start=start_date,
-            end=end_date,
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-        )
-        if downloaded.empty:
-            continue
+def normalize_price_series(raw_prices, ticker):
+    if raw_prices is None:
+        return None
+    prices = pd.to_numeric(raw_prices, errors="coerce").dropna().astype(float)
+    prices = prices[prices > 0]
+    if prices.empty:
+        return None
+
+    index = pd.DatetimeIndex(pd.to_datetime(prices.index))
+    if index.tz is not None:
+        index = index.tz_convert(None)
+    prices.index = index.normalize()
+    prices = prices[~prices.index.duplicated(keep="last")].sort_index()
+    prices.name = ticker
+    return prices
+
+
+def extract_bulk_prices(downloaded, tickers):
+    """Extract and validate each ticker independently from a yfinance result."""
+    if not isinstance(downloaded, pd.DataFrame) or downloaded.empty:
+        return {}
+
+    if isinstance(downloaded.columns, pd.MultiIndex):
+        if "Close" in downloaded.columns.get_level_values(0):
+            close_prices = downloaded.xs("Close", axis=1, level=0)
+        elif "Close" in downloaded.columns.get_level_values(1):
+            close_prices = downloaded.xs("Close", axis=1, level=1)
+        else:
+            return {}
+    elif "Close" in downloaded.columns:
         close_prices = downloaded["Close"]
+    else:
+        return {}
+
+    extracted = {}
+    for ticker in tickers:
+        raw_prices = None
         if isinstance(close_prices, pd.Series):
-            close_prices = close_prices.to_frame(name=chunk[0])
-        data_frames.append(close_prices)
-    if not data_frames:
-        return pd.DataFrame(columns=list(tickers))
-    return pd.concat(data_frames, axis=1)
+            if len(tickers) == 1:
+                raw_prices = close_prices
+        elif ticker in close_prices.columns:
+            raw_prices = close_prices[ticker]
+        prices = normalize_price_series(raw_prices, ticker)
+        if prices is not None:
+            extracted[ticker] = prices
+    return extracted
+
+
+def bulk_download_prices(tickers, start_date, end_date):
+    """Use one multi-symbol call; callers still validate every returned symbol."""
+    return yf.download(
+        list(tickers),
+        start=start_date,
+        end=end_date,
+        interval="1d",
+        auto_adjust=True,
+        actions=False,
+        repair=True,
+        keepna=False,
+        progress=False,
+        threads=min(MARKET_DATA_DOWNLOAD_THREADS, len(tickers)),
+        timeout=MARKET_DATA_TIMEOUT_SECONDS,
+        group_by="column",
+        multi_level_index=True,
+    )
+
+
+def download_data_reliably(tickers, start_date, end_date):
+    """Bulk-download, reconcile every symbol, and retry only unresolved symbols."""
+    requested = deduplicate(tickers)
+    prices_by_ticker = {}
+    pending = []
+    cache_keys = {
+        ticker: (ticker, start_date, end_date)
+        for ticker in requested
+    }
+    with price_cache_lock:
+        for ticker in requested:
+            cached_prices = price_cache.get(cache_keys[ticker])
+            if cached_prices is None:
+                pending.append(ticker)
+            else:
+                prices_by_ticker[ticker] = cached_prices.copy()
+
+    last_error = None
+    for delay in MARKET_DATA_BACKOFF_SECONDS[:MARKET_DATA_ATTEMPTS]:
+        if not pending:
+            break
+        if delay:
+            time.sleep(delay)
+
+        unresolved = []
+        for start in range(0, len(pending), MARKET_DATA_BATCH_SIZE):
+            batch = pending[start : start + MARKET_DATA_BATCH_SIZE]
+            try:
+                downloaded = bulk_download_prices(batch, start_date, end_date)
+                extracted = extract_bulk_prices(downloaded, batch)
+            # yfinance can surface its own exceptions plus curl/JSON/pandas failures.
+            # This is the deliberate retry boundary for that untrusted upstream call.
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                extracted = {}
+
+            for ticker in batch:
+                prices = extracted.get(ticker)
+                if prices is None:
+                    unresolved.append(ticker)
+                    continue
+                prices_by_ticker[ticker] = prices
+                with price_cache_lock:
+                    price_cache[cache_keys[ticker]] = prices.copy()
+        pending = unresolved
+
+    failures = {
+        ticker: last_error
+        or DataSourceError("upstream returned no usable adjusted close prices")
+        for ticker in pending
+    }
+    if failures:
+        logger.warning(
+            "Market data incomplete after bulk reconciliation",
+            extra={
+                "requested_count": len(requested),
+                "resolved_count": len(prices_by_ticker),
+                "unresolved_count": len(failures),
+            },
+        )
+    if not prices_by_ticker:
+        return pd.DataFrame(columns=requested), failures
+    available_columns = [
+        ticker for ticker in requested if ticker in prices_by_ticker
+    ]
+    return pd.DataFrame(prices_by_ticker).reindex(columns=available_columns), failures
+
+
+def download_data_silently(tickers, start_date, end_date):
+    """Compatibility wrapper for portfolio code and existing tests."""
+    prices, _failures = download_data_reliably(tickers, start_date, end_date)
+    return prices
 
 
 def normalized_benchmark_history(prices, initial_amount):
@@ -406,8 +532,8 @@ def backtest_handler():
             if ticker not in prices_raw.columns or prices_raw[ticker].isna().all()
         ]
         if failed_tickers:
-            raise ValidationError(
-                f"無法獲取以下股票代碼的數據: {', '.join(failed_tickers)}"
+            raise DataSourceError(
+                "行情資料尚未完整取得，請由系統保留目前設定後自動重試。"
             )
 
         problematic = validate_data_completeness(
@@ -455,6 +581,8 @@ def backtest_handler():
         )
     except ValidationError as exc:
         return error_response(str(exc), 400)
+    except DataSourceError as exc:
+        return error_response(str(exc), 503)
     except Exception:
         logger.exception("Unexpected error in backtest endpoint")
         return error_response("伺服器發生未預期的錯誤。", 500)
@@ -471,23 +599,24 @@ def scan_handler():
         tickers = deduplicate(normalize_ticker(ticker) for ticker in raw_tickers)
         if len(tickers) > MAX_SCAN_TICKERS:
             raise ValidationError(f"單次最多掃描 {MAX_SCAN_TICKERS} 檔標的。")
-        benchmark_ticker = (
-            normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
-        )
+        if not data.get("benchmark"):
+            raise ValidationError("請指定比較基準，以完整計算 Beta 與 Alpha。")
+        benchmark_ticker = normalize_ticker(data["benchmark"])
         download_tickers = tuple(
-            sorted(set(tickers + ([benchmark_ticker] if benchmark_ticker else [])))
+            sorted(set(tickers + [benchmark_ticker]))
         )
-        prices_raw = download_data_silently(
+        prices_raw, failures = download_data_reliably(
             download_tickers,
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
         )
 
-        benchmark_history = None
-        if benchmark_ticker and benchmark_ticker in prices_raw.columns:
-            benchmark_prices = prices_raw[benchmark_ticker].dropna()
-            if not benchmark_prices.empty:
-                benchmark_history = benchmark_prices.to_frame("value")
+        if benchmark_ticker in failures or benchmark_ticker not in prices_raw.columns:
+            raise DataSourceError("比較基準行情尚未完整取得，系統將自動重試。")
+        benchmark_prices = prices_raw[benchmark_ticker].dropna()
+        if benchmark_prices.empty:
+            raise DataSourceError("比較基準行情尚未完整取得，系統將自動重試。")
+        benchmark_history = benchmark_prices.to_frame("value")
 
         results = []
         requested_business_days = max(
@@ -495,8 +624,19 @@ def scan_handler():
             1,
         )
         for ticker in tickers:
-            if ticker not in prices_raw.columns or prices_raw[ticker].dropna().empty:
-                results.append({"ticker": ticker, "error": "指定範圍內無數據"})
+            if (
+                ticker in failures
+                or ticker not in prices_raw.columns
+                or prices_raw[ticker].dropna().empty
+            ):
+                results.append(
+                    {
+                        "ticker": ticker,
+                        "status": "pending",
+                        "retryable": True,
+                        "error_code": "market_data_temporarily_unavailable",
+                    }
+                )
                 continue
             prices = prices_raw[ticker].dropna()
             note = None
@@ -507,6 +647,8 @@ def scan_handler():
             results.append(
                 {
                     "ticker": ticker,
+                    "status": "ok",
+                    "retryable": False,
                     **metrics,
                     "data_start": prices.index[0].strftime("%Y-%m-%d"),
                     "data_end": prices.index[-1].strftime("%Y-%m-%d"),
@@ -518,6 +660,8 @@ def scan_handler():
         return jsonify(results)
     except ValidationError as exc:
         return error_response(str(exc), 400)
+    except DataSourceError as exc:
+        return error_response(str(exc), 503)
     except Exception:
         logger.exception("Unexpected error in scan endpoint")
         return error_response("伺服器發生未預期的錯誤。", 500)
@@ -658,14 +802,15 @@ def screener_v2_handler():
         sort_name = str(data.get("sort") or "marketCap-desc")
         if sort_name not in ALLOWED_SCREENER_SORTS:
             raise ValidationError("不支援的排序方式。")
-        try:
-            limit = int(data.get("limit", MAX_SCAN_TICKERS))
-        except (TypeError, ValueError) as exc:
-            raise ValidationError("回測檔數上限格式不正確。") from exc
-        if not 1 <= limit <= MAX_SCAN_TICKERS:
-            raise ValidationError(
-                f"回測檔數上限必須介於 1 與 {MAX_SCAN_TICKERS} 之間。"
-            )
+        raw_limit = data.get("limit")
+        limit = None
+        if raw_limit not in (None, ""):
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("回測檔數上限格式不正確。") from exc
+            if limit < 1:
+                raise ValidationError("回測檔數上限必須大於 0，留空則回測全部。")
 
         dataset = get_preprocessed_dataset()
         fundamentals = {}
@@ -695,7 +840,8 @@ def screener_v2_handler():
 
         candidates = sort_screener_candidates(candidates, sort_name)
         passed_filters = len(candidates)
-        selected = candidates[:limit]
+        selected = candidates if limit is None else candidates[:limit]
+        truncated = limit is not None and passed_filters > limit
         warnings = []
         if snapshot["proxyNote"]:
             warnings.append(snapshot["proxyNote"])
@@ -706,7 +852,7 @@ def screener_v2_handler():
             warnings.append(
                 f"{missing_fundamentals} 檔 Universe 成分股缺少基本面資料，未納入條件篩選。"
             )
-        if passed_filters > limit:
+        if truncated:
             warnings.append(
                 f"共有 {passed_filters} 檔通過條件；依「{sort_name}」明確取前 {limit} 檔供回測。"
             )
@@ -733,7 +879,7 @@ def screener_v2_handler():
                     "selectedForScan": len(selected),
                 },
                 "candidates": selected,
-                "truncated": passed_filters > limit,
+                "truncated": truncated,
                 "sort": sort_name,
                 "limit": limit,
                 "warnings": warnings,

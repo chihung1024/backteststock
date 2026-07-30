@@ -8,7 +8,7 @@ const API_ROUTES = new Map([
 ]);
 
 const MAX_REQUEST_BYTES = 256 * 1024;
-const API_TIMEOUT_MS = 45_000;
+const API_TIMEOUT_MS = 240_000;
 const UNIVERSE_STALE_MS = 10 * 24 * 60 * 60 * 1000;
 const UNIVERSE_ID_PATTERN = /^[a-z0-9-]{2,40}$/;
 
@@ -118,7 +118,7 @@ async function proxyBackend(request, env, requestId, requestBody) {
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      return jsonResponse({ error: "後端處理逾時，請縮小查詢範圍後重試。" }, 504, requestId);
+      return jsonResponse({ error: "行情服務回應逾時；目前進度已保留，系統可自動接續重試。" }, 504, requestId);
     }
     console.error("API proxy failure", { requestId, message: String(error) });
     return jsonResponse({ error: "暫時無法連線至後端服務。" }, 502, requestId);

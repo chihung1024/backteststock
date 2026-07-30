@@ -72,7 +72,7 @@ GET /api/health
 GET /api/v2/universes
 POST /api/backtest with one 100% SPY portfolio
 POST /api/scan with SPY and QQQ
-POST /api/v2/screener with one available Universe and limit 25
+POST /api/v2/screener with one available Universe and limit null
 ```
 
 Confirm:
@@ -84,6 +84,11 @@ Confirm:
 - Cloudflare and Vercel logs share the `x-request-id` response header.
 - All four Universes show `available: true`, a source date, version, and non-zero member count.
 - The Russell 2000 option visibly discloses that IWM holdings are a proxy.
+- The screener response returns every passing candidate when `limit` is `null`.
+- A browser scan of more than 100 mock candidates completes in batches of at most 100 and paginates
+  the final table.
+- A simulated partial `/api/scan` response requeues only the missing ticker; a saved in-progress job
+  resumes after reload without requesting completed tickers again.
 
 ## Rollback
 
