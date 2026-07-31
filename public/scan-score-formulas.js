@@ -1,35 +1,35 @@
 export const SCORE_FORMULAS = Object.freeze([
   Object.freeze({
-    key: "sortino_alpha_mdd_score",
-    rankKey: "sortino_alpha_mdd_rank",
-    statusKey: "sortino_alpha_mdd_score_status",
-    label: "Sortino×Alpha/|MDD|",
-    shortLabel: "原始",
-    description: "Sortino × Alpha ÷ |最大回撤|",
+    key: "sortino_growth_beta_score",
+    rankKey: "sortino_growth_beta_rank",
+    statusKey: "sortino_growth_beta_score_status",
+    label: "穩健分數",
+    shortLabel: "穩健",
+    description: "Sortino × √((1 + CAGR) ÷ (1 + Beta))",
     digits: 4,
   }),
   Object.freeze({
-    key: "alpha_sqrt_sortino_mdd_score",
-    rankKey: "alpha_sqrt_sortino_mdd_rank",
-    statusKey: "alpha_sqrt_sortino_mdd_score_status",
-    label: "建議分數",
-    shortLabel: "建議",
-    description: "Alpha × √(Sortino ÷ |最大回撤|)",
+    key: "sortino_growth_beta_quarter_score",
+    rankKey: "sortino_growth_beta_quarter_rank",
+    statusKey: "sortino_growth_beta_quarter_score_status",
+    label: "成長分數",
+    shortLabel: "成長",
+    description: "Sortino × √(1 + CAGR) ÷ (1 + Beta)^0.25",
     digits: 4,
   }),
   Object.freeze({
-    key: "percentile_composite_score",
-    rankKey: "percentile_composite_rank",
-    statusKey: "percentile_composite_score_status",
-    label: "百分位分數",
-    shortLabel: "百分位",
-    description: "50% Alpha 百分位 + 30% Sortino 百分位 + 20% 低回撤百分位",
-    digits: 2,
+    key: "sortino_growth_beta_mdd_score",
+    rankKey: "sortino_growth_beta_mdd_rank",
+    statusKey: "sortino_growth_beta_mdd_score_status",
+    label: "回撤控制分數",
+    shortLabel: "回撤",
+    description: "Sortino × √((1 + CAGR) ÷ ((1 + Beta) × (1 + |MDD|)))",
+    digits: 4,
   }),
 ]);
 
-const REQUIRED_METRICS = Object.freeze(["sortino_ratio", "alpha", "mdd"]);
 const SCORE_EPSILON = 1e-12;
+const BASE_REQUIRED_METRICS = Object.freeze(["sortino_ratio", "cagr", "beta"]);
 
 export function normalizeScoreTicker(value) {
   return String(value || "").trim().split(/\s+/u)[0].toUpperCase();
@@ -56,84 +56,104 @@ function prepareMetrics(item) {
     return unavailable("error", String(item.error));
   }
 
-  const values = Object.fromEntries(REQUIRED_METRICS.map((key) => [key, rawMetric(item, key)]));
-  const missing = REQUIRED_METRICS.filter((key) => values[key] == null);
-  if (missing.length) {
-    return unavailable(
-      "missing_metrics",
-      `缺少必要指標：${missing.join(", ")}`,
-      values,
-    );
-  }
-
-  const absoluteMdd = Math.abs(values.mdd);
-  if (absoluteMdd <= SCORE_EPSILON) {
-    return unavailable(
-      "zero_mdd",
-      "最大回撤為 0，無法作為除數。",
-      { ...values, absoluteMdd },
-    );
-  }
-
   return {
     score: null,
     rank: null,
     status: "metrics_ready",
     reason: "",
-    ...values,
-    absoluteMdd,
+    sortino_ratio: rawMetric(item, "sortino_ratio"),
+    cagr: rawMetric(item, "cagr"),
+    beta: rawMetric(item, "beta"),
+    mdd: rawMetric(item, "mdd"),
   };
 }
 
-function calculateOriginalRecord(metrics) {
+function requireMetrics(metrics, required) {
   if (metrics.status !== "metrics_ready") return { ...metrics };
-  const score = metrics.sortino_ratio * metrics.alpha / metrics.absoluteMdd;
+  const missing = required.filter((key) => metrics[key] == null);
+  if (missing.length) {
+    return unavailable(
+      "missing_metrics",
+      `缺少必要指標：${missing.join(", ")}`,
+      metrics,
+    );
+  }
+  return { ...metrics };
+}
+
+function prepareGrowthBetaTerms(metrics, { requireMdd = false } = {}) {
+  const ready = requireMetrics(
+    metrics,
+    requireMdd ? [...BASE_REQUIRED_METRICS, "mdd"] : BASE_REQUIRED_METRICS,
+  );
+  if (ready.status !== "metrics_ready") return ready;
+
+  const onePlusCagr = 1 + ready.cagr;
+  if (onePlusCagr < 0) {
+    return unavailable(
+      "invalid_cagr_domain",
+      "CAGR 小於 -100%，無法套用平方根公式。",
+      { ...ready, onePlusCagr },
+    );
+  }
+
+  const onePlusBeta = 1 + ready.beta;
+  if (onePlusBeta <= SCORE_EPSILON) {
+    return unavailable(
+      "invalid_beta_domain",
+      "Beta 必須大於 -1，才能作為公式分母。",
+      { ...ready, onePlusCagr, onePlusBeta },
+    );
+  }
+
+  return {
+    ...ready,
+    onePlusCagr,
+    onePlusBeta,
+    absoluteMdd: ready.mdd == null ? null : Math.abs(ready.mdd),
+  };
+}
+
+function finiteResult(metrics, score, formulaName) {
   if (!Number.isFinite(score)) {
-    return unavailable("invalid_result", "原始公式計算結果不是有限數值。", metrics);
+    return unavailable(
+      "invalid_result",
+      `${formulaName}計算結果不是有限數值。`,
+      metrics,
+    );
   }
   return { ...metrics, score, status: "ok" };
 }
 
-function calculateRecommendedRecord(metrics) {
-  if (metrics.status !== "metrics_ready") return { ...metrics };
-  if (metrics.sortino_ratio <= 0) {
-    return unavailable(
-      "non_positive_sortino",
-      "Sortino 必須大於 0 才能套用平方根公式。",
-      metrics,
-    );
-  }
-  const score = metrics.alpha * Math.sqrt(metrics.sortino_ratio / metrics.absoluteMdd);
-  if (!Number.isFinite(score)) {
-    return unavailable("invalid_result", "建議公式計算結果不是有限數值。", metrics);
-  }
-  return { ...metrics, score, status: "ok" };
+function calculateStableRecord(metrics) {
+  const ready = prepareGrowthBetaTerms(metrics);
+  if (ready.status !== "metrics_ready") return ready;
+  const score = ready.sortino_ratio * Math.sqrt(ready.onePlusCagr / ready.onePlusBeta);
+  return finiteResult(ready, score, "穩健公式");
+}
+
+function calculateGrowthRecord(metrics) {
+  const ready = prepareGrowthBetaTerms(metrics);
+  if (ready.status !== "metrics_ready") return ready;
+  const score = (
+    ready.sortino_ratio
+    * Math.sqrt(ready.onePlusCagr)
+    / Math.pow(ready.onePlusBeta, 0.25)
+  );
+  return finiteResult(ready, score, "成長公式");
+}
+
+function calculateDrawdownRecord(metrics) {
+  const ready = prepareGrowthBetaTerms(metrics, { requireMdd: true });
+  if (ready.status !== "metrics_ready") return ready;
+  const score = ready.sortino_ratio * Math.sqrt(
+    ready.onePlusCagr / (ready.onePlusBeta * (1 + ready.absoluteMdd)),
+  );
+  return finiteResult(ready, score, "回撤控制公式");
 }
 
 function sameNumber(left, right) {
   return Math.abs(left - right) <= SCORE_EPSILON * Math.max(1, Math.abs(left), Math.abs(right));
-}
-
-function percentileByTicker(entries) {
-  const sorted = [...entries].sort((left, right) => (
-    left.value - right.value || left.ticker.localeCompare(right.ticker)
-  ));
-  const result = new Map();
-  const denominator = sorted.length - 1;
-
-  for (let start = 0; start < sorted.length;) {
-    let end = start;
-    while (end + 1 < sorted.length && sameNumber(sorted[end + 1].value, sorted[start].value)) {
-      end += 1;
-    }
-    const averageIndex = (start + end) / 2;
-    const percentile = denominator > 0 ? 100 * averageIndex / denominator : 100;
-    for (let index = start; index <= end; index += 1) {
-      result.set(sorted[index].ticker, percentile);
-    }
-    start = end + 1;
-  }
-  return result;
 }
 
 function assignRanks(matrix, formulaKey) {
@@ -164,68 +184,30 @@ export function buildScoreMatrix(items) {
   }
 
   const matrix = new Map();
-  const percentileEligible = [];
   for (const [ticker, item] of uniqueItems) {
     const metrics = prepareMetrics(item);
     matrix.set(ticker, {
       ticker,
       formulas: {
-        sortino_alpha_mdd_score: calculateOriginalRecord(metrics),
-        alpha_sqrt_sortino_mdd_score: calculateRecommendedRecord(metrics),
-        percentile_composite_score: unavailable(
-          metrics.status,
-          metrics.reason,
-          metrics,
-        ),
+        sortino_growth_beta_score: calculateStableRecord(metrics),
+        sortino_growth_beta_quarter_score: calculateGrowthRecord(metrics),
+        sortino_growth_beta_mdd_score: calculateDrawdownRecord(metrics),
       },
     });
-    if (metrics.status === "metrics_ready") {
-      percentileEligible.push({ ticker, metrics });
-    }
-  }
-
-  const alphaPercentiles = percentileByTicker(
-    percentileEligible.map(({ ticker, metrics }) => ({ ticker, value: metrics.alpha })),
-  );
-  const sortinoPercentiles = percentileByTicker(
-    percentileEligible.map(({ ticker, metrics }) => ({ ticker, value: metrics.sortino_ratio })),
-  );
-  const drawdownPercentiles = percentileByTicker(
-    percentileEligible.map(({ ticker, metrics }) => ({ ticker, value: -metrics.absoluteMdd })),
-  );
-
-  for (const { ticker, metrics } of percentileEligible) {
-    const alphaPercentile = alphaPercentiles.get(ticker);
-    const sortinoPercentile = sortinoPercentiles.get(ticker);
-    const drawdownPercentile = drawdownPercentiles.get(ticker);
-    const score = (
-      0.50 * alphaPercentile
-      + 0.30 * sortinoPercentile
-      + 0.20 * drawdownPercentile
-    );
-    matrix.get(ticker).formulas.percentile_composite_score = {
-      ...metrics,
-      score,
-      rank: null,
-      status: "ok",
-      alphaPercentile,
-      sortinoPercentile,
-      drawdownPercentile,
-    };
   }
 
   const validCounts = Object.fromEntries(
     SCORE_FORMULAS.map((formula) => [formula.key, assignRanks(matrix, formula.key)]),
   );
 
-  const recommendedKey = "alpha_sqrt_sortino_mdd_score";
+  const stableKey = "sortino_growth_beta_score";
   for (const row of matrix.values()) {
-    const recommendedRank = row.formulas[recommendedKey]?.rank;
+    const stableRank = row.formulas[stableKey]?.rank;
     for (const formula of SCORE_FORMULAS) {
       const record = row.formulas[formula.key];
-      record.rankDeltaVsRecommended = (
-        Number.isInteger(record.rank) && Number.isInteger(recommendedRank)
-          ? record.rank - recommendedRank
+      record.rankDeltaVsStable = (
+        Number.isInteger(record.rank) && Number.isInteger(stableRank)
+          ? record.rank - stableRank
           : null
       );
     }
