@@ -214,8 +214,8 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
   await expect(percentileHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
-    "NVDA",
     "QUALITY",
+    "NVDA",
     "MSFT",
     "ZERO",
   ]);
