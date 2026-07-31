@@ -1,4 +1,4 @@
-name: Apply scan output and performance fixes
+name: Apply scan backend performance fix
 
 on:
   push:
@@ -18,31 +18,24 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Apply reviewed changes
+      - name: Patch metrics and scan endpoint
         run: |
           python <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one match, found {count}")
-              file.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          # ----- Fast, explicitly versioned binary fingerprints -----
           metrics_path = Path("api/metrics.py")
           metrics = metrics_path.read_text(encoding="utf-8")
+          anchor = 'METRIC_DEFINITION_VERSION = "2026-08-01.1"\n'
+          if metrics.count(anchor) != 1:
+              raise SystemExit(f"metric version anchor count={metrics.count(anchor)}")
           metrics = metrics.replace(
-              'METRIC_DEFINITION_VERSION = "2026-08-01.1"\n',
-              'METRIC_DEFINITION_VERSION = "2026-08-01.1"\n'
-              'FINGERPRINT_ALGORITHM = "sha256-le-i8-f8-v1"\n',
+              anchor,
+              anchor + 'FINGERPRINT_ALGORITHM = "sha256-le-i8-f8-v1"\n',
               1,
           )
           start = metrics.index("def series_fingerprint")
           end = metrics.index("\ndef benchmark_coverage", start)
-          fingerprint_block = '''def _canonical_float64(values) -> np.ndarray:
+          new_block = '''def _canonical_float64(values) -> np.ndarray:
               array = np.asarray(values, dtype=np.float64)
               if np.isnan(array).any():
                   array = array.copy()
@@ -68,7 +61,7 @@ jobs:
 
 
           def aligned_fingerprint(asset_history, benchmark_history) -> str | None:
-              """Hash benchmark-calendar pairs without Python row-by-row iteration."""
+              """Hash benchmark-calendar pairs without Python row iteration."""
               asset = normalize_value_series(asset_history, name="asset")
               benchmark = normalize_value_series(benchmark_history, name="benchmark")
               if benchmark.empty:
@@ -90,16 +83,17 @@ jobs:
               return digest.hexdigest()
 
           '''
-          metrics = metrics[:start] + fingerprint_block + metrics[end + 1:]
+          metrics = metrics[:start] + new_block + metrics[end + 1:]
+          metadata_anchor = '        "scipy_version": package_version("scipy"),\n'
+          if metrics.count(metadata_anchor) != 1:
+              raise SystemExit("scipy metadata anchor missing")
           metrics = metrics.replace(
-              '        "scipy_version": package_version("scipy"),\n',
-              '        "scipy_version": package_version("scipy"),\n'
-              '        "fingerprint_algorithm": FINGERPRINT_ALGORITHM,\n',
+              metadata_anchor,
+              metadata_anchor + '        "fingerprint_algorithm": FINGERPRINT_ALGORITHM,\n',
               1,
           )
           metrics_path.write_text(metrics, encoding="utf-8")
 
-          # ----- One large market request, human notes only, Server-Timing -----
           scan_path = Path("api/scan_v2.py")
           scan = scan_path.read_text(encoding="utf-8")
           scan = scan.replace("import logging\n", "import logging\nimport time\n", 1)
@@ -108,32 +102,11 @@ jobs:
               "def scan_handler():\n    request_started = time.perf_counter()\n    raw_tickers = []\n",
               1,
           )
-          old_download = '''        # Resolve the one shared benchmark independently before the large asset
-                  # batch. This prevents one missing benchmark from invalidating or
-                  # repeatedly delaying up to 100 otherwise usable asset histories. The
-                  # process TTL cache makes later browser batches reuse the same data.
-                  benchmark_resolved, benchmark_unresolved = legacy.download_prices_finitely(
-                      [benchmark_ticker],
-                      start_text,
-                      end_text,
-                  )
-                  resolved, unresolved = legacy.download_prices_finitely(
-                      tickers,
-                      start_text,
-                      end_text,
-                  )
-                  unresolved_set = set(unresolved)
-                  benchmark_prices = benchmark_resolved.get(benchmark_ticker)
-                  benchmark_available = (
-                      benchmark_ticker not in set(benchmark_unresolved)
-                      and benchmark_prices is not None
-                      and not benchmark_prices.empty
-                  )
-
-                  shared_metadata = reproducibility_metadata('''
-          new_download = '''        # Fetch benchmark and assets in one large request. The finite downloader
-                  # retries only unresolved symbols, so a missing benchmark is retried alone
-                  # and never invalidates otherwise usable asset histories.
+          block_start = scan.index("        # Resolve the one shared benchmark independently")
+          block_end = scan.index("\n\n        shared_metadata = reproducibility_metadata", block_start)
+          download_block = '''        # Fetch benchmark and assets together. The finite downloader retries
+                  # only unresolved symbols, so a missing benchmark is retried alone and
+                  # never invalidates otherwise usable asset histories.
                   market_started = time.perf_counter()
                   resolved, unresolved = legacy.download_prices_finitely(
                       legacy.deduplicate([benchmark_ticker, *tickers]),
@@ -149,26 +122,25 @@ jobs:
                       and not benchmark_prices.empty
                   )
 
-                  compute_started = time.perf_counter()
-                  shared_metadata = reproducibility_metadata('''
-          if scan.count(old_download) != 1:
-              raise SystemExit(f"api/scan_v2.py download block matches={scan.count(old_download)}")
-          scan = scan.replace(old_download, new_download, 1)
+                  compute_started = time.perf_counter()'''
+          scan = scan[:block_start] + download_block + scan[block_end:]
           scan = scan.replace(
-              '''            notes.append(f"再現資訊 {reproducibility}")
-                      results.append(''',
-              '''            results.append(''',
+              '            notes.append(f"再現資訊 {reproducibility}")\n',
+              "",
               1,
           )
+          note_line = '                    "note": f"（{\'；\'.join(notes)}）",\n'
+          if scan.count(note_line) != 1:
+              raise SystemExit(f"note line count={scan.count(note_line)}")
           scan = scan.replace(
-              '                    "note": f"（{\'；\'.join(notes)}）",\n',
+              note_line,
               '                    "note": f"（{\'；\'.join(notes)}）" if notes else None,\n',
               1,
           )
-          scan = scan.replace(
-              '''        return jsonify(results)
-              except legacy.ValidationError as exc:''',
-              '''        compute_duration_ms = (time.perf_counter() - compute_started) * 1000
+          return_anchor = "        return jsonify(results)\n"
+          if scan.count(return_anchor) != 1:
+              raise SystemExit(f"return anchor count={scan.count(return_anchor)}")
+          response_block = '''        compute_duration_ms = (time.perf_counter() - compute_started) * 1000
                   serialize_started = time.perf_counter()
                   response = jsonify(results)
                   serialize_duration_ms = (time.perf_counter() - serialize_started) * 1000
@@ -186,606 +158,16 @@ jobs:
                       sum(1 for item in results if item.get("status") == "ok")
                   )
                   return response
-              except legacy.ValidationError as exc:''',
-              1,
-          )
+          '''
+          scan = scan.replace(return_anchor, response_block, 1)
           scan_path.write_text(scan, encoding="utf-8")
-
-          # ----- Readable table, timing feedback, safe legacy-note migration -----
-          app_path = Path("public/app.js")
-          app = app_path.read_text(encoding="utf-8")
-          format_anchor = '''function formatMetric(value, type) {
-            if (value == null || !Number.isFinite(Number(value))) return "—";
-            const numeric = Number(value);
-            if (type === "percent") return `${(numeric * 100).toFixed(2)}%`;
-            if (type === "integer") return Math.round(numeric).toLocaleString("zh-TW");
-            return numeric.toFixed(2);
-          }
-          '''
-          format_helpers = format_anchor + '''
-          function humanScanNote(item) {
-            const raw = String(item?.note || "")
-              .trim()
-              .replace(/^[（(]\s*/u, "")
-              .replace(/\s*[）)]$/u, "");
-            if (!raw) return "";
-            return raw
-              .split(/；?\s*再現資訊\b/u)[0]
-              .replace(/[；;\s]+$/u, "")
-              .trim();
-          }
-
-          function parseServerTiming(value) {
-            const timings = {};
-            String(value || "").split(",").forEach((entry) => {
-              const [name, ...parameters] = entry.trim().split(";");
-              const duration = parameters.find((parameter) => parameter.trim().startsWith("dur="));
-              const numeric = Number(duration?.split("=")[1]);
-              if (name && Number.isFinite(numeric)) timings[name] = numeric;
-            });
-            return timings;
-          }
-
-          function formatSeconds(value) {
-            return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} 秒` : "—";
-          }
-
-          function batchTimingText(count, elapsedSeconds, serverTiming) {
-            const parts = [`本批 ${count} 檔 ${formatSeconds(elapsedSeconds)}`];
-            if (Number.isFinite(serverTiming.market)) {
-              parts.push(`行情 ${(serverTiming.market / 1000).toFixed(1)} 秒`);
-            }
-            if (Number.isFinite(serverTiming.compute)) {
-              parts.push(`計算 ${(serverTiming.compute / 1000).toFixed(1)} 秒`);
-            }
-            return parts.join("（", 2).replace(/（([^（]+)$/u, "（$1）");
-          }
-          '''
-          if app.count(format_anchor) != 1:
-              raise SystemExit("public/app.js format helper anchor mismatch")
-          app = app.replace(format_anchor, format_helpers, 1)
-          app = app.replace(
-              '''    return payload;
-              } catch (error) {''',
-              '''    if (payload && typeof payload === "object") {
-                    Object.defineProperty(payload, "__responseMeta", {
-                      configurable: true,
-                      enumerable: false,
-                      value: {
-                        serverTiming: response.headers.get("server-timing") || "",
-                        requested: response.headers.get("x-scan-requested"),
-                        resolved: response.headers.get("x-scan-resolved"),
-                      },
-                    });
-                  }
-                  return payload;
-              } catch (error) {''',
-              1,
-          )
-          app = app.replace(
-              '''    attempts: {},
-                  retryRound: 0,
-                };''',
-              '''    attempts: {},
-                  retryRound: 0,
-                  performance: {
-                    batchCount: 0,
-                    totalSeconds: 0,
-                    lastBatchSeconds: null,
-                    lastServerTiming: {},
-                  },
-                };''',
-              1,
-          )
-          app = app.replace(
-              '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
-                    return job;''',
-              '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
-                    job.performance = job.performance && typeof job.performance === "object"
-                      ? job.performance
-                      : { batchCount: 0, totalSeconds: 0, lastBatchSeconds: null, lastServerTiming: {} };
-                    return job;''',
-              1,
-          )
-          app = app.replace(
-              '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-                  const firstPosition''',
-              '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-                  const batchStartedAt = performance.now();
-                  const firstPosition''',
-              1,
-          )
-          app = app.replace(
-              '''    if (cancelRequested) {
-                    job.pending.unshift(...chunk);
-                    break;
-                  }
-
-                  const responseMap''',
-              '''    const batchSeconds = (performance.now() - batchStartedAt) / 1000;
-                  const serverTiming = parseServerTiming(response?.__responseMeta?.serverTiming);
-                  job.performance = job.performance || {};
-                  job.performance.batchCount = Number(job.performance.batchCount || 0) + 1;
-                  job.performance.totalSeconds = Number(job.performance.totalSeconds || 0) + batchSeconds;
-                  job.performance.lastBatchSeconds = batchSeconds;
-                  job.performance.lastServerTiming = serverTiming;
-                  const timingText = batchTimingText(chunk.length, batchSeconds, serverTiming);
-
-                  if (cancelRequested) {
-                    job.pending.unshift(...chunk);
-                    break;
-                  }
-
-                  const responseMap''',
-              1,
-          )
-          app = app.replace(
-              '''      requestError
-                    ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，系統持續重試`
-                    : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,''',
-              '''      requestError
-                    ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔；${timingText}`
-                    : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔；${timingText}`,''',
-              1,
-          )
-          old_ticker_cell = '''    const row = createElement("tr");
-                row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));'''
-          new_ticker_cell = '''    const row = createElement("tr", { dataset: { ticker: item.ticker } });
-                const tickerCell = createElement("th", {
-                  scope: "row",
-                  className: "scan-ticker-cell",
-                  dataset: { ticker: item.ticker },
-                }, [
-                  createElement("span", { className: "scan-ticker-symbol", text: item.ticker }),
-                ]);
-                const displayNote = humanScanNote(item);
-                if (displayNote) {
-                  tickerCell.append(createElement("small", {
-                    className: "scan-ticker-note",
-                    text: displayNote,
-                  }));
-                }
-                row.append(tickerCell);'''
-          if app.count(old_ticker_cell) != 1:
-              raise SystemExit("public/app.js ticker cell anchor mismatch")
-          app = app.replace(old_ticker_cell, new_ticker_cell, 1)
-          app = app.replace(
-              '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-                ];''',
-              '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-                  ["最近一批耗時", formatSeconds(activeScanJob?.performance?.lastBatchSeconds)],
-                  [
-                    "平均每批耗時",
-                    formatSeconds(
-                      activeScanJob?.performance?.batchCount
-                        ? activeScanJob.performance.totalSeconds / activeScanJob.performance.batchCount
-                        : null,
-                    ),
-                  ],
-                ];''',
-              1,
-          )
-          app = app.replace(
-              '''  const lines = [headers.join(","), ...latestScan.map((item) => headers.map((key) => escapeCsv(item[key])).join(","))];''',
-              '''  const lines = [
-                headers.join(","),
-                ...latestScan.map((item) => headers.map((key) => (
-                  escapeCsv(key === "note" ? humanScanNote(item) : item[key])
-                )).join(",")),
-              ];''',
-              1,
-          )
-          app_path.write_text(app, encoding="utf-8")
-
-          # ----- Concise table explanation and two distinct CSV exports -----
-          score_path = Path("public/scan-composite-score.js")
-          score = score_path.read_text(encoding="utf-8")
-          constants_start = score.index("const BASE_EXPORT_HEADERS")
-          constants_end = score.index("\n\nconst rawResults", constants_start)
-          constants = '''const BASE_EXPORT_HEADERS = [
-            "ticker",
-            "total_return",
-            "cagr",
-            "volatility",
-            "mdd",
-            "sharpe_ratio",
-            "sortino_ratio",
-            "beta",
-            "alpha",
-            "data_coverage",
-            "trading_days",
-            "data_start",
-            "data_end",
-            "note",
-            "error",
-          ];
-          const FORMULA_SCORE_RANK_HEADERS = SCORE_FORMULAS.flatMap((formula) => [
-            formula.key,
-            formula.rankKey,
-          ]);
-          const FORMULA_AUDIT_HEADERS = SCORE_FORMULAS.flatMap((formula) => [
-            formula.key,
-            formula.rankKey,
-            formula.statusKey,
-          ]);
-          const CONCISE_EXPORT_HEADERS = [
-            ...BASE_EXPORT_HEADERS.slice(0, 9),
-            ...FORMULA_SCORE_RANK_HEADERS,
-            ...BASE_EXPORT_HEADERS.slice(9),
-          ];
-          const AUDIT_EXPORT_HEADERS = [
-            ...BASE_EXPORT_HEADERS.slice(0, 9),
-            ...FORMULA_AUDIT_HEADERS,
-            ...BASE_EXPORT_HEADERS.slice(9, 13),
-            "metric_definition_version",
-            "data_source",
-            "data_source_version",
-            "numpy_version",
-            "pandas_version",
-            "scipy_version",
-            "fingerprint_algorithm",
-            "risk_free_rate",
-            "trading_days_per_year",
-            "benchmark",
-            "benchmark_available",
-            "requested_start",
-            "requested_end_exclusive",
-            "price_fingerprint",
-            "aligned_price_fingerprint",
-            "benchmark_price_fingerprint",
-            "reproducibility",
-            "note",
-            "error",
-          ];
-          '''
-          score = score[:constants_start] + constants + score[constants_end:]
-          note_start = score.index("function ensureFormulaComparisonNote")
-          note_end = score.index("\n\nfunction removeInjectedColumns", note_start)
-          details_function = '''function ensureFormulaComparisonNote() {
-            const table = document.querySelector(TABLE_SELECTOR);
-            const tableWrap = table?.closest(".table-wrap");
-            if (!tableWrap) return;
-
-            let details = document.querySelector("#score-formula-comparison");
-            if (!details) {
-              details = document.createElement("details");
-              details.id = "score-formula-comparison";
-              details.className = "result-context score-formula-details";
-              const summary = document.createElement("summary");
-              summary.textContent = "分數公式與排名說明";
-              const list = document.createElement("ul");
-              SCORE_FORMULAS.forEach((formula) => {
-                const item = document.createElement("li");
-                item.textContent = `${formula.shortLabel}：${formula.description}`;
-                list.append(item);
-              });
-              const note = document.createElement("p");
-              note.textContent = "每格顯示「名次 · 分數」；排名以全部已完成且可計算標的為母體。";
-              details.append(summary, list, note);
-              tableWrap.insertAdjacentElement("beforebegin", details);
-            }
-          }
-          '''
-          score = score[:note_start] + details_function + score[note_end:]
-          score = score.replace(
-              '''    const ticker = normalizeScoreTicker(originalCells[0].textContent);''',
-              '''    const ticker = normalizeScoreTicker(row.dataset.ticker || originalCells[0].dataset.ticker || originalCells[0].textContent);''',
-              1,
-          )
-          export_start = score.index("function handleExportClick")
-          export_end = score.index("\n\nfunction updateMethodologyText", export_start)
-          export_functions = '''function humanNote(item) {
-            return String(item?.note || "")
-              .trim()
-              .replace(/^[（(]\s*/u, "")
-              .replace(/\s*[）)]$/u, "")
-              .split(/；?\s*再現資訊\b/u)[0]
-              .replace(/[；;\s]+$/u, "")
-              .trim();
-          }
-
-          function formulaHeaderValue(matrixResult, item, key) {
-            const formula = SCORE_FORMULAS.find((entry) => (
-              entry.key === key || entry.rankKey === key || entry.statusKey === key
-            ));
-            if (!formula) return undefined;
-            const record = scoreRecordFor(matrixResult, item?.ticker, formula.key);
-            if (key === formula.key) return record?.score == null ? "" : Number(record.score).toFixed(6);
-            if (key === formula.rankKey) return record?.rank ?? "";
-            return record?.status || "missing";
-          }
-
-          function exportValue(matrixResult, item, key, { audit = false } = {}) {
-            if (
-              FORMULA_SCORE_RANK_HEADERS.includes(key)
-              || FORMULA_AUDIT_HEADERS.includes(key)
-            ) {
-              return formulaHeaderValue(matrixResult, item, key);
-            }
-            if (key === "note") return humanNote(item);
-            if (key === "auto_adjust") return item?.data_source_settings?.auto_adjust;
-            if (key === "repair") return item?.data_source_settings?.repair;
-            if (!audit && ["reproducibility", "price_fingerprint", "aligned_price_fingerprint"].includes(key)) {
-              return "";
-            }
-            return item?.[key];
-          }
-
-          function exportRows(filename, headers, { audit = false } = {}) {
-            const rows = currentExportRows();
-            if (!rows.length) return;
-            const matrixResult = buildScoreMatrix(rows);
-            const lines = [
-              headers.join(","),
-              ...rows.map((item) => headers.map((key) => (
-                escapeCsv(exportValue(matrixResult, item, key, { audit }))
-              )).join(",")),
-            ];
-            downloadCsv(filename, `\\ufeff${lines.join("\\n")}`);
-          }
-
-          function handleExportClick(event) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            exportRows("scan-results.csv", CONCISE_EXPORT_HEADERS);
-          }
-
-          function handleAuditExportClick(event) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            exportRows("scan-results-audit.csv", AUDIT_EXPORT_HEADERS, { audit: true });
-          }
-          '''
-          score = score[:export_start] + export_functions + score[export_end:]
-          score = score.replace(
-              '''  document.querySelector("#export-scan")?.addEventListener("click", handleExportClick, true);
-                updateMethodologyText();''',
-              '''  document.querySelector("#export-scan")?.addEventListener("click", handleExportClick, true);
-                document.querySelector("#export-scan-audit")?.addEventListener("click", handleAuditExportClick, true);
-                updateMethodologyText();''',
-              1,
-          )
-          score_path.write_text(score, encoding="utf-8")
-
-          # ----- Cache-busted assets and dual export controls -----
-          index_path = Path("public/index.html")
-          index = index_path.read_text(encoding="utf-8")
-          index = index.replace('href="/styles.css"', 'href="/styles.css?v=20260801.2"', 1)
-          index = index.replace('src="/app.js"', 'src="/app.js?v=20260801.2"', 1)
-          index = index.replace(
-              'src="/scan-composite-score.js"',
-              'src="/scan-composite-score.js?v=20260801.2"',
-              1,
-          )
-          index = index.replace(
-              '''        <button id="export-scan" class="button ghost" type="button">匯出 CSV</button>''',
-              '''        <div class="toolbar">
-                    <button id="export-scan" class="button ghost" type="button">匯出精簡 CSV</button>
-                    <button id="export-scan-audit" class="button ghost" type="button">匯出稽核 CSV</button>
-                  </div>''',
-              1,
-          )
-          index_path.write_text(index, encoding="utf-8")
-
-          # ----- Stable, compact table layout -----
-          styles_path = Path("public/styles.css")
-          styles = styles_path.read_text(encoding="utf-8")
-          styles = styles.replace(
-              '.summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }',
-              '.summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }',
-              1,
-          )
-          styles += '''
-
-          /* Scan result density and audit-output controls. */
-          #scan-table { min-width: 1760px; }
-          #scan-table th,
-          #scan-table td { min-width: 104px; }
-          #scan-table th:first-child,
-          #scan-table td:first-child {
-            width: 150px;
-            min-width: 150px;
-            max-width: 180px;
-            white-space: normal;
-            z-index: 2;
-          }
-          #scan-table thead th:first-child { z-index: 4; }
-          #scan-table th[data-composite-metric],
-          #scan-table td[data-composite-metric] { min-width: 132px; }
-          .scan-ticker-cell { line-height: 1.25; }
-          .scan-ticker-symbol {
-            display: block;
-            color: var(--text);
-            font-weight: 800;
-            letter-spacing: 0.02em;
-          }
-          .scan-ticker-note {
-            display: block;
-            margin-top: 0.28rem;
-            color: var(--muted);
-            font-size: 0.7rem;
-            font-weight: 550;
-            white-space: normal;
-          }
-          .score-formula-details { padding-block: 0.65rem; }
-          .score-formula-details summary {
-            cursor: pointer;
-            color: var(--text);
-            font-weight: 750;
-          }
-          .score-formula-details ul {
-            margin: 0.65rem 0 0;
-            padding-left: 1.25rem;
-          }
-          .score-formula-details p { margin: 0.55rem 0 0; }
-          '''
-          styles_path.write_text(styles, encoding="utf-8")
-
-          # ----- Tests -----
-          runtime_path = Path("tests/test_production_runtime.py")
-          runtime = runtime_path.read_text(encoding="utf-8")
-          runtime = runtime.replace(
-              '    assert calls == [["SPY"], ["AAA", "BBB"]]\n',
-              '    assert calls == [["SPY", "AAA", "BBB"]]\n',
-              1,
-          )
-          runtime = runtime.replace(
-              '''    assert "aligned_sha256=" in result["note"]
-                assert response.headers["X-Metric-Definition-Version"] == result[''',
-              '''    assert result["note"] is None
-                assert "aligned_sha256=" in result["reproducibility"]
-                assert "market;dur=" in response.headers["Server-Timing"]
-                assert response.headers["X-Scan-Requested"] == "1"
-                assert response.headers["X-Scan-Resolved"] == "1"
-                assert response.headers["X-Metric-Definition-Version"] == result[''',
-              1,
-          )
-          runtime_path.write_text(runtime, encoding="utf-8")
-
-          metrics_test_path = Path("tests/test_metrics_core.py")
-          metrics_test = metrics_test_path.read_text(encoding="utf-8")
-          metrics_test = metrics_test.replace(
-              '''from api.metrics import (
-                METRIC_DEFINITION_VERSION,''',
-              '''from api.metrics import (
-                FINGERPRINT_ALGORITHM,
-                METRIC_DEFINITION_VERSION,''',
-              1,
-          )
-          metrics_test = metrics_test.replace(
-              '''    assert metadata["scipy_version"] == "1.17.1"
-          ''',
-              '''    assert metadata["scipy_version"] == "1.17.1"
-              assert metadata["fingerprint_algorithm"] == FINGERPRINT_ALGORITHM
-          ''',
-              1,
-          )
-          metrics_test_path.write_text(metrics_test, encoding="utf-8")
-
-          Path("tests/e2e/scan_output_readability.spec.mjs").write_text(r'''import { readFile } from "node:fs/promises";
-          import { expect, test } from "@playwright/test";
-
-          async function fulfillJson(route, body, status = 200, headers = {}) {
-            await route.fulfill({
-              status,
-              contentType: "application/json",
-              headers,
-              body: JSON.stringify(body),
-            });
-          }
-
-          const scanRow = {
-            ticker: "AAA",
-            status: "ok",
-            retryable: false,
-            total_return: 1.25,
-            cagr: 0.18,
-            volatility: 0.25,
-            mdd: -0.32,
-            sharpe_ratio: 0.9,
-            sortino_ratio: 1.3,
-            beta: 1.1,
-            alpha: 0.05,
-            data_coverage: 0.97,
-            trading_days: 220,
-            data_start: "2025-02-13",
-            data_end: "2026-07-31",
-            note: "（從 2025-02-13 開始；再現資訊 metric=legacy;asset_sha256=abc;aligned_sha256=def）",
-            metric_definition_version: "2026-08-01.1",
-            data_source: "Yahoo Finance via yfinance",
-            data_source_version: "1.2.1",
-            numpy_version: "2.2.6",
-            pandas_version: "2.2.3",
-            scipy_version: "1.17.1",
-            fingerprint_algorithm: "sha256-le-i8-f8-v1",
-            risk_free_rate: 0,
-            trading_days_per_year: 252,
-            benchmark: "SPY",
-            benchmark_available: true,
-            requested_start: "2025-01-01",
-            requested_end_exclusive: "2026-08-01",
-            price_fingerprint: "abc",
-            aligned_price_fingerprint: "def",
-            benchmark_price_fingerprint: "ghi",
-            reproducibility: "metric=2026-08-01.1;asset_sha256=abc;aligned_sha256=def",
-            data_source_settings: { repair: true, auto_adjust: true },
-          };
-
-          test("scan table stays compact and exports summary separately from audit metadata", async ({ page }) => {
-            await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
-            await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
-            await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-            await page.route("**/api/scan", (route) => fulfillJson(
-              route,
-              [scanRow],
-              200,
-              {
-                "server-timing": "market;dur=1250.0, compute;dur=220.0, total;dur=1500.0",
-                "x-scan-requested": "1",
-                "x-scan-resolved": "1",
-              },
-            ));
-
-            await page.goto("/");
-            await page.getByRole("button", { name: "個股掃描" }).click();
-            await page.locator("#scan-tickers").fill("AAA");
-            await page.locator("#scan-start-period").fill("2025-01");
-            await page.locator("#scan-end-period").fill("2026-07");
-            await page.getByRole("button", { name: "開始集體回測" }).click();
-            await expect(page.locator("#loading-overlay")).toHaveClass(/hidden/);
-
-            const tickerCell = page.locator("#scan-table tbody th").first();
-            await expect(tickerCell).toContainText("AAA");
-            await expect(tickerCell).toContainText("從 2025-02-13 開始");
-            await expect(tickerCell).not.toContainText("asset_sha256");
-            expect(await tickerCell.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(190);
-            await expect(page.locator("#scan-progress-label")).toContainText("行情 1.3 秒");
-
-            const formulaDetails = page.locator("#score-formula-comparison");
-            await expect(formulaDetails).toBeVisible();
-            expect(await formulaDetails.evaluate((element) => element.open)).toBe(false);
-
-            const conciseDownload = page.waitForEvent("download");
-            await page.locator("#export-scan").click();
-            const concise = await conciseDownload;
-            const conciseText = await readFile(await concise.path(), "utf8");
-            expect(concise.suggestedFilename()).toBe("scan-results.csv");
-            expect(conciseText).toContain("sortino_growth_beta_score");
-            expect(conciseText).not.toContain("sortino_growth_beta_score_status");
-            expect(conciseText).not.toContain("asset_sha256");
-            expect(conciseText).toContain("從 2025-02-13 開始");
-
-            const auditDownload = page.waitForEvent("download");
-            await page.locator("#export-scan-audit").click();
-            const audit = await auditDownload;
-            const auditText = await readFile(await audit.path(), "utf8");
-            expect(audit.suggestedFilename()).toBe("scan-results-audit.csv");
-            expect(auditText).toContain("fingerprint_algorithm");
-            expect(auditText).toContain("price_fingerprint");
-            expect(auditText).toContain("asset_sha256=abc");
-          });
-          ''', encoding="utf-8")
-
-          docs_path = Path("docs/METRICS_REPRODUCIBILITY.md")
-          docs = docs_path.read_text(encoding="utf-8")
-          docs = docs.replace(
-              "每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋；CSV 的 `note` 欄也保存同一份精簡再現資訊。",
-              "每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋。互動畫面及精簡 CSV 只顯示人類可讀備註；完整版本、參數與指紋放在獨立稽核 CSV，避免污染股票代碼與主要績效欄。",
-              1,
-          )
-          docs = docs.replace(
-              "- `price_fingerprint`\n",
-              "- `fingerprint_algorithm`\n- `price_fingerprint`\n",
-              1,
-          )
-          docs_path.write_text(docs, encoding="utf-8")
 
           Path(".github/workflows/apply-scan-output-performance-fix.yml").unlink()
           PY
-      - name: Commit changes
+      - name: Commit backend changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Improve scan output readability and fingerprint performance"
+          git commit -m "Speed up scan fingerprints and expose phase timing"
           git push origin HEAD:fix/scan-output-and-performance
