@@ -70,12 +70,32 @@ test("stale saved scan results are automatically recalculated", async ({ page })
     }));
   }, { storageKey: STORAGE_KEY, payload: scanPayload() });
 
-  await page.reload({ waitUntil: "domcontentloaded" });
+  // The metric migration deliberately performs one nested reload. Schedule the
+  // first navigation asynchronously so Playwright does not wait on the
+  // intermediate document that is immediately replaced by the migration.
+  await page.evaluate(() => {
+    setTimeout(() => window.location.reload(), 0);
+  });
 
-  await expect.poll(async () => page.evaluate(
-    ({ storageKey }) => JSON.parse(localStorage.getItem(storageKey))?.status,
-    { storageKey: STORAGE_KEY },
-  )).toBe("completed");
+  await expect.poll(async () => {
+    try {
+      return await page.evaluate(({ storageKey, metricVersion }) => {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return null;
+        const job = JSON.parse(raw);
+        const result = job.results?.[0];
+        return (
+          job.status === "completed"
+          && result?.metric_definition_version === metricVersion
+          && result?.cagr === 0.42
+        ) ? "recalculated" : null;
+      }, { storageKey: STORAGE_KEY, metricVersion: METRIC_VERSION });
+    } catch {
+      // A navigation can destroy the current execution context between polls.
+      return null;
+    }
+  }, { timeout: 30_000 }).toBe("recalculated");
+
   const recalculated = await page.evaluate(
     ({ storageKey }) => JSON.parse(localStorage.getItem(storageKey)),
     { storageKey: STORAGE_KEY },
