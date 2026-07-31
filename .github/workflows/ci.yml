@@ -33,7 +33,7 @@ jobs:
       - name: Install Worker dependencies
         run: npm ci
       - name: Compile Python
-        run: python -m compileall -q api/index.py scripts/update_universes.py
+        run: python -m compileall -q api/index.py api/scan.py api/screener.py scripts/update_universes.py
       - name: Lint Python
         run: ruff check api scripts tests
       - name: Test Python
