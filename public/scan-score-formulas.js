@@ -43,11 +43,11 @@ function rawMetric(item, key) {
 
 function unavailable(status, reason, values = {}) {
   return {
+    ...values,
     score: null,
     rank: null,
     status,
     reason,
-    ...values,
   };
 }
 
