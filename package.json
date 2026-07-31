@@ -5,6 +5,7 @@
   "scripts": {
     "check": "node --check public/app.js && node --check public/scan-output-ui.js && node --check public/scan-score-formulas.js && node --check public/scan-composite-score.js && node --check worker/index.js && node --check scripts/smoke_test_production.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:scan-output": "playwright test tests/e2e/scan_output_readability.spec.mjs",
     "test:worker": "node --test tests/test_worker.mjs",
     "test:score": "node --test tests/test_scan_score_formulas.mjs",
     "types": "wrangler types"
