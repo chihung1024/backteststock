@@ -97,15 +97,25 @@ def scan_handler():
         start_date, end_exclusive = legacy.parse_period(data)
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
+
+        # Resolve the one shared benchmark independently before the large asset
+        # batch. This prevents one missing benchmark from invalidating or
+        # repeatedly delaying up to 100 otherwise usable asset histories. The
+        # process TTL cache makes later browser batches reuse the same data.
+        benchmark_resolved, benchmark_unresolved = legacy.download_prices_finitely(
+            [benchmark_ticker],
+            start_text,
+            end_text,
+        )
         resolved, unresolved = legacy.download_prices_finitely(
-            legacy.deduplicate([*tickers, benchmark_ticker]),
+            tickers,
             start_text,
             end_text,
         )
         unresolved_set = set(unresolved)
-        benchmark_prices = resolved.get(benchmark_ticker)
+        benchmark_prices = benchmark_resolved.get(benchmark_ticker)
         benchmark_available = (
-            benchmark_ticker not in unresolved_set
+            benchmark_ticker not in set(benchmark_unresolved)
             and benchmark_prices is not None
             and not benchmark_prices.empty
         )
