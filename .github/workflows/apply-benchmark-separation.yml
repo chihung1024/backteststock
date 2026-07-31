@@ -1,0 +1,146 @@
+name: Apply benchmark separation
+
+on:
+  push:
+    branches: [fix/scan-stall-finite-fallback]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/scan-stall-finite-fallback
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Separate benchmark from large asset batches
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          scan_path = Path("api/scan_v2.py")
+          scan = scan_path.read_text(encoding="utf-8")
+          old = '''        resolved, unresolved = legacy.download_prices_finitely(
+              legacy.deduplicate([*tickers, benchmark_ticker]),
+              start_text,
+              end_text,
+          )
+          unresolved_set = set(unresolved)
+          benchmark_prices = resolved.get(benchmark_ticker)
+          benchmark_available = (
+              benchmark_ticker not in unresolved_set
+              and benchmark_prices is not None
+              and not benchmark_prices.empty
+          )'''
+          new = '''        # Resolve the one shared benchmark independently before the large asset
+          # batch. This avoids one missing benchmark invalidating or repeatedly
+          # delaying up to 100 otherwise usable asset histories. The legacy TTL
+          # cache makes subsequent browser batches reuse the same benchmark data.
+          benchmark_resolved, benchmark_unresolved = legacy.download_prices_finitely(
+              [benchmark_ticker],
+              start_text,
+              end_text,
+          )
+          resolved, unresolved = legacy.download_prices_finitely(
+              tickers,
+              start_text,
+              end_text,
+          )
+          unresolved_set = set(unresolved)
+          benchmark_prices = benchmark_resolved.get(benchmark_ticker)
+          benchmark_available = (
+              benchmark_ticker not in set(benchmark_unresolved)
+              and benchmark_prices is not None
+              and not benchmark_prices.empty
+          )'''
+          if scan.count(old) != 1:
+              raise SystemExit(f"scan download block matches={scan.count(old)}")
+          scan_path.write_text(scan.replace(old, new, 1), encoding="utf-8")
+
+          test_path = Path("tests/test_production_runtime.py")
+          tests = test_path.read_text(encoding="utf-8")
+          old_aligned = '''    monkeypatch.setattr(
+              scan_v2.legacy,
+              "download_prices_finitely",
+              lambda *_args, **_kwargs: ({"AAA": asset, "SPY": benchmark}, []),
+          )'''
+          new_aligned = '''    source = {"AAA": asset, "SPY": benchmark}
+
+          def fake_download(requested, *_args, **_kwargs):
+              return ({ticker: source[ticker] for ticker in requested if ticker in source}, [])
+
+          monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)'''
+          if tests.count(old_aligned) != 1:
+              raise SystemExit(f"aligned fixture matches={tests.count(old_aligned)}")
+          tests = tests.replace(old_aligned, new_aligned, 1)
+
+          old_unavailable = '''    monkeypatch.setattr(
+              scan_v2.legacy,
+              "download_prices_finitely",
+              lambda *_args, **_kwargs: ({"AAA": asset}, ["SPY"]),
+          )'''
+          new_unavailable = '''    def fake_download(requested, *_args, **_kwargs):
+              if requested == ["SPY"]:
+                  return ({}, ["SPY"])
+              return ({"AAA": asset}, [])
+
+          monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)'''
+          if tests.count(old_unavailable) != 1:
+              raise SystemExit(f"unavailable fixture matches={tests.count(old_unavailable)}")
+          tests = tests.replace(old_unavailable, new_unavailable, 1)
+
+          anchor = '''    assert "Beta／Alpha 暫不計算" in result["note"]
+
+          def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):'''
+          added = '''    assert "Beta／Alpha 暫不計算" in result["note"]
+
+
+          def test_scan_resolves_benchmark_once_before_large_asset_batch(scan_client, monkeypatch):
+              dates = pd.bdate_range("2024-01-02", periods=4)
+              source = {
+                  "SPY": pd.Series([100, 101, 102, 103], index=dates, name="SPY"),
+                  "AAA": pd.Series([50, 51, 52, 53], index=dates, name="AAA"),
+                  "BBB": pd.Series([80, 79, 81, 82], index=dates, name="BBB"),
+              }
+              calls = []
+
+              def fake_download(requested, *_args, **_kwargs):
+                  calls.append(list(requested))
+                  return ({ticker: source[ticker] for ticker in requested}, [])
+
+              monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+              response = scan_client.post(
+                  "/api/scan",
+                  json={
+                      "tickers": ["AAA", "BBB"],
+                      "benchmark": "SPY",
+                      "startYear": 2024,
+                      "startMonth": 1,
+                      "endYear": 2024,
+                      "endMonth": 1,
+                  },
+              )
+              assert response.status_code == 200
+              assert calls == [["SPY"], ["AAA", "BBB"]]
+              assert [row["ticker"] for row in response.get_json()] == ["AAA", "BBB"]
+
+
+          def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):'''
+          if tests.count(anchor) != 1:
+              raise SystemExit(f"test insertion anchor matches={tests.count(anchor)}")
+          test_path.write_text(tests.replace(anchor, added, 1), encoding="utf-8")
+
+          Path(".github/workflows/apply-benchmark-separation.yml").unlink()
+          PY
+      - name: Commit optimization
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Resolve benchmark separately from large scan batches"
+          git push origin HEAD:fix/scan-stall-finite-fallback
