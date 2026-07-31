@@ -4,12 +4,59 @@ const STORAGE_KEY = "backteststock-scan-job-v2";
 const SESSION_KEY = "backteststock-metric-cache-invalidated";
 const METRIC_VERSION = "2026-07-31.1";
 
-test("stale saved scan results are removed before they can remain active", async ({ page }) => {
+function scanPayload() {
+  return {
+    tickers: ["AAA"],
+    benchmark: "SPY",
+    startYear: 2024,
+    startMonth: 1,
+    endYear: 2024,
+    endMonth: 12,
+  };
+}
+
+test("stale saved scan results are automatically recalculated", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(({ storageKey }) => {
+  let scanRequests = 0;
+  await page.route("**/api/scan", async (route) => {
+    scanRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          ticker: "AAA",
+          status: "ok",
+          retryable: false,
+          metric_definition_version: METRIC_VERSION,
+          total_return: 0.42,
+          cagr: 0.42,
+          volatility: 0.30,
+          mdd: -0.20,
+          sharpe_ratio: 1.40,
+          sortino_ratio: 2.10,
+          beta: 1.05,
+          alpha: 0.08,
+          data_coverage: 1,
+          trading_days: 252,
+          data_start: "2024-01-02",
+          data_end: "2024-12-31",
+        },
+      ]),
+    });
+  });
+
+  await page.evaluate(({ storageKey, payload }) => {
     localStorage.setItem(storageKey, JSON.stringify({
+      version: 2,
       id: "legacy-metric-job",
       status: "completed",
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+      payload,
+      pending: [],
+      attempts: {},
+      retryRound: 0,
       results: [
         {
           ticker: "AAA",
@@ -21,26 +68,47 @@ test("stale saved scan results are removed before they can remain active", async
         },
       ],
     }));
-  }, { storageKey: STORAGE_KEY });
+  }, { storageKey: STORAGE_KEY, payload: scanPayload() });
 
   await page.reload({ waitUntil: "domcontentloaded" });
 
-  await expect.poll(() => page.evaluate(
-    ({ storageKey }) => localStorage.getItem(storageKey),
+  await expect.poll(async () => page.evaluate(
+    ({ storageKey }) => JSON.parse(localStorage.getItem(storageKey))?.status,
     { storageKey: STORAGE_KEY },
-  )).toBeNull();
-  await expect.poll(() => page.evaluate(
+  )).toBe("completed");
+  const recalculated = await page.evaluate(
+    ({ storageKey }) => JSON.parse(localStorage.getItem(storageKey)),
+    { storageKey: STORAGE_KEY },
+  );
+  expect(scanRequests).toBe(1);
+  expect(recalculated.recalculationReason).toBe("metric_definition_changed");
+  expect(recalculated.results[0].metric_definition_version).toBe(METRIC_VERSION);
+  expect(recalculated.results[0].cagr).toBe(0.42);
+  expect(recalculated.results[0].cagr).not.toBe(0.25);
+  expect(await page.evaluate(
     ({ sessionKey }) => sessionStorage.getItem(sessionKey),
     { sessionKey: SESSION_KEY },
   )).toBe(METRIC_VERSION);
 });
 
-test("current metric-version scan results remain available", async ({ page }) => {
+test("current metric-version scan results remain available without recalculation", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(({ storageKey, metricVersion }) => {
+  let scanRequests = 0;
+  await page.route("**/api/scan", async (route) => {
+    scanRequests += 1;
+    await route.abort();
+  });
+  await page.evaluate(({ storageKey, metricVersion, payload }) => {
     localStorage.setItem(storageKey, JSON.stringify({
+      version: 2,
       id: "current-metric-job",
       status: "completed",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      updatedAt: "2026-07-31T00:00:00.000Z",
+      payload,
+      pending: [],
+      attempts: {},
+      retryRound: 0,
       results: [
         {
           ticker: "AAA",
@@ -53,14 +121,20 @@ test("current metric-version scan results remain available", async ({ page }) =>
         },
       ],
     }));
-  }, { storageKey: STORAGE_KEY, metricVersion: METRIC_VERSION });
+  }, {
+    storageKey: STORAGE_KEY,
+    metricVersion: METRIC_VERSION,
+    payload: scanPayload(),
+  });
 
   await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(250);
 
   const savedJob = await page.evaluate(
     ({ storageKey }) => JSON.parse(localStorage.getItem(storageKey)),
     { storageKey: STORAGE_KEY },
   );
+  expect(scanRequests).toBe(0);
   expect(savedJob.id).toBe("current-metric-job");
   expect(savedJob.results[0].metric_definition_version).toBe(METRIC_VERSION);
 });
