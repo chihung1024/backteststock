@@ -52,7 +52,17 @@ jobs:
       - name: Install browser for end-to-end tests
         run: npx playwright install --with-deps chromium
       - name: Test browser user flow
-        run: npm run test:e2e
+        run: npm run test:e2e -- --reporter=line,html
+      - name: Upload browser diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Validate Vercel configuration
         run: python -m json.tool vercel.json > /dev/null
       - name: Apply D1 migrations locally
