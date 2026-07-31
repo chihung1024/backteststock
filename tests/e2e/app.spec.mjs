@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { METRIC_DEFINITION_VERSION } from "../../public/scan-score-formulas.js";
+
 const universes = [
   {
     id: "sp500",
@@ -48,6 +50,7 @@ const scanResults = [
     ticker: "NVDA",
     status: "ok",
     retryable: false,
+    metric_definition_version: METRIC_DEFINITION_VERSION,
     total_return: 0.25,
     cagr: 0.25,
     volatility: 0.42,
@@ -66,6 +69,7 @@ const scanResults = [
     ticker: "MSFT",
     status: "ok",
     retryable: false,
+    metric_definition_version: METRIC_DEFINITION_VERSION,
     total_return: 0.18,
     cagr: 0.18,
     volatility: 0.24,
@@ -95,6 +99,7 @@ function scanResultFor(ticker, position = 0) {
     ticker,
     status: "ok",
     retryable: false,
+    metric_definition_version: METRIC_DEFINITION_VERSION,
     total_return: 0.1 + position / 10_000,
     cagr: 0.08 + position / 10_000,
     volatility: 0.2,
