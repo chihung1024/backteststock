@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const scoreKey = "ten_year_quality_score";
-const scoreLabel = "十年品質分數";
+const scoreKey = "sortino_alpha_mdd_score";
+const scoreLabel = "Sortino×Alpha/|MDD|";
 
 const scanResults = [
   {
@@ -76,6 +76,24 @@ const scanResults = [
     data_end: "2025-12-31",
     note: "（從 2024-03-27 開始）",
   },
+  {
+    ticker: "ZERO",
+    status: "ok",
+    retryable: false,
+    total_return: 0,
+    cagr: 0,
+    volatility: 0,
+    mdd: 0,
+    sharpe_ratio: 0,
+    sortino_ratio: 1,
+    beta: 1,
+    alpha: 0.02,
+    data_coverage: 1,
+    trading_days: 2520,
+    data_start: "2016-01-04",
+    data_end: "2025-12-31",
+    note: null,
+  },
 ];
 
 async function fulfillJson(route, body) {
@@ -86,7 +104,7 @@ async function fulfillJson(route, body) {
   });
 }
 
-test("replaces the old formula with the cross-sectional ten-year quality score", async ({ page }) => {
+test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, scanResults.map((item) => item.ticker)));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
@@ -104,32 +122,54 @@ test("replaces the old formula with the cross-sectional ten-year quality score",
   await expect(scoreHeader).toHaveText(scoreLabel);
   await expect(scoreHeader).toHaveClass(/sortable/);
   await expect(scoreHeader).toHaveAttribute("data-sort-key", scoreKey);
+  await expect(page.locator('#scan-table th[data-composite-metric="ten_year_quality_score"]')).toHaveCount(0);
   await expect(page.locator('#scan-table th[data-composite-metric="sortino_alpha_beta_mdd_score"]')).toHaveCount(0);
 
   const nvdaRow = page.locator("#scan-table tbody tr", { hasText: "NVDA" });
   const msftRow = page.locator("#scan-table tbody tr", { hasText: "MSFT" });
   const qualityRow = page.locator("#scan-table tbody tr", { hasText: "QUALITY" });
   const shortRow = page.locator("#scan-table tbody tr", { hasText: "SHORT" });
+  const zeroRow = page.locator("#scan-table tbody tr", { hasText: "ZERO" });
 
-  await expect(nvdaRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("41.97");
-  await expect(msftRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("22.36");
-  await expect(qualityRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("22.53");
-  await expect(shortRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("不合格");
-  await expect(shortRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveAttribute("title", /低於 80%/);
+  await expect(nvdaRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.6558");
+  await expect(msftRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.4000");
+  await expect(qualityRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.8000");
+  await expect(shortRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("11.1846");
+  await expect(zeroRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("—");
+  await expect(zeroRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveAttribute("title", /最大回撤為 0/);
 
-  await expect(tickerCells).toHaveText(["SHORT （從 2024-03-27 開始）", "MSFT", "NVDA", "QUALITY"]);
+  await expect(tickerCells).toHaveText([
+    "SHORT （從 2024-03-27 開始）",
+    "MSFT",
+    "NVDA",
+    "QUALITY",
+    "ZERO",
+  ]);
 
   await scoreHeader.click();
   await expect(scoreHeader).toHaveText(`${scoreLabel} ▼`);
   await expect(scoreHeader).toHaveAttribute("aria-sort", "descending");
-  await expect(tickerCells).toHaveText(["NVDA", "QUALITY", "MSFT", "SHORT （從 2024-03-27 開始）"]);
+  await expect(tickerCells).toHaveText([
+    "SHORT （從 2024-03-27 開始）",
+    "QUALITY",
+    "NVDA",
+    "MSFT",
+    "ZERO",
+  ]);
 
   await scoreHeader.click();
   await expect(scoreHeader).toHaveText(`${scoreLabel} ▲`);
   await expect(scoreHeader).toHaveAttribute("aria-sort", "ascending");
-  await expect(tickerCells).toHaveText(["MSFT", "QUALITY", "NVDA", "SHORT （從 2024-03-27 開始）"]);
+  await expect(tickerCells).toHaveText([
+    "MSFT",
+    "NVDA",
+    "QUALITY",
+    "SHORT （從 2024-03-27 開始）",
+    "ZERO",
+  ]);
 
   await page.getByRole("button", { name: "方法與限制" }).click();
-  await expect(page.locator("#about-panel")).toContainText("十年品質分數");
+  await expect(page.locator("#about-panel")).toContainText("Sortino × Alpha ÷ |最大回撤|");
+  await expect(page.locator("#about-panel")).not.toContainText("十年品質分數");
   await expect(page.locator("#about-panel")).not.toContainText("Sortino × Alpha ÷ (1 + Beta)");
 });

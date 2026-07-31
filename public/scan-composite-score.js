@@ -1,26 +1,10 @@
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
-const SCORE_KEY = "ten_year_quality_score";
-const SCORE_LABEL = "十年品質分數";
-const SCORE_DESCRIPTION = [
-  "合格股票內橫斷面百分位加權幾何平均",
-  "CAGR 35%",
-  "風險調整品質 30%（Sortino 70%＋Sharpe 30%）",
-  "Alpha 20%",
-  "低最大回撤 15%",
-  "資料覆蓋率 80%～95% 套用四次方可靠度折扣",
-].join(" · ");
-const REQUIRED_METRICS = [
-  "cagr",
-  "sharpe_ratio",
-  "sortino_ratio",
-  "alpha",
-  "mdd",
-  "data_coverage",
-];
-const MIN_COVERAGE = 0.80;
-const FULL_COVERAGE = 0.95;
-const PERCENTILE_FLOOR = 0.05;
+const SCORE_KEY = "sortino_alpha_mdd_score";
+const SCORE_STATUS_KEY = "sortino_alpha_mdd_score_status";
+const SCORE_LABEL = "Sortino×Alpha/|MDD|";
+const SCORE_DESCRIPTION = "Sortino × Alpha ÷ |最大回撤|";
+const REQUIRED_METRICS = ["sortino_ratio", "alpha", "mdd"];
 const EXPORT_HEADERS = [
   "ticker",
   "total_return",
@@ -32,7 +16,7 @@ const EXPORT_HEADERS = [
   "beta",
   "alpha",
   SCORE_KEY,
-  "quality_score_status",
+  SCORE_STATUS_KEY,
   "data_coverage",
   "trading_days",
   "data_start",
@@ -42,7 +26,6 @@ const EXPORT_HEADERS = [
 ];
 
 const rawResults = new Map();
-const scoreRecords = new Map();
 const originalFetch = window.fetch.bind(window);
 let activeJobId = null;
 let observer;
@@ -66,12 +49,57 @@ function rawMetric(item, key) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function calculateScoreRecord(item) {
+  if (item?.error) {
+    return { score: null, status: "error", reason: String(item.error) };
+  }
+
+  const values = Object.fromEntries(REQUIRED_METRICS.map((key) => [key, rawMetric(item, key)]));
+  const missing = REQUIRED_METRICS.filter((key) => values[key] == null);
+  if (missing.length) {
+    return {
+      score: null,
+      status: "missing_metrics",
+      reason: `缺少必要指標：${missing.join(", ")}`,
+    };
+  }
+
+  const absoluteMdd = Math.abs(values.mdd);
+  if (absoluteMdd <= Number.EPSILON) {
+    return {
+      score: null,
+      status: "zero_mdd",
+      reason: "最大回撤為 0，無法作為除數。",
+      ...values,
+      absoluteMdd,
+    };
+  }
+
+  const score = values.sortino_ratio * values.alpha / absoluteMdd;
+  if (!Number.isFinite(score)) {
+    return {
+      score: null,
+      status: "invalid_result",
+      reason: "計算結果不是有限數值。",
+      ...values,
+      absoluteMdd,
+    };
+  }
+
+  return {
+    score,
+    status: "ok",
+    ...values,
+    absoluteMdd,
+  };
+}
+
 function readSavedJob() {
   try {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
     return job && typeof job === "object" ? job : null;
   } catch (error) {
-    console.warn("Unable to read saved scan job for quality score", error);
+    console.warn("Unable to read saved scan job for composite score", error);
     return null;
   }
 }
@@ -81,116 +109,12 @@ function synchronizeActiveJob({ restoreResults = false } = {}) {
   if (job?.id && job.id !== activeJobId) {
     activeJobId = job.id;
     rawResults.clear();
-    scoreRecords.clear();
   }
 
   if (restoreResults && Array.isArray(job?.results)) {
     captureRawResults(job.results, { synchronize: false });
   }
   return job;
-}
-
-function percentileRanks(candidates, valueGetter) {
-  const entries = candidates
-    .map((candidate) => ({ ticker: candidate.ticker, value: valueGetter(candidate) }))
-    .filter((entry) => Number.isFinite(entry.value))
-    .sort((left, right) => left.value - right.value);
-  const ranks = new Map();
-  if (!entries.length) return ranks;
-  if (entries.length === 1) {
-    ranks.set(entries[0].ticker, 0.5);
-    return ranks;
-  }
-
-  let index = 0;
-  while (index < entries.length) {
-    let end = index;
-    while (end + 1 < entries.length && entries[end + 1].value === entries[index].value) {
-      end += 1;
-    }
-    const averageRank = (index + end) / 2;
-    const percentile = averageRank / (entries.length - 1);
-    for (let cursor = index; cursor <= end; cursor += 1) {
-      ranks.set(entries[cursor].ticker, percentile);
-    }
-    index = end + 1;
-  }
-  return ranks;
-}
-
-function adjustedPercentile(value) {
-  return PERCENTILE_FLOOR + (1 - PERCENTILE_FLOOR) * value;
-}
-
-function recomputeScores() {
-  scoreRecords.clear();
-  const candidates = [];
-
-  rawResults.forEach((item, ticker) => {
-    if (item?.error) {
-      scoreRecords.set(ticker, { score: null, status: "error", reason: String(item.error) });
-      return;
-    }
-
-    const values = Object.fromEntries(REQUIRED_METRICS.map((key) => [key, rawMetric(item, key)]));
-    const missing = REQUIRED_METRICS.filter((key) => values[key] == null);
-    if (missing.length) {
-      scoreRecords.set(ticker, {
-        score: null,
-        status: "missing_metrics",
-        reason: `缺少必要指標：${missing.join(", ")}`,
-      });
-      return;
-    }
-
-    if (values.data_coverage < MIN_COVERAGE) {
-      scoreRecords.set(ticker, {
-        score: null,
-        status: "insufficient_history",
-        reason: `資料覆蓋率 ${(values.data_coverage * 100).toFixed(2)}%，低於 80% 主模型門檻`,
-        coverage: values.data_coverage,
-      });
-      return;
-    }
-
-    candidates.push({ ticker, item, values });
-  });
-
-  const cagrRanks = percentileRanks(candidates, (candidate) => candidate.values.cagr);
-  const sharpeRanks = percentileRanks(candidates, (candidate) => candidate.values.sharpe_ratio);
-  const sortinoRanks = percentileRanks(candidates, (candidate) => candidate.values.sortino_ratio);
-  const alphaRanks = percentileRanks(candidates, (candidate) => candidate.values.alpha);
-  const drawdownRanks = percentileRanks(candidates, (candidate) => -Math.abs(candidate.values.mdd));
-
-  candidates.forEach((candidate) => {
-    const cagrPercentile = cagrRanks.get(candidate.ticker);
-    const sharpePercentile = sharpeRanks.get(candidate.ticker);
-    const sortinoPercentile = sortinoRanks.get(candidate.ticker);
-    const alphaPercentile = alphaRanks.get(candidate.ticker);
-    const drawdownPercentile = drawdownRanks.get(candidate.ticker);
-    const riskAdjustedQuality = 0.7 * sortinoPercentile + 0.3 * sharpePercentile;
-    const core = 100
-      * adjustedPercentile(cagrPercentile) ** 0.35
-      * adjustedPercentile(riskAdjustedQuality) ** 0.30
-      * adjustedPercentile(alphaPercentile) ** 0.20
-      * adjustedPercentile(drawdownPercentile) ** 0.15;
-    const historyReliability = Math.min(1, candidate.values.data_coverage / FULL_COVERAGE) ** 4;
-    const score = core * historyReliability;
-
-    scoreRecords.set(candidate.ticker, {
-      score,
-      status: "ok",
-      core,
-      historyReliability,
-      coverage: candidate.values.data_coverage,
-      cagrPercentile,
-      sharpePercentile,
-      sortinoPercentile,
-      riskAdjustedQuality,
-      alphaPercentile,
-      drawdownPercentile,
-    });
-  });
 }
 
 function captureRawResults(payload, { synchronize = true } = {}) {
@@ -205,10 +129,7 @@ function captureRawResults(payload, { synchronize = true } = {}) {
     changed = true;
   });
 
-  if (changed) {
-    recomputeScores();
-    scheduleScoreColumnUpdate();
-  }
+  if (changed) scheduleScoreColumnUpdate();
 }
 
 function restoreSavedRawResults() {
@@ -224,7 +145,7 @@ function isScanRequest(input) {
   }
 }
 
-window.fetch = async function fetchWithQualityMetricCapture(input, init) {
+window.fetch = async function fetchWithCompositeMetricCapture(input, init) {
   const response = await originalFetch(input, init);
   if (response.ok && isScanRequest(input)) {
     response.clone().json().then((payload) => captureRawResults(payload)).catch(() => {});
@@ -233,7 +154,7 @@ window.fetch = async function fetchWithQualityMetricCapture(input, init) {
 };
 
 function scoreFromItem(item) {
-  return scoreRecords.get(normalizeTicker(item?.ticker))?.score ?? null;
+  return calculateScoreRecord(item).score;
 }
 
 function scoreSortGetter() {
@@ -263,29 +184,20 @@ function setScoreCell(cell, record) {
   cell.dataset.compositeMetric = SCORE_KEY;
   cell.classList.remove("positive", "negative");
 
-  if (!record || record.status === "missing_metrics" || record.status === "error") {
+  if (!record || record.score == null) {
     cell.textContent = "—";
-    cell.title = record?.reason || "必要數據缺漏，無法計算十年品質分數。";
+    cell.title = `${record?.reason || "必要數據缺漏，無法計算。"} 排序時固定置底。`;
     return;
   }
 
-  if (record.status === "insufficient_history") {
-    cell.textContent = "不合格";
-    cell.title = `${record.reason}；不參與百分位計算，排序時固定置底。`;
-    return;
-  }
-
-  cell.textContent = record.score.toFixed(2);
-  cell.classList.add("positive");
+  cell.textContent = record.score.toFixed(4);
+  cell.classList.add(record.score >= 0 ? "positive" : "negative");
   cell.title = [
     SCORE_DESCRIPTION,
-    `最終分數 ${record.score.toFixed(4)}`,
-    `核心分數 ${record.core.toFixed(4)}`,
-    `歷史可靠度 ${(record.historyReliability * 100).toFixed(2)}%`,
-    `CAGR 百分位 ${(record.cagrPercentile * 100).toFixed(1)}%`,
-    `風險調整品質百分位 ${(record.riskAdjustedQuality * 100).toFixed(1)}%`,
-    `Alpha 百分位 ${(record.alphaPercentile * 100).toFixed(1)}%`,
-    `低回撤百分位 ${(record.drawdownPercentile * 100).toFixed(1)}%`,
+    `計算結果 ${record.score.toFixed(6)}`,
+    `Sortino ${record.sortino_ratio}`,
+    `Alpha ${(record.alpha * 100).toFixed(4)}%`,
+    `|MDD| ${(record.absoluteMdd * 100).toFixed(4)}%`,
   ].join(" · ");
 }
 
@@ -293,6 +205,14 @@ function updateScoreColumn() {
   const table = document.querySelector(TABLE_SELECTOR);
   const headerRow = table?.tHead?.rows?.[0];
   if (!table || !headerRow) return;
+
+  const compositeHeaders = [...headerRow.querySelectorAll("th[data-composite-metric]")];
+  compositeHeaders.forEach((cell) => {
+    if (cell.dataset.compositeMetric !== SCORE_KEY) cell.remove();
+  });
+  [...table.querySelectorAll("td[data-composite-metric]")].forEach((cell) => {
+    if (cell.dataset.compositeMetric !== SCORE_KEY) cell.remove();
+  });
 
   const originalHeaders = [...headerRow.cells].filter(
     (cell) => cell.dataset.compositeMetric !== SCORE_KEY,
@@ -315,7 +235,7 @@ function updateScoreColumn() {
     ? (activeSortDirection === "asc" ? " ▲" : " ▼")
     : "";
   scoreHeader.textContent = `${SCORE_LABEL}${sortIndicator}`;
-  scoreHeader.title = `${SCORE_DESCRIPTION}；點擊可依全部掃描結果排序。`;
+  scoreHeader.title = `${SCORE_DESCRIPTION}；使用原始未四捨五入數值，點擊可依全部掃描結果排序。`;
   scoreHeader.classList.add("sortable");
   scoreHeader.dataset.sortKey = SCORE_KEY;
   scoreHeader.setAttribute(
@@ -338,7 +258,7 @@ function updateScoreColumn() {
       scoreCell = document.createElement("td");
       originalCells[alphaIndex].insertAdjacentElement("afterend", scoreCell);
     }
-    setScoreCell(scoreCell, scoreRecords.get(ticker));
+    setScoreCell(scoreCell, calculateScoreRecord(rawResults.get(ticker)));
   });
 }
 
@@ -387,14 +307,13 @@ function handleExportClick(event) {
 
   const rows = currentExportRows();
   if (!rows.length) return;
-  recomputeScores();
   const lines = [
     EXPORT_HEADERS.join(","),
     ...rows.map((item) => {
-      const record = scoreRecords.get(normalizeTicker(item?.ticker));
+      const record = calculateScoreRecord(item);
       return EXPORT_HEADERS.map((key) => {
-        if (key === SCORE_KEY) return escapeCsv(record?.score == null ? "" : record.score.toFixed(6));
-        if (key === "quality_score_status") return escapeCsv(record?.status || "missing_metrics");
+        if (key === SCORE_KEY) return escapeCsv(record.score == null ? "" : record.score.toFixed(6));
+        if (key === SCORE_STATUS_KEY) return escapeCsv(record.status);
         return escapeCsv(item?.[key]);
       }).join(",");
     }),
@@ -404,9 +323,12 @@ function handleExportClick(event) {
 
 function updateMethodologyText() {
   const paragraphs = [...document.querySelectorAll("#about-panel .panel p")];
-  const oldFormula = paragraphs.find((paragraph) => paragraph.textContent.includes("Sortino × Alpha"));
-  if (!oldFormula) return;
-  oldFormula.textContent = "個股績效列表的十年品質分數，先在資料覆蓋率至少 80% 的股票中，將 CAGR、Sortino、Sharpe、Alpha 與低最大回撤轉為橫斷面百分位；再以 35%、30%、20%、15% 加權幾何平均，並對未滿 95% 的資料覆蓋率套用四次方可靠度折扣。";
+  const formulaParagraph = paragraphs.find((paragraph) => (
+    paragraph.textContent.includes("十年品質分數")
+    || paragraph.textContent.includes("Sortino × Alpha")
+  ));
+  if (!formulaParagraph) return;
+  formulaParagraph.textContent = "個股績效列表另顯示 Sortino × Alpha ÷ |最大回撤|，使用 API 回傳的原始未四捨五入數值計算；必要數據缺漏或最大回撤為 0 時不計算。";
 }
 
 function scheduleScoreColumnUpdate() {
@@ -425,7 +347,7 @@ function scheduleScoreColumnUpdate() {
   });
 }
 
-function initializeQualityScore() {
+function initializeCompositeScore() {
   const table = document.querySelector(TABLE_SELECTOR);
   if (!table) return;
 
@@ -439,7 +361,7 @@ function initializeQualityScore() {
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeQualityScore, { once: true });
+  document.addEventListener("DOMContentLoaded", initializeCompositeScore, { once: true });
 } else {
-  initializeQualityScore();
+  initializeCompositeScore();
 }
