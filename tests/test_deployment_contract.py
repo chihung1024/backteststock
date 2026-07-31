@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from pathlib import Path
 
@@ -64,4 +65,10 @@ def test_production_requirements_are_fully_pinned():
     assert all("==" in line for line in package_lines)
     assert "numpy==2.2.6" in package_lines
     assert "pandas==2.2.3" in package_lines
+    assert "scipy==1.17.1" in package_lines
     assert "yfinance==1.2.1" in package_lines
+
+
+def test_yfinance_price_repair_dependency_is_installed():
+    assert DATA_SOURCE_SETTINGS["repair"] is True
+    assert importlib.util.find_spec("scipy") is not None

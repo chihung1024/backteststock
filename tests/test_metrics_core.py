@@ -9,6 +9,7 @@ from api.metrics import (
     aligned_fingerprint,
     benchmark_coverage,
     calculate_metrics,
+    reproducibility_metadata,
     series_fingerprint,
 )
 
@@ -109,3 +110,9 @@ def test_zero_risk_denominator_is_reported_as_undefined_not_zero():
     assert metrics["volatility"] == 0.0
     assert metrics["sharpe_ratio"] is None
     assert metrics["sortino_ratio"] is None
+
+
+def test_reproducibility_metadata_includes_price_repair_runtime():
+    metadata = reproducibility_metadata(risk_free_rate=0.0, benchmark="SPY")
+    assert metadata["data_source_settings"]["repair"] is True
+    assert metadata["scipy_version"] == "1.17.1"

@@ -1,6 +1,6 @@
 # 績效指標與再現性規格
 
-本文件定義個股掃描與投資組合回測共用的底層數據契約。正式 API 以 `api/metrics.py` 為唯一績效計算核心，定義版本為 `2026-07-31.1`。
+本文件定義個股掃描與投資組合回測共用的底層數據契約。正式 API 以 `api/metrics.py` 為唯一績效計算核心，定義版本為 `2026-08-01.1`。
 
 ## 行情契約
 
@@ -13,7 +13,7 @@
 - `keepna=false`
 - 起始日包含，結束日不包含
 
-`requirements.txt` 精確鎖定 NumPy、pandas 與 yfinance 版本。每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋；CSV 的 `note` 欄也保存同一份精簡再現資訊。
+`requirements.txt` 精確鎖定 NumPy、pandas、SciPy 與 yfinance 版本。由於 `repair=true` 會使用 yfinance 的價格修復功能，SciPy 是正式環境的必要依賴，不得只在開發環境安裝。每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋；CSV 的 `note` 欄也保存同一份精簡再現資訊。
 
 Yahoo Finance 仍可能事後修訂歷史資料。指紋能判斷兩次計算是否使用完全相同輸入，但若上游已修改且本系統未保存舊行情，指紋本身不能還原舊價格。
 
@@ -105,6 +105,7 @@ Beta 與 Alpha 使用完全相同的成對日報酬樣本。
 - `data_source_version`
 - `numpy_version`
 - `pandas_version`
+- `scipy_version`
 - `risk_free_rate`
 - `data_source_settings`
 - `requested_start` / `requested_end_exclusive`
