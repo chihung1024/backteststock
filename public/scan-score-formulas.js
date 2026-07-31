@@ -1,3 +1,40 @@
+export const METRIC_DEFINITION_VERSION = "2026-07-31.1";
+
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const CACHE_INVALIDATION_SESSION_KEY = "backteststock-metric-cache-invalidated";
+
+function invalidateStaleSavedScanJob() {
+  if (typeof window === "undefined") return;
+
+  try {
+    const job = JSON.parse(window.localStorage.getItem(SCAN_JOB_STORAGE_KEY));
+    const completedResults = Array.isArray(job?.results)
+      ? job.results.filter((item) => item?.status === "ok")
+      : [];
+    const stale = completedResults.some((item) => (
+      item?.metric_definition_version !== METRIC_DEFINITION_VERSION
+    ));
+    if (!stale) return;
+
+    window.localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
+    if (
+      window.sessionStorage.getItem(CACHE_INVALIDATION_SESSION_KEY)
+      !== METRIC_DEFINITION_VERSION
+    ) {
+      window.sessionStorage.setItem(
+        CACHE_INVALIDATION_SESSION_KEY,
+        METRIC_DEFINITION_VERSION,
+      );
+      window.location.reload();
+    }
+  } catch (error) {
+    console.warn("Unable to validate saved scan metric version", error);
+    window.localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
+  }
+}
+
+invalidateStaleSavedScanJob();
+
 export const SCORE_FORMULAS = Object.freeze([
   Object.freeze({
     key: "sortino_growth_beta_score",
