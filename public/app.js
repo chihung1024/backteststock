@@ -1,3 +1,5 @@
+import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js";
+
 const STORAGE_KEY = "backteststock-state-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
@@ -23,7 +25,8 @@ const SCAN_METRICS = [
   ["trading_days", "交易日", "integer", ""],
 ];
 const SCAN_CHUNK_SIZE = 100;
-const SCAN_REQUEST_RETRIES = 3;
+const SCAN_REQUEST_RETRIES = 2;
+const SCAN_MAX_TICKER_ATTEMPTS = 2;
 const SCAN_RETRY_DELAYS_MS = [1_500, 5_000, 15_000, 30_000, 60_000];
 
 const currentMonth = new Date().toISOString().slice(0, 7);
@@ -749,6 +752,17 @@ function orderedJobResults(job, resultMap) {
   return job.payload.tickers.map((ticker) => resultMap.get(ticker)).filter(Boolean);
 }
 
+function terminalScanFailure(ticker, reason) {
+  return {
+    ticker,
+    status: "failed",
+    retryable: false,
+    error_code: "scan_retry_budget_exhausted",
+    error: reason,
+    metric_definition_version: METRIC_DEFINITION_VERSION,
+  };
+}
+
 function renderScanJobState(job, message) {
   const total = job.payload.tickers.length;
   const settled = job.results.length;
@@ -766,6 +780,13 @@ async function processScanJob(job) {
 
   while (job.pending.length && !cancelRequested) {
     const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
+    const firstPosition = resultMap.size + 1;
+    const lastPosition = Math.min(resultMap.size + chunk.length, job.payload.tickers.length);
+    setScanProgress(
+      job.results.length,
+      job.payload.tickers.length,
+      `正在取得第 ${firstPosition}–${lastPosition} 檔；已完成 ${job.results.length} / ${job.payload.tickers.length} 檔`,
+    );
     let response = [];
     let requestError = null;
     try {
@@ -791,9 +812,23 @@ async function processScanJob(job) {
       if (!requestError && item && item.retryable !== true && item.status !== "pending") {
         resultMap.set(ticker, item);
         newlySettled += 1;
+        continue;
+      }
+
+      const attempts = Number(job.attempts[ticker] || 0) + 1;
+      job.attempts[ticker] = attempts;
+      if (attempts >= SCAN_MAX_TICKER_ATTEMPTS) {
+        const detail = requestError?.message || item?.error || "行情服務未回傳可結算結果。";
+        resultMap.set(
+          ticker,
+          terminalScanFailure(
+            ticker,
+            `行情服務連續 ${attempts} 輪未完成，已停止重試：${detail}`,
+          ),
+        );
+        newlySettled += 1;
       } else {
         job.pending.push(ticker);
-        job.attempts[ticker] = Number(job.attempts[ticker] || 0) + 1;
       }
     }
 

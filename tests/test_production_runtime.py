@@ -75,7 +75,7 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     ]
 
 
-def test_scan_refuses_results_when_benchmark_is_unavailable(scan_client, monkeypatch):
+def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, monkeypatch):
     asset = pd.Series(
         [100, 101, 102], index=pd.bdate_range("2024-01-02", periods=3), name="AAA"
     )
@@ -95,9 +95,19 @@ def test_scan_refuses_results_when_benchmark_is_unavailable(scan_client, monkeyp
             "endMonth": 1,
         },
     )
-    assert response.status_code == 503
-    assert response.get_json()["retryable"] is True
-
+    assert response.status_code == 200
+    result = response.get_json()[0]
+    expected = calculate_metrics(
+        asset, risk_free_rate=scan_v2.legacy.RISK_FREE_RATE
+    )
+    assert result["status"] == "ok"
+    assert result["retryable"] is False
+    assert result["cagr"] == pytest.approx(expected["cagr"])
+    assert result["beta"] is None
+    assert result["alpha"] is None
+    assert result["benchmark_available"] is False
+    assert result["data_coverage"] == 0.0
+    assert "Beta／Alpha 暫不計算" in result["note"]
 
 def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):
     captured = {}
