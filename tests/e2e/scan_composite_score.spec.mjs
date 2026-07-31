@@ -1,7 +1,19 @@
 import { expect, test } from "@playwright/test";
 
-const scoreKey = "sortino_alpha_mdd_score";
-const scoreLabel = "Sortino×Alpha/|MDD|";
+const formulas = {
+  original: {
+    key: "sortino_alpha_mdd_score",
+    label: "Sortino×Alpha/|MDD|",
+  },
+  recommended: {
+    key: "alpha_sqrt_sortino_mdd_score",
+    label: "建議分數",
+  },
+  percentile: {
+    key: "percentile_composite_score",
+    label: "百分位分數",
+  },
+};
 
 const scanResults = [
   {
@@ -104,7 +116,15 @@ async function fulfillJson(route, body) {
   });
 }
 
-test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page }) => {
+function formulaHeader(page, formula) {
+  return page.locator(`#scan-table th[data-composite-metric="${formula.key}"]`);
+}
+
+function formulaCell(row, formula) {
+  return row.locator(`td[data-composite-metric="${formula.key}"]`);
+}
+
+test("compares and sorts three scan score formulas", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, scanResults.map((item) => item.ticker)));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
@@ -117,13 +137,21 @@ test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page
   await page.locator("#scan-end-period").fill("2025-12");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
-  const scoreHeader = page.locator(`#scan-table th[data-composite-metric="${scoreKey}"]`);
+  const originalHeader = formulaHeader(page, formulas.original);
+  const recommendedHeader = formulaHeader(page, formulas.recommended);
+  const percentileHeader = formulaHeader(page, formulas.percentile);
   const tickerCells = page.locator("#scan-table tbody tr th:first-child");
-  await expect(scoreHeader).toHaveText(scoreLabel);
-  await expect(scoreHeader).toHaveClass(/sortable/);
-  await expect(scoreHeader).toHaveAttribute("data-sort-key", scoreKey);
+
+  await expect(originalHeader).toHaveText(formulas.original.label);
+  await expect(recommendedHeader).toHaveText(formulas.recommended.label);
+  await expect(percentileHeader).toHaveText(formulas.percentile.label);
+  for (const formula of Object.values(formulas)) {
+    await expect(formulaHeader(page, formula)).toHaveClass(/sortable/);
+    await expect(formulaHeader(page, formula)).toHaveAttribute("data-sort-key", formula.key);
+  }
   await expect(page.locator('#scan-table th[data-composite-metric="ten_year_quality_score"]')).toHaveCount(0);
   await expect(page.locator('#scan-table th[data-composite-metric="sortino_alpha_beta_mdd_score"]')).toHaveCount(0);
+  await expect(page.locator("#score-formula-comparison")).toContainText("每格顯示「名次 · 分數」");
 
   const nvdaRow = page.locator("#scan-table tbody tr", { hasText: "NVDA" });
   const msftRow = page.locator("#scan-table tbody tr", { hasText: "MSFT" });
@@ -131,12 +159,25 @@ test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page
   const shortRow = page.locator("#scan-table tbody tr", { hasText: "SHORT" });
   const zeroRow = page.locator("#scan-table tbody tr", { hasText: "ZERO" });
 
-  await expect(nvdaRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.6558");
-  await expect(msftRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.4000");
-  await expect(qualityRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("0.8000");
-  await expect(shortRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("11.1846");
-  await expect(zeroRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveText("—");
-  await expect(zeroRow.locator(`td[data-composite-metric="${scoreKey}"]`)).toHaveAttribute("title", /最大回撤為 0/);
+  await expect(formulaCell(nvdaRow, formulas.original)).toHaveText("#3 · 0.6558");
+  await expect(formulaCell(msftRow, formulas.original)).toHaveText("#4 · 0.4000");
+  await expect(formulaCell(qualityRow, formulas.original)).toHaveText("#2 · 0.8000");
+  await expect(formulaCell(shortRow, formulas.original)).toHaveText("#1 · 11.1846");
+
+  await expect(formulaCell(nvdaRow, formulas.recommended)).toHaveText("#2 · 0.2343");
+  await expect(formulaCell(msftRow, formulas.recommended)).toHaveText("#4 · 0.1265");
+  await expect(formulaCell(qualityRow, formulas.recommended)).toHaveText("#3 · 0.2191");
+  await expect(formulaCell(shortRow, formulas.recommended)).toHaveText("#1 · 3.4956");
+
+  await expect(formulaCell(nvdaRow, formulas.percentile)).toHaveText("#2 · 50.00");
+  await expect(formulaCell(msftRow, formulas.percentile)).toHaveText("#4 · 20.00");
+  await expect(formulaCell(qualityRow, formulas.percentile)).toHaveText("#2 · 50.00");
+  await expect(formulaCell(shortRow, formulas.percentile)).toHaveText("#1 · 80.00");
+
+  for (const formula of Object.values(formulas)) {
+    await expect(formulaCell(zeroRow, formula)).toHaveText("—");
+    await expect(formulaCell(zeroRow, formula)).toHaveAttribute("title", /最大回撤為 0/);
+  }
 
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
@@ -146,9 +187,9 @@ test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page
     "ZERO",
   ]);
 
-  await scoreHeader.click();
-  await expect(scoreHeader).toHaveText(`${scoreLabel} ▼`);
-  await expect(scoreHeader).toHaveAttribute("aria-sort", "descending");
+  await originalHeader.click();
+  await expect(originalHeader).toHaveText(`${formulas.original.label} ▼`);
+  await expect(originalHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
     "QUALITY",
@@ -157,19 +198,32 @@ test("uses and sorts Sortino times Alpha divided by absolute MDD", async ({ page
     "ZERO",
   ]);
 
-  await scoreHeader.click();
-  await expect(scoreHeader).toHaveText(`${scoreLabel} ▲`);
-  await expect(scoreHeader).toHaveAttribute("aria-sort", "ascending");
+  await originalHeader.click();
+  await expect(originalHeader).toHaveText(`${formulas.original.label} ▲`);
+  await expect(originalHeader).toHaveAttribute("aria-sort", "ascending");
   await expect(tickerCells).toHaveText([
     "MSFT",
     "NVDA",
     "QUALITY",
     "SHORT （從 2024-03-27 開始）",
+    "ZERO",
+  ]);
+
+  await percentileHeader.click();
+  await expect(percentileHeader).toHaveText(`${formulas.percentile.label} ▼`);
+  await expect(percentileHeader).toHaveAttribute("aria-sort", "descending");
+  await expect(tickerCells).toHaveText([
+    "SHORT （從 2024-03-27 開始）",
+    "QUALITY",
+    "NVDA",
+    "MSFT",
     "ZERO",
   ]);
 
   await page.getByRole("button", { name: "方法與限制" }).click();
   await expect(page.locator("#about-panel")).toContainText("Sortino × Alpha ÷ |最大回撤|");
+  await expect(page.locator("#about-panel")).toContainText("Alpha × √(Sortino ÷ |最大回撤|)");
+  await expect(page.locator("#about-panel")).toContainText("50% Alpha、30% Sortino、20% 低回撤");
   await expect(page.locator("#about-panel")).not.toContainText("十年品質分數");
   await expect(page.locator("#about-panel")).not.toContainText("Sortino × Alpha ÷ (1 + Beta)");
 });

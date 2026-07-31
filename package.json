@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check public/app.js && node --check worker/index.js",
+    "check": "node --check public/app.js && node --check public/scan-score-formulas.js && node --check public/scan-composite-score.js && node --check worker/index.js",
     "test:e2e": "playwright test",
     "test:worker": "node --test tests/test_worker.mjs",
+    "test:score": "node --test tests/test_scan_score_formulas.mjs",
     "types": "wrangler types"
   },
   "devDependencies": {

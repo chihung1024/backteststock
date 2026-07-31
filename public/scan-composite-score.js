@@ -1,11 +1,14 @@
+import {
+  SCORE_FORMULAS,
+  buildScoreMatrix,
+  normalizeScoreTicker,
+  scoreRecordFor,
+} from "./scan-score-formulas.js";
+
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
-const SCORE_KEY = "sortino_alpha_mdd_score";
-const SCORE_STATUS_KEY = "sortino_alpha_mdd_score_status";
-const SCORE_LABEL = "Sortino×Alpha/|MDD|";
-const SCORE_DESCRIPTION = "Sortino × Alpha ÷ |最大回撤|";
-const REQUIRED_METRICS = ["sortino_ratio", "alpha", "mdd"];
-const EXPORT_HEADERS = [
+const FORMULA_KEYS = new Set(SCORE_FORMULAS.map((formula) => formula.key));
+const BASE_EXPORT_HEADERS = [
   "ticker",
   "total_return",
   "cagr",
@@ -15,8 +18,6 @@ const EXPORT_HEADERS = [
   "sortino_ratio",
   "beta",
   "alpha",
-  SCORE_KEY,
-  SCORE_STATUS_KEY,
   "data_coverage",
   "trading_days",
   "data_start",
@@ -24,9 +25,22 @@ const EXPORT_HEADERS = [
   "note",
   "error",
 ];
+const FORMULA_EXPORT_HEADERS = SCORE_FORMULAS.flatMap((formula) => [
+  formula.key,
+  formula.rankKey,
+  formula.statusKey,
+]);
+const EXPORT_HEADERS = [
+  ...BASE_EXPORT_HEADERS.slice(0, 9),
+  ...FORMULA_EXPORT_HEADERS,
+  ...BASE_EXPORT_HEADERS.slice(9),
+];
 
 const rawResults = new Map();
+const scoreSortGetters = new Map();
 const originalFetch = window.fetch.bind(window);
+let scoreMatrixResult = buildScoreMatrix([]);
+let scoreMatrixDirty = false;
 let activeJobId = null;
 let observer;
 let updateScheduled = false;
@@ -39,59 +53,16 @@ function normalizeHeaderLabel(value) {
     .trim();
 }
 
-function normalizeTicker(value) {
-  return String(value || "").trim().split(/\s+/u)[0].toUpperCase();
+function markScoreMatrixDirty() {
+  scoreMatrixDirty = true;
 }
 
-function rawMetric(item, key) {
-  if (item?.[key] == null) return null;
-  const numeric = Number(item[key]);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function calculateScoreRecord(item) {
-  if (item?.error) {
-    return { score: null, status: "error", reason: String(item.error) };
+function ensureScoreMatrix() {
+  if (scoreMatrixDirty) {
+    scoreMatrixResult = buildScoreMatrix([...rawResults.values()]);
+    scoreMatrixDirty = false;
   }
-
-  const values = Object.fromEntries(REQUIRED_METRICS.map((key) => [key, rawMetric(item, key)]));
-  const missing = REQUIRED_METRICS.filter((key) => values[key] == null);
-  if (missing.length) {
-    return {
-      score: null,
-      status: "missing_metrics",
-      reason: `缺少必要指標：${missing.join(", ")}`,
-    };
-  }
-
-  const absoluteMdd = Math.abs(values.mdd);
-  if (absoluteMdd <= Number.EPSILON) {
-    return {
-      score: null,
-      status: "zero_mdd",
-      reason: "最大回撤為 0，無法作為除數。",
-      ...values,
-      absoluteMdd,
-    };
-  }
-
-  const score = values.sortino_ratio * values.alpha / absoluteMdd;
-  if (!Number.isFinite(score)) {
-    return {
-      score: null,
-      status: "invalid_result",
-      reason: "計算結果不是有限數值。",
-      ...values,
-      absoluteMdd,
-    };
-  }
-
-  return {
-    score,
-    status: "ok",
-    ...values,
-    absoluteMdd,
-  };
+  return scoreMatrixResult;
 }
 
 function readSavedJob() {
@@ -99,7 +70,7 @@ function readSavedJob() {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
     return job && typeof job === "object" ? job : null;
   } catch (error) {
-    console.warn("Unable to read saved scan job for composite score", error);
+    console.warn("Unable to read saved scan job for score comparison", error);
     return null;
   }
 }
@@ -109,6 +80,7 @@ function synchronizeActiveJob({ restoreResults = false } = {}) {
   if (job?.id && job.id !== activeJobId) {
     activeJobId = job.id;
     rawResults.clear();
+    markScoreMatrixDirty();
   }
 
   if (restoreResults && Array.isArray(job?.results)) {
@@ -123,13 +95,16 @@ function captureRawResults(payload, { synchronize = true } = {}) {
 
   let changed = false;
   payload.forEach((item) => {
-    const ticker = normalizeTicker(item?.ticker);
+    const ticker = normalizeScoreTicker(item?.ticker);
     if (!ticker) return;
     rawResults.set(ticker, item);
     changed = true;
   });
 
-  if (changed) scheduleScoreColumnUpdate();
+  if (changed) {
+    markScoreMatrixDirty();
+    scheduleScoreColumnUpdate();
+  }
 }
 
 function restoreSavedRawResults() {
@@ -145,7 +120,7 @@ function isScanRequest(input) {
   }
 }
 
-window.fetch = async function fetchWithCompositeMetricCapture(input, init) {
+window.fetch = async function fetchWithScoreComparisonCapture(input, init) {
   const response = await originalFetch(input, init);
   if (response.ok && isScanRequest(input)) {
     response.clone().json().then((payload) => captureRawResults(payload)).catch(() => {});
@@ -153,35 +128,55 @@ window.fetch = async function fetchWithCompositeMetricCapture(input, init) {
   return response;
 };
 
-function scoreFromItem(item) {
-  return calculateScoreRecord(item).score;
+function missingSortValue() {
+  return activeSortDirection === "asc"
+    ? Number.POSITIVE_INFINITY
+    : Number.NEGATIVE_INFINITY;
 }
 
-function scoreSortGetter() {
-  const score = scoreFromItem(this);
-  if (score != null) return score;
-  return activeSortDirection === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-}
+function installScoreSortGetters() {
+  SCORE_FORMULAS.forEach((formula) => {
+    const existing = Object.getOwnPropertyDescriptor(Object.prototype, formula.key);
+    if (existing) return;
 
-function installScoreSortGetter() {
-  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, SCORE_KEY);
-  if (descriptor?.get === scoreSortGetter) return;
-  if (descriptor) return;
-
-  Object.defineProperty(Object.prototype, SCORE_KEY, {
-    configurable: true,
-    enumerable: false,
-    get: scoreSortGetter,
+    const getter = function scoreComparisonGetter() {
+      const ticker = normalizeScoreTicker(this?.ticker);
+      const score = scoreRecordFor(ensureScoreMatrix(), ticker, formula.key)?.score;
+      return Number.isFinite(score) ? score : missingSortValue();
+    };
+    scoreSortGetters.set(formula.key, getter);
+    Object.defineProperty(Object.prototype, formula.key, {
+      configurable: true,
+      enumerable: false,
+      get: getter,
+    });
   });
 }
 
-function removeScoreSortGetter() {
-  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, SCORE_KEY);
-  if (descriptor?.get === scoreSortGetter) delete Object.prototype[SCORE_KEY];
+function removeScoreSortGetters() {
+  scoreSortGetters.forEach((getter, key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+    if (descriptor?.get === getter) delete Object.prototype[key];
+  });
+  scoreSortGetters.clear();
 }
 
-function setScoreCell(cell, record) {
-  cell.dataset.compositeMetric = SCORE_KEY;
+function rankComparisonText(record, formula) {
+  if (formula.key === "alpha_sqrt_sortino_mdd_score") return "建議版基準排名";
+  const delta = record?.rankDeltaVsRecommended;
+  if (!Number.isInteger(delta)) return "無法與建議版比較排名";
+  if (delta === 0) return "與建議版同名次";
+  return delta > 0
+    ? `相較建議版落後 ${delta} 名`
+    : `相較建議版領先 ${Math.abs(delta)} 名`;
+}
+
+function formatScore(record, formula) {
+  return Number(record.score).toFixed(formula.digits);
+}
+
+function setScoreCell(cell, record, formula) {
+  cell.dataset.compositeMetric = formula.key;
   cell.classList.remove("positive", "negative");
 
   if (!record || record.score == null) {
@@ -190,76 +185,108 @@ function setScoreCell(cell, record) {
     return;
   }
 
-  cell.textContent = record.score.toFixed(4);
+  const rankText = Number.isInteger(record.rank) ? `#${record.rank}` : "#—";
+  cell.textContent = `${rankText} · ${formatScore(record, formula)}`;
   cell.classList.add(record.score >= 0 ? "positive" : "negative");
-  cell.title = [
-    SCORE_DESCRIPTION,
-    `計算結果 ${record.score.toFixed(6)}`,
-    `Sortino ${record.sortino_ratio}`,
-    `Alpha ${(record.alpha * 100).toFixed(4)}%`,
-    `|MDD| ${(record.absoluteMdd * 100).toFixed(4)}%`,
-  ].join(" · ");
+
+  const details = [
+    formula.description,
+    `名次 ${record.rank ?? "—"}`,
+    `分數 ${Number(record.score).toFixed(6)}`,
+    rankComparisonText(record, formula),
+  ];
+  if (formula.key === "percentile_composite_score") {
+    details.push(
+      `Alpha 百分位 ${record.alphaPercentile.toFixed(2)}`,
+      `Sortino 百分位 ${record.sortinoPercentile.toFixed(2)}`,
+      `低回撤百分位 ${record.drawdownPercentile.toFixed(2)}`,
+    );
+  } else {
+    details.push(
+      `Sortino ${record.sortino_ratio}`,
+      `Alpha ${(record.alpha * 100).toFixed(4)}%`,
+      `|MDD| ${(record.absoluteMdd * 100).toFixed(4)}%`,
+    );
+  }
+  cell.title = details.join(" · ");
 }
 
-function updateScoreColumn() {
+function ensureFormulaComparisonNote() {
+  const table = document.querySelector(TABLE_SELECTOR);
+  const tableWrap = table?.closest(".table-wrap");
+  if (!tableWrap) return;
+
+  let note = document.querySelector("#score-formula-comparison");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "score-formula-comparison";
+    note.className = "result-context";
+    tableWrap.insertAdjacentElement("beforebegin", note);
+  }
+  note.textContent = [
+    "公式比較：每格顯示「名次 · 分數」。",
+    "原始＝Sortino×Alpha÷|MDD|；",
+    "建議＝Alpha×√(Sortino÷|MDD|)；",
+    "百分位＝50% Alpha＋30% Sortino＋20% 低回撤。",
+    "名次以目前已完整取得且可計算的全部標的為母體，掃描進行中會動態更新。",
+  ].join("");
+}
+
+function removeInjectedColumns(table, headerRow) {
+  [...headerRow.querySelectorAll("th[data-composite-metric]")].forEach((cell) => cell.remove());
+  [...table.querySelectorAll("td[data-composite-metric]")].forEach((cell) => cell.remove());
+}
+
+function updateScoreColumns() {
   const table = document.querySelector(TABLE_SELECTOR);
   const headerRow = table?.tHead?.rows?.[0];
   if (!table || !headerRow) return;
 
-  const compositeHeaders = [...headerRow.querySelectorAll("th[data-composite-metric]")];
-  compositeHeaders.forEach((cell) => {
-    if (cell.dataset.compositeMetric !== SCORE_KEY) cell.remove();
-  });
-  [...table.querySelectorAll("td[data-composite-metric]")].forEach((cell) => {
-    if (cell.dataset.compositeMetric !== SCORE_KEY) cell.remove();
-  });
-
-  const originalHeaders = [...headerRow.cells].filter(
-    (cell) => cell.dataset.compositeMetric !== SCORE_KEY,
-  );
+  removeInjectedColumns(table, headerRow);
+  const originalHeaders = [...headerRow.cells];
   const headerIndexes = new Map(
     originalHeaders.map((cell, index) => [normalizeHeaderLabel(cell.textContent), index]),
   );
   if (!headerIndexes.has("Alpha")) return;
 
-  let scoreHeader = headerRow.querySelector(`th[data-composite-metric="${SCORE_KEY}"]`);
-  if (!scoreHeader) {
-    scoreHeader = document.createElement("th");
-    scoreHeader.scope = "col";
-    scoreHeader.dataset.compositeMetric = SCORE_KEY;
-    const alphaHeader = originalHeaders[headerIndexes.get("Alpha")];
-    alphaHeader.insertAdjacentElement("afterend", scoreHeader);
-  }
-
-  const sortIndicator = activeSortKey === SCORE_KEY
-    ? (activeSortDirection === "asc" ? " ▲" : " ▼")
-    : "";
-  scoreHeader.textContent = `${SCORE_LABEL}${sortIndicator}`;
-  scoreHeader.title = `${SCORE_DESCRIPTION}；使用原始未四捨五入數值，點擊可依全部掃描結果排序。`;
-  scoreHeader.classList.add("sortable");
-  scoreHeader.dataset.sortKey = SCORE_KEY;
-  scoreHeader.setAttribute(
-    "aria-sort",
-    activeSortKey === SCORE_KEY
-      ? (activeSortDirection === "asc" ? "ascending" : "descending")
-      : "none",
-  );
-
+  const matrixResult = ensureScoreMatrix();
   const alphaIndex = headerIndexes.get("Alpha");
-  [...(table.tBodies[0]?.rows || [])].forEach((row) => {
-    const originalCells = [...row.cells].filter(
-      (cell) => cell.dataset.compositeMetric !== SCORE_KEY,
+  let headerAnchor = originalHeaders[alphaIndex];
+  SCORE_FORMULAS.forEach((formula) => {
+    const header = document.createElement("th");
+    header.scope = "col";
+    header.dataset.compositeMetric = formula.key;
+    header.dataset.sortKey = formula.key;
+    header.className = "sortable";
+    const sortIndicator = activeSortKey === formula.key
+      ? (activeSortDirection === "asc" ? " ▲" : " ▼")
+      : "";
+    header.textContent = `${formula.label}${sortIndicator}`;
+    header.title = `${formula.description}；每格顯示名次與分數。有效樣本 ${matrixResult.validCounts[formula.key] || 0} 檔，點擊可依全部掃描結果排序。`;
+    header.setAttribute(
+      "aria-sort",
+      activeSortKey === formula.key
+        ? (activeSortDirection === "asc" ? "ascending" : "descending")
+        : "none",
     );
-    if (originalCells.length <= alphaIndex) return;
-
-    const ticker = normalizeTicker(originalCells[0].textContent);
-    let scoreCell = row.querySelector(`td[data-composite-metric="${SCORE_KEY}"]`);
-    if (!scoreCell) {
-      scoreCell = document.createElement("td");
-      originalCells[alphaIndex].insertAdjacentElement("afterend", scoreCell);
-    }
-    setScoreCell(scoreCell, calculateScoreRecord(rawResults.get(ticker)));
+    headerAnchor.insertAdjacentElement("afterend", header);
+    headerAnchor = header;
   });
+
+  [...(table.tBodies[0]?.rows || [])].forEach((row) => {
+    const originalCells = [...row.cells];
+    if (originalCells.length <= alphaIndex) return;
+    const ticker = normalizeScoreTicker(originalCells[0].textContent);
+    let cellAnchor = originalCells[alphaIndex];
+    SCORE_FORMULAS.forEach((formula) => {
+      const cell = document.createElement("td");
+      setScoreCell(cell, scoreRecordFor(matrixResult, ticker, formula.key), formula);
+      cellAnchor.insertAdjacentElement("afterend", cell);
+      cellAnchor = cell;
+    });
+  });
+
+  ensureFormulaComparisonNote();
 }
 
 function handleTableSortClick(event) {
@@ -273,9 +300,6 @@ function handleTableSortClick(event) {
     activeSortKey = key;
     activeSortDirection = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
   }
-
-  if (activeSortKey === SCORE_KEY) installScoreSortGetter();
-  else removeScoreSortGetter();
   scheduleScoreColumnUpdate();
 }
 
@@ -301,22 +325,32 @@ function downloadCsv(filename, content) {
   }, 0);
 }
 
+function formulaExportValue(matrixResult, item, key) {
+  const formula = SCORE_FORMULAS.find((entry) => (
+    entry.key === key || entry.rankKey === key || entry.statusKey === key
+  ));
+  if (!formula) return undefined;
+  const record = scoreRecordFor(matrixResult, item?.ticker, formula.key);
+  if (key === formula.key) return record?.score == null ? "" : Number(record.score).toFixed(6);
+  if (key === formula.rankKey) return record?.rank ?? "";
+  return record?.status || "missing";
+}
+
 function handleExportClick(event) {
   event.preventDefault();
   event.stopImmediatePropagation();
 
   const rows = currentExportRows();
   if (!rows.length) return;
+  const matrixResult = buildScoreMatrix(rows);
   const lines = [
     EXPORT_HEADERS.join(","),
-    ...rows.map((item) => {
-      const record = calculateScoreRecord(item);
-      return EXPORT_HEADERS.map((key) => {
-        if (key === SCORE_KEY) return escapeCsv(record.score == null ? "" : record.score.toFixed(6));
-        if (key === SCORE_STATUS_KEY) return escapeCsv(record.status);
-        return escapeCsv(item?.[key]);
-      }).join(",");
-    }),
+    ...rows.map((item) => EXPORT_HEADERS.map((key) => {
+      if (FORMULA_KEYS.has(key) || FORMULA_EXPORT_HEADERS.includes(key)) {
+        return escapeCsv(formulaExportValue(matrixResult, item, key));
+      }
+      return escapeCsv(item?.[key]);
+    }).join(",")),
   ];
   downloadCsv("scan-results.csv", `\ufeff${lines.join("\n")}`);
 }
@@ -324,11 +358,11 @@ function handleExportClick(event) {
 function updateMethodologyText() {
   const paragraphs = [...document.querySelectorAll("#about-panel .panel p")];
   const formulaParagraph = paragraphs.find((paragraph) => (
-    paragraph.textContent.includes("十年品質分數")
-    || paragraph.textContent.includes("Sortino × Alpha")
+    paragraph.textContent.includes("個股績效列表")
+    && paragraph.textContent.includes("Sortino")
   ));
   if (!formulaParagraph) return;
-  formulaParagraph.textContent = "個股績效列表另顯示 Sortino × Alpha ÷ |最大回撤|，使用 API 回傳的原始未四捨五入數值計算；必要數據缺漏或最大回撤為 0 時不計算。";
+  formulaParagraph.textContent = "個股績效列表同時顯示三種可排序分數：原始公式 Sortino × Alpha ÷ |最大回撤|、建議公式 Alpha × √(Sortino ÷ |最大回撤|)，以及 50% Alpha、30% Sortino、20% 低回撤的橫斷面百分位分數；每格同步顯示該公式名次。";
 }
 
 function scheduleScoreColumnUpdate() {
@@ -339,7 +373,7 @@ function scheduleScoreColumnUpdate() {
     updateScheduled = false;
     observer?.disconnect();
     try {
-      updateScoreColumn();
+      updateScoreColumns();
     } finally {
       const table = document.querySelector(TABLE_SELECTOR);
       if (table) observer?.observe(table, { childList: true, subtree: true });
@@ -347,10 +381,11 @@ function scheduleScoreColumnUpdate() {
   });
 }
 
-function initializeCompositeScore() {
+function initializeScoreComparison() {
   const table = document.querySelector(TABLE_SELECTOR);
   if (!table) return;
 
+  installScoreSortGetters();
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
   table.addEventListener("click", handleTableSortClick, true);
@@ -358,10 +393,11 @@ function initializeCompositeScore() {
   updateMethodologyText();
   restoreSavedRawResults();
   scheduleScoreColumnUpdate();
+  window.addEventListener("pagehide", removeScoreSortGetters, { once: true });
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeCompositeScore, { once: true });
+  document.addEventListener("DOMContentLoaded", initializeScoreComparison, { once: true });
 } else {
-  initializeCompositeScore();
+  initializeScoreComparison();
 }
