@@ -1,0 +1,91 @@
+name: Verify yfinance repair fix
+
+on:
+  push:
+    branches: [fix/yfinance-repair-dependency]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/yfinance-repair-dependency
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install exact production environment
+        run: python -m pip install -r requirements.txt
+      - name: Verify repair=true returns live market data
+        run: |
+          mkdir -p diagnostics
+          python <<'PY'
+          from __future__ import annotations
+
+          import importlib.metadata
+          import json
+          import shutil
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          import yfinance as yf
+
+          tickers = ["SPY", "AAPL", "MSFT"]
+          data = yf.download(
+              tickers,
+              start="2025-01-01",
+              end="2025-04-01",
+              interval="1d",
+              auto_adjust=True,
+              actions=False,
+              repair=True,
+              keepna=False,
+              progress=False,
+              threads=True,
+              timeout=30,
+              group_by="column",
+              multi_level_index=True,
+          )
+          close = data["Close"]
+          observations = {
+              ticker: int(close[ticker].dropna().shape[0])
+              for ticker in tickers
+          }
+          errors = {
+              str(key): str(value)
+              for key, value in getattr(getattr(yf, "shared", None), "_ERRORS", {}).items()
+          }
+          report = {
+              "measured_at": datetime.now(timezone.utc).isoformat(),
+              "versions": {
+                  name: importlib.metadata.version(name)
+                  for name in ("yfinance", "numpy", "pandas", "scipy")
+              },
+              "observations": observations,
+              "shared_errors": errors,
+              "site_packages_bytes": shutil.disk_usage(Path(yf.__file__).resolve().parents[1]).used,
+              "outcome": "passed" if min(observations.values()) >= 20 and not errors else "failed",
+          }
+          Path("diagnostics/yfinance-repair-after-fix.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if report["outcome"] != "passed":
+              raise SystemExit("repair=true did not return complete live data")
+          PY
+      - name: Persist verification and remove temporary workflow
+        if: ${{ always() }}
+        run: |
+          rm .github/workflows/verify-yfinance-repair-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Record yfinance repair verification"
+          git push origin HEAD:fix/yfinance-repair-dependency
