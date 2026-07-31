@@ -181,3 +181,39 @@ test("a D1 member-count mismatch fails closed", async () => {
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /完整性/);
 });
+
+
+test("proxy mirrors backend Server-Timing to a stable edge header", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    JSON.stringify([{ ticker: "AAPL", status: "ok" }]),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "server-timing": "market;dur=1250.0, compute;dur=220.0, total;dur=1500.0",
+        "x-scan-requested": "1",
+        "x-scan-resolved": "1",
+      },
+    },
+  );
+
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tickers: ["AAPL"] }),
+      }),
+      { BACKEND_ORIGIN: "https://backend.example.com" },
+    );
+    const expected = "market;dur=1250.0, compute;dur=220.0, total;dur=1500.0";
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("server-timing"), expected);
+    assert.equal(response.headers.get("x-backend-server-timing"), expected);
+    assert.equal(response.headers.get("x-scan-requested"), "1");
+    assert.equal(response.headers.get("x-scan-resolved"), "1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

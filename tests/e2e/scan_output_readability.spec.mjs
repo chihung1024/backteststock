@@ -67,7 +67,7 @@ test("scan table stays compact and separates concise from audit CSV", async ({ p
     [scanRow],
     200,
     {
-      "server-timing": "market;dur=1250.0, compute;dur=220.0, total;dur=1500.0",
+      "x-backend-server-timing": "market;dur=1250.0, compute;dur=220.0, total;dur=1500.0",
       "x-scan-requested": "1",
       "x-scan-resolved": "1",
     },

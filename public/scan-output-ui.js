@@ -180,7 +180,10 @@ window.fetch = async function fetchWithScanOutputTiming(input, init) {
         count: tickerCount,
         elapsedMs: performance.now() - startedAt,
         status: response.status,
-        serverTiming: response.headers.get("server-timing"),
+        serverTiming:
+        response.headers.get("server-timing")
+        || response.headers.get("x-backend-server-timing")
+        || "",
       });
       if (response.ok) {
         response.clone().json().then(captureRows).catch(() => {});
