@@ -7,82 +7,118 @@ import {
 } from "../public/scan-score-formulas.js";
 
 const SAMPLE = [
-  { ticker: "AAA", sortino_ratio: 2, alpha: 0.10, mdd: -0.20 },
-  { ticker: "BBB", sortino_ratio: 1, alpha: 0.08, mdd: -0.10 },
-  { ticker: "CCC", sortino_ratio: 0.5, alpha: 0.15, mdd: -0.50 },
+  { ticker: "AAA", sortino_ratio: 2, cagr: 0.30, beta: 1.20, mdd: -0.20 },
+  { ticker: "BBB", sortino_ratio: 1, cagr: 0.10, beta: 0.80, mdd: -0.10 },
+  { ticker: "CCC", sortino_ratio: 0.5, cagr: -0.05, beta: 1.50, mdd: -0.50 },
 ];
 
-test("original and recommended formulas use raw unrounded metrics", () => {
+test("three growth-beta formulas use raw unrounded metrics", () => {
   const result = buildScoreMatrix(SAMPLE);
-  const original = scoreRecordFor(result, "AAA", "sortino_alpha_mdd_score");
-  const recommended = scoreRecordFor(result, "AAA", "alpha_sqrt_sortino_mdd_score");
+  const stable = scoreRecordFor(result, "AAA", "sortino_growth_beta_score");
+  const growth = scoreRecordFor(result, "AAA", "sortino_growth_beta_quarter_score");
+  const drawdown = scoreRecordFor(result, "AAA", "sortino_growth_beta_mdd_score");
 
-  assert.equal(original.status, "ok");
-  assert.equal(original.score, 1);
-  assert.equal(original.rank, 1);
-  assert.equal(recommended.status, "ok");
-  assert.ok(Math.abs(recommended.score - (0.10 * Math.sqrt(10))) < 1e-12);
-  assert.equal(recommended.rank, 1);
+  assert.equal(stable.status, "ok");
+  assert.ok(Math.abs(stable.score - (2 * Math.sqrt(1.30 / 2.20))) < 1e-12);
+  assert.equal(stable.rank, 1);
+
+  assert.equal(growth.status, "ok");
+  assert.ok(Math.abs(growth.score - (2 * Math.sqrt(1.30) / Math.pow(2.20, 0.25))) < 1e-12);
+  assert.equal(growth.rank, 1);
+
+  assert.equal(drawdown.status, "ok");
+  assert.ok(Math.abs(drawdown.score - (2 * Math.sqrt(1.30 / (2.20 * 1.20)))) < 1e-12);
+  assert.equal(drawdown.rank, 1);
 });
 
-test("percentile formula can produce a different cross-sectional ordering", () => {
-  const result = buildScoreMatrix(SAMPLE);
-  const aaa = scoreRecordFor(result, "AAA", "percentile_composite_score");
-  const bbb = scoreRecordFor(result, "BBB", "percentile_composite_score");
-  const ccc = scoreRecordFor(result, "CCC", "percentile_composite_score");
-
-  assert.equal(aaa.score, 65);
-  assert.equal(ccc.score, 50);
-  assert.equal(bbb.score, 35);
-  assert.equal(aaa.rank, 1);
-  assert.equal(ccc.rank, 2);
-  assert.equal(bbb.rank, 3);
-  assert.equal(ccc.rankDeltaVsRecommended, -1);
-});
-
-test("recommended square-root formula rejects non-positive Sortino", () => {
+test("the three formulas can produce different cross-sectional ranks", () => {
   const result = buildScoreMatrix([
-    { ticker: "NEG", sortino_ratio: -1, alpha: 0.10, mdd: -0.20 },
-  ]);
-  const original = scoreRecordFor(result, "NEG", "sortino_alpha_mdd_score");
-  const recommended = scoreRecordFor(result, "NEG", "alpha_sqrt_sortino_mdd_score");
-  const percentile = scoreRecordFor(result, "NEG", "percentile_composite_score");
-
-  assert.equal(original.status, "ok");
-  assert.equal(original.score, -0.5);
-  assert.equal(recommended.status, "non_positive_sortino");
-  assert.equal(recommended.score, null);
-  assert.equal(percentile.status, "ok");
-  assert.equal(percentile.score, 100);
-});
-
-test("missing metrics and zero drawdown remain unranked", () => {
-  const result = buildScoreMatrix([
-    { ticker: "MISS", sortino_ratio: 1, alpha: null, mdd: -0.20 },
-    { ticker: "ZERO", sortino_ratio: 1, alpha: 0.10, mdd: 0 },
+    { ticker: "A", sortino_ratio: 1.90, cagr: 0.04, beta: 1.17, mdd: -0.40 },
+    { ticker: "B", sortino_ratio: 1.73, cagr: 0.06, beta: 0.15, mdd: -0.19 },
+    { ticker: "C", sortino_ratio: 2.37, cagr: 0.21, beta: 2.26, mdd: -0.75 },
   ]);
 
-  for (const formulaKey of [
-    "sortino_alpha_mdd_score",
-    "alpha_sqrt_sortino_mdd_score",
-    "percentile_composite_score",
+  assert.equal(scoreRecordFor(result, "B", "sortino_growth_beta_score").rank, 1);
+  assert.equal(scoreRecordFor(result, "C", "sortino_growth_beta_quarter_score").rank, 1);
+  assert.equal(scoreRecordFor(result, "A", "sortino_growth_beta_mdd_score").rank, 2);
+  assert.equal(
+    scoreRecordFor(result, "C", "sortino_growth_beta_quarter_score").rankDeltaVsStable,
+    -1,
+  );
+  assert.equal(
+    scoreRecordFor(result, "A", "sortino_growth_beta_mdd_score").rankDeltaVsStable,
+    -1,
+  );
+});
+
+test("negative Sortino remains a valid negative score", () => {
+  const result = buildScoreMatrix([
+    { ticker: "NEG", sortino_ratio: -1, cagr: 0.10, beta: 0.50, mdd: -0.20 },
+  ]);
+
+  for (const key of [
+    "sortino_growth_beta_score",
+    "sortino_growth_beta_quarter_score",
+    "sortino_growth_beta_mdd_score",
   ]) {
-    const missing = scoreRecordFor(result, "MISS", formulaKey);
-    const zero = scoreRecordFor(result, "ZERO", formulaKey);
-    assert.equal(missing.status, "missing_metrics");
-    assert.equal(missing.rank, null);
-    assert.equal(zero.status, "zero_mdd");
-    assert.equal(zero.rank, null);
+    const record = scoreRecordFor(result, "NEG", key);
+    assert.equal(record.status, "ok");
+    assert.ok(record.score < 0);
+    assert.equal(record.rank, 1);
   }
+});
+
+test("zero MDD is valid while invalid CAGR or Beta domains remain unranked", () => {
+  const result = buildScoreMatrix([
+    { ticker: "ZERO", sortino_ratio: 1, cagr: 0.10, beta: 1, mdd: 0 },
+    { ticker: "BAD_CAGR", sortino_ratio: 1, cagr: -1.01, beta: 1, mdd: -0.20 },
+    { ticker: "BAD_BETA", sortino_ratio: 1, cagr: 0.10, beta: -1, mdd: -0.20 },
+  ]);
+
+  const zeroStable = scoreRecordFor(result, "ZERO", "sortino_growth_beta_score");
+  const zeroDrawdown = scoreRecordFor(result, "ZERO", "sortino_growth_beta_mdd_score");
+  assert.equal(zeroStable.status, "ok");
+  assert.equal(zeroDrawdown.status, "ok");
+  assert.equal(zeroStable.score, zeroDrawdown.score);
+
+  for (const key of [
+    "sortino_growth_beta_score",
+    "sortino_growth_beta_quarter_score",
+    "sortino_growth_beta_mdd_score",
+  ]) {
+    assert.equal(scoreRecordFor(result, "BAD_CAGR", key).status, "invalid_cagr_domain");
+    assert.equal(scoreRecordFor(result, "BAD_CAGR", key).rank, null);
+    assert.equal(scoreRecordFor(result, "BAD_BETA", key).status, "invalid_beta_domain");
+    assert.equal(scoreRecordFor(result, "BAD_BETA", key).rank, null);
+  }
+});
+
+test("MDD is required only for the drawdown-control formula", () => {
+  const result = buildScoreMatrix([
+    { ticker: "MISS_MDD", sortino_ratio: 1.2, cagr: 0.20, beta: 1.1, mdd: null },
+  ]);
+
+  assert.equal(
+    scoreRecordFor(result, "MISS_MDD", "sortino_growth_beta_score").status,
+    "ok",
+  );
+  assert.equal(
+    scoreRecordFor(result, "MISS_MDD", "sortino_growth_beta_quarter_score").status,
+    "ok",
+  );
+  assert.equal(
+    scoreRecordFor(result, "MISS_MDD", "sortino_growth_beta_mdd_score").status,
+    "missing_metrics",
+  );
 });
 
 test("duplicate ticker keeps the latest scan result", () => {
   const result = buildScoreMatrix([
-    { ticker: "DUP", sortino_ratio: 1, alpha: 0.01, mdd: -0.20 },
-    { ticker: "dup", sortino_ratio: 2, alpha: 0.10, mdd: -0.20 },
+    { ticker: "DUP", sortino_ratio: 1, cagr: 0.10, beta: 1, mdd: -0.20 },
+    { ticker: "dup", sortino_ratio: 2, cagr: 0.30, beta: 1.2, mdd: -0.20 },
   ]);
-  const record = scoreRecordFor(result, "DUP", "sortino_alpha_mdd_score");
+  const record = scoreRecordFor(result, "DUP", "sortino_growth_beta_score");
 
   assert.equal(result.total, 1);
-  assert.equal(record.score, 1);
+  assert.ok(Math.abs(record.score - (2 * Math.sqrt(1.30 / 2.20))) < 1e-12);
 });

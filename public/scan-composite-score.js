@@ -7,6 +7,7 @@ import {
 
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const BASELINE_FORMULA_KEY = SCORE_FORMULAS[0].key;
 const FORMULA_KEYS = new Set(SCORE_FORMULAS.map((formula) => formula.key));
 const BASE_EXPORT_HEADERS = [
   "ticker",
@@ -162,13 +163,13 @@ function removeScoreSortGetters() {
 }
 
 function rankComparisonText(record, formula) {
-  if (formula.key === "alpha_sqrt_sortino_mdd_score") return "建議版基準排名";
-  const delta = record?.rankDeltaVsRecommended;
-  if (!Number.isInteger(delta)) return "無法與建議版比較排名";
-  if (delta === 0) return "與建議版同名次";
+  if (formula.key === BASELINE_FORMULA_KEY) return "穩健版基準排名";
+  const delta = record?.rankDeltaVsStable;
+  if (!Number.isInteger(delta)) return "無法與穩健版比較排名";
+  if (delta === 0) return "與穩健版同名次";
   return delta > 0
-    ? `相較建議版落後 ${delta} 名`
-    : `相較建議版領先 ${Math.abs(delta)} 名`;
+    ? `相較穩健版落後 ${delta} 名`
+    : `相較穩健版領先 ${Math.abs(delta)} 名`;
 }
 
 function formatScore(record, formula) {
@@ -194,19 +195,12 @@ function setScoreCell(cell, record, formula) {
     `名次 ${record.rank ?? "—"}`,
     `分數 ${Number(record.score).toFixed(6)}`,
     rankComparisonText(record, formula),
+    `Sortino ${record.sortino_ratio}`,
+    `CAGR ${(record.cagr * 100).toFixed(4)}%`,
+    `Beta ${record.beta}`,
   ];
-  if (formula.key === "percentile_composite_score") {
-    details.push(
-      `Alpha 百分位 ${record.alphaPercentile.toFixed(2)}`,
-      `Sortino 百分位 ${record.sortinoPercentile.toFixed(2)}`,
-      `低回撤百分位 ${record.drawdownPercentile.toFixed(2)}`,
-    );
-  } else {
-    details.push(
-      `Sortino ${record.sortino_ratio}`,
-      `Alpha ${(record.alpha * 100).toFixed(4)}%`,
-      `|MDD| ${(record.absoluteMdd * 100).toFixed(4)}%`,
-    );
+  if (record.absoluteMdd != null) {
+    details.push(`|MDD| ${(record.absoluteMdd * 100).toFixed(4)}%`);
   }
   cell.title = details.join(" · ");
 }
@@ -225,9 +219,7 @@ function ensureFormulaComparisonNote() {
   }
   note.textContent = [
     "公式比較：每格顯示「名次 · 分數」。",
-    "原始＝Sortino×Alpha÷|MDD|；",
-    "建議＝Alpha×√(Sortino÷|MDD|)；",
-    "百分位＝50% Alpha＋30% Sortino＋20% 低回撤。",
+    ...SCORE_FORMULAS.map((formula) => `${formula.shortLabel}＝${formula.description}；`),
     "名次以目前已完整取得且可計算的全部標的為母體，掃描進行中會動態更新。",
   ].join("");
 }
@@ -247,11 +239,11 @@ function updateScoreColumns() {
   const headerIndexes = new Map(
     originalHeaders.map((cell, index) => [normalizeHeaderLabel(cell.textContent), index]),
   );
-  if (!headerIndexes.has("Alpha")) return;
+  if (!headerIndexes.has("Beta")) return;
 
   const matrixResult = ensureScoreMatrix();
-  const alphaIndex = headerIndexes.get("Alpha");
-  let headerAnchor = originalHeaders[alphaIndex];
+  const betaIndex = headerIndexes.get("Beta");
+  let headerAnchor = originalHeaders[betaIndex];
   SCORE_FORMULAS.forEach((formula) => {
     const header = document.createElement("th");
     header.scope = "col";
@@ -275,9 +267,9 @@ function updateScoreColumns() {
 
   [...(table.tBodies[0]?.rows || [])].forEach((row) => {
     const originalCells = [...row.cells];
-    if (originalCells.length <= alphaIndex) return;
+    if (originalCells.length <= betaIndex) return;
     const ticker = normalizeScoreTicker(originalCells[0].textContent);
-    let cellAnchor = originalCells[alphaIndex];
+    let cellAnchor = originalCells[betaIndex];
     SCORE_FORMULAS.forEach((formula) => {
       const cell = document.createElement("td");
       setScoreCell(cell, scoreRecordFor(matrixResult, ticker, formula.key), formula);
@@ -362,7 +354,13 @@ function updateMethodologyText() {
     && paragraph.textContent.includes("Sortino")
   ));
   if (!formulaParagraph) return;
-  formulaParagraph.textContent = "個股績效列表同時顯示三種可排序分數：原始公式 Sortino × Alpha ÷ |最大回撤|、建議公式 Alpha × √(Sortino ÷ |最大回撤|)，以及 50% Alpha、30% Sortino、20% 低回撤的橫斷面百分位分數；每格同步顯示該公式名次。";
+  formulaParagraph.textContent = [
+    "個股績效列表同時顯示三種可排序分數：",
+    "穩健公式 Sortino × √((1 + CAGR) ÷ (1 + Beta))、",
+    "成長公式 Sortino × √(1 + CAGR) ÷ (1 + Beta)^0.25，",
+    "以及回撤控制公式 Sortino × √((1 + CAGR) ÷ ((1 + Beta) × (1 + |最大回撤|)))；",
+    "每格同步顯示該公式名次。",
+  ].join("");
 }
 
 function scheduleScoreColumnUpdate() {
