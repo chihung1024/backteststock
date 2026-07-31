@@ -268,7 +268,7 @@ function updateScoreColumns() {
   [...(table.tBodies[0]?.rows || [])].forEach((row) => {
     const originalCells = [...row.cells];
     if (originalCells.length <= betaIndex) return;
-    const ticker = normalizeScoreTicker(originalCells[0].textContent);
+    const ticker = normalizeScoreTicker(row.dataset.ticker || originalCells[0].dataset.ticker || originalCells[0].textContent);
     let cellAnchor = originalCells[betaIndex];
     SCORE_FORMULAS.forEach((formula) => {
       const cell = document.createElement("td");

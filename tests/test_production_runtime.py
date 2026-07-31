@@ -69,7 +69,11 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     assert len(result["price_fingerprint"]) == 64
     assert len(result["aligned_price_fingerprint"]) == 64
     assert "repair=true" in result["reproducibility"]
-    assert "aligned_sha256=" in result["note"]
+    assert result["note"] is None
+    assert "aligned_sha256=" in result["reproducibility"]
+    assert "market;dur=" in response.headers["Server-Timing"]
+    assert response.headers["X-Scan-Requested"] == "1"
+    assert response.headers["X-Scan-Resolved"] == "1"
     assert response.headers["X-Metric-Definition-Version"] == result[
         "metric_definition_version"
     ]
@@ -112,7 +116,7 @@ def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, mon
     assert "Beta／Alpha 暫不計算" in result["note"]
 
 
-def test_scan_resolves_benchmark_once_before_large_asset_batch(scan_client, monkeypatch):
+def test_scan_resolves_benchmark_and_assets_in_one_large_batch(scan_client, monkeypatch):
     dates = pd.bdate_range("2024-01-02", periods=4)
     source = {
         "SPY": pd.Series([100, 101, 102, 103], index=dates, name="SPY"),
@@ -138,7 +142,7 @@ def test_scan_resolves_benchmark_once_before_large_asset_batch(scan_client, monk
         },
     )
     assert response.status_code == 200
-    assert calls == [["SPY"], ["AAA", "BBB"]]
+    assert calls == [["SPY", "AAA", "BBB"]]
     assert [row["ticker"] for row in response.get_json()] == ["AAA", "BBB"]
 
 
