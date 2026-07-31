@@ -104,6 +104,14 @@ async function proxyBackend(request, env, requestId, requestBody) {
     });
 
     const responseHeaders = new Headers(response.headers);
+    const backendServerTiming = response.headers.get("server-timing");
+    if (backendServerTiming) {
+      // Cloudflare may omit Server-Timing from a proxied subrequest.
+      // Keep the standards-based header and mirror it to an application
+      // header that is stable across the edge proxy boundary.
+      responseHeaders.set("server-timing", backendServerTiming);
+      responseHeaders.set("x-backend-server-timing", backendServerTiming);
+    }
     responseHeaders.delete("server");
     responseHeaders.delete("x-powered-by");
     responseHeaders.delete("set-cookie");

@@ -254,7 +254,10 @@ async function apiFetch(path, options = {}, timeoutMs = 50_000) {
         configurable: true,
         enumerable: false,
         value: {
-          serverTiming: response.headers.get("server-timing") || "",
+          serverTiming:
+          response.headers.get("server-timing")
+          || response.headers.get("x-backend-server-timing")
+          || "",
           requested: response.headers.get("x-scan-requested"),
           resolved: response.headers.get("x-scan-resolved"),
         },
