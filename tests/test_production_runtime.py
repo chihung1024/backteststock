@@ -29,12 +29,12 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     asset_dates = benchmark_dates[[0, 2, 3, 4]]
     benchmark = pd.Series([100, 101, 104, 103, 106], index=benchmark_dates, name="SPY")
     asset = pd.Series([50, 55, 52, 58], index=asset_dates, name="AAA")
+    source = {"AAA": asset, "SPY": benchmark}
 
-    monkeypatch.setattr(
-        scan_v2.legacy,
-        "download_prices_finitely",
-        lambda *_args, **_kwargs: ({"AAA": asset, "SPY": benchmark}, []),
-    )
+    def fake_download(requested, *_args, **_kwargs):
+        return ({ticker: source[ticker] for ticker in requested if ticker in source}, [])
+
+    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -75,15 +75,17 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     ]
 
 
-def test_scan_refuses_results_when_benchmark_is_unavailable(scan_client, monkeypatch):
+def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, monkeypatch):
     asset = pd.Series(
         [100, 101, 102], index=pd.bdate_range("2024-01-02", periods=3), name="AAA"
     )
-    monkeypatch.setattr(
-        scan_v2.legacy,
-        "download_prices_finitely",
-        lambda *_args, **_kwargs: ({"AAA": asset}, ["SPY"]),
-    )
+
+    def fake_download(requested, *_args, **_kwargs):
+        if requested == ["SPY"]:
+            return ({}, ["SPY"])
+        return ({"AAA": asset}, [])
+
+    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -95,8 +97,49 @@ def test_scan_refuses_results_when_benchmark_is_unavailable(scan_client, monkeyp
             "endMonth": 1,
         },
     )
-    assert response.status_code == 503
-    assert response.get_json()["retryable"] is True
+    assert response.status_code == 200
+    result = response.get_json()[0]
+    expected = calculate_metrics(
+        asset, risk_free_rate=scan_v2.legacy.RISK_FREE_RATE
+    )
+    assert result["status"] == "ok"
+    assert result["retryable"] is False
+    assert result["cagr"] == pytest.approx(expected["cagr"])
+    assert result["beta"] is None
+    assert result["alpha"] is None
+    assert result["benchmark_available"] is False
+    assert result["data_coverage"] == 0.0
+    assert "Beta／Alpha 暫不計算" in result["note"]
+
+
+def test_scan_resolves_benchmark_once_before_large_asset_batch(scan_client, monkeypatch):
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    source = {
+        "SPY": pd.Series([100, 101, 102, 103], index=dates, name="SPY"),
+        "AAA": pd.Series([50, 51, 52, 53], index=dates, name="AAA"),
+        "BBB": pd.Series([80, 79, 81, 82], index=dates, name="BBB"),
+    }
+    calls = []
+
+    def fake_download(requested, *_args, **_kwargs):
+        calls.append(list(requested))
+        return ({ticker: source[ticker] for ticker in requested}, [])
+
+    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    response = scan_client.post(
+        "/api/scan",
+        json={
+            "tickers": ["AAA", "BBB"],
+            "benchmark": "SPY",
+            "startYear": 2024,
+            "startMonth": 1,
+            "endYear": 2024,
+            "endMonth": 1,
+        },
+    )
+    assert response.status_code == 200
+    assert calls == [["SPY"], ["AAA", "BBB"]]
+    assert [row["ticker"] for row in response.get_json()] == ["AAA", "BBB"]
 
 
 def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):

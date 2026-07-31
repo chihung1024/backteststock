@@ -97,22 +97,28 @@ def scan_handler():
         start_date, end_exclusive = legacy.parse_period(data)
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
+
+        # Resolve the one shared benchmark independently before the large asset
+        # batch. This prevents one missing benchmark from invalidating or
+        # repeatedly delaying up to 100 otherwise usable asset histories. The
+        # process TTL cache makes later browser batches reuse the same data.
+        benchmark_resolved, benchmark_unresolved = legacy.download_prices_finitely(
+            [benchmark_ticker],
+            start_text,
+            end_text,
+        )
         resolved, unresolved = legacy.download_prices_finitely(
-            legacy.deduplicate([*tickers, benchmark_ticker]),
+            tickers,
             start_text,
             end_text,
         )
         unresolved_set = set(unresolved)
-        benchmark_prices = resolved.get(benchmark_ticker)
-        if (
-            benchmark_ticker in unresolved_set
-            or benchmark_prices is None
-            or benchmark_prices.empty
-        ):
-            return error_response(
-                "比較基準行情未完整取得；本批不產生可能失真的 Beta／Alpha，請稍後重試。",
-                503,
-            )
+        benchmark_prices = benchmark_resolved.get(benchmark_ticker)
+        benchmark_available = (
+            benchmark_ticker not in set(benchmark_unresolved)
+            and benchmark_prices is not None
+            and not benchmark_prices.empty
+        )
 
         shared_metadata = reproducibility_metadata(
             risk_free_rate=legacy.RISK_FREE_RATE,
@@ -120,7 +126,12 @@ def scan_handler():
             extra={
                 "requested_start": start_text,
                 "requested_end_exclusive": end_text,
-                "benchmark_price_fingerprint": series_fingerprint(benchmark_prices),
+                "benchmark_available": benchmark_available,
+                "benchmark_price_fingerprint": (
+                    series_fingerprint(benchmark_prices)
+                    if benchmark_available
+                    else None
+                ),
             },
         )
         results = []
@@ -137,14 +148,20 @@ def scan_handler():
 
             metrics = calculate_metrics(
                 prices,
-                benchmark_prices,
+                benchmark_prices if benchmark_available else None,
                 risk_free_rate=legacy.RISK_FREE_RATE,
             )
             asset_hash = series_fingerprint(prices)
-            paired_hash = aligned_fingerprint(prices, benchmark_prices)
+            paired_hash = (
+                aligned_fingerprint(prices, benchmark_prices)
+                if benchmark_available
+                else None
+            )
             notes = []
             if prices.index[0] > start_date + pd.offsets.BDay(5):
                 notes.append(f"從 {prices.index[0].strftime('%Y-%m-%d')} 開始")
+            if not benchmark_available:
+                notes.append("比較基準行情無法取得，Beta／Alpha 暫不計算")
 
             row_metadata = {
                 **shared_metadata,
@@ -164,7 +181,12 @@ def scan_handler():
                     "data_start": prices.index[0].strftime("%Y-%m-%d"),
                     "data_end": prices.index[-1].strftime("%Y-%m-%d"),
                     "trading_days": len(prices),
-                    "data_coverage": benchmark_coverage(prices, benchmark_prices),
+                    "data_coverage": (
+                        benchmark_coverage(prices, benchmark_prices)
+                        if benchmark_available
+                        else 0.0
+                    ),
+                    "benchmark_available": benchmark_available,
                     "note": f"（{'；'.join(notes)}）",
                     **row_metadata,
                     "reproducibility": reproducibility,

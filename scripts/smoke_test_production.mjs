@@ -114,6 +114,29 @@ assertCondition(
   `Russell 2000 fundamentals coverage is only ${screenerPayload.funnel?.fundamentalsAvailable ?? 0}.`,
 );
 
+const scanContract = await requestJson(
+  "/api/scan",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      tickers: [screenerPayload.candidates[0].ticker],
+      benchmark: "SPY",
+      startYear: 2025,
+      startMonth: 1,
+      endYear: 2025,
+      endMonth: 3,
+    }),
+  },
+  { attempts: 2, delayMs: 5_000 },
+);
+assertCondition(Array.isArray(scanContract), "Scan endpoint did not return an array.");
+assertCondition(scanContract.length === 1, "Scan endpoint did not settle one requested ticker.");
+assertCondition(
+  scanContract[0]?.retryable === false && ["ok", "failed"].includes(scanContract[0]?.status),
+  "Scan endpoint returned a non-terminal result or whole-request failure.",
+);
+
 console.log(
   JSON.stringify(
     {
@@ -122,6 +145,7 @@ console.log(
       memberCount: russellDetail.members.length,
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
       returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),
+          scanContractStatus: scanContract[0].status,
     },
     null,
     2,
