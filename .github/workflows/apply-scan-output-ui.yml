@@ -1,4 +1,4 @@
-name: Apply scan output UI
+name: Apply scan output UI stage 1
 
 on:
   push:
@@ -18,32 +18,25 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Patch app.js
+      - name: Add scan note and timing helpers
         run: |
           python <<'PY'
           from pathlib import Path
-
           path = Path("public/app.js")
           text = path.read_text(encoding="utf-8")
+          marker = "\nfunction formatCurrency(value) {"
+          index = text.index(marker)
+          helpers = '''
 
-          anchor = '''function formatMetric(value, type) {
-            if (value == null || !Number.isFinite(Number(value))) return "—";
-            const numeric = Number(value);
-            if (type === "percent") return `${(numeric * 100).toFixed(2)}%`;
-            if (type === "integer") return Math.round(numeric).toLocaleString("zh-TW");
-            return numeric.toFixed(2);
-          }
-          '''
-          helpers = anchor + '''
           function humanScanNote(item) {
             const raw = String(item?.note || "")
               .trim()
-              .replace(/^[（(]\s*/u, "")
-              .replace(/\s*[）)]$/u, "");
+              .replace(/^[（(]\\s*/u, "")
+              .replace(/\\s*[）)]$/u, "");
             if (!raw) return "";
             return raw
-              .split(/；?\s*再現資訊\b/u)[0]
-              .replace(/[；;\s]+$/u, "")
+              .split(/；?\\s*再現資訊\\b/u)[0]
+              .replace(/[；;\\s]+$/u, "")
               .trim();
           }
 
@@ -75,157 +68,34 @@ jobs:
             return `本批 ${count} 檔 ${formatSeconds(elapsedSeconds)}${details}`;
           }
           '''
-          if text.count(anchor) != 1:
-              raise SystemExit(f"formatMetric anchor count={text.count(anchor)}")
-          text = text.replace(anchor, helpers, 1)
+          if "function humanScanNote" in text:
+              raise SystemExit("helpers already present")
+          text = text[:index] + helpers + text[index:]
 
-          return_anchor = '''    return payload;
-              } catch (error) {'''
-          return_replacement = '''    if (payload && typeof payload === "object") {
-                    Object.defineProperty(payload, "__responseMeta", {
-                      configurable: true,
-                      enumerable: false,
-                      value: {
-                        serverTiming: response.headers.get("server-timing") || "",
-                        requested: response.headers.get("x-scan-requested"),
-                        resolved: response.headers.get("x-scan-resolved"),
-                      },
-                    });
-                  }
-                  return payload;
-              } catch (error) {'''
-          if text.count(return_anchor) != 1:
-              raise SystemExit(f"api return anchor count={text.count(return_anchor)}")
-          text = text.replace(return_anchor, return_replacement, 1)
-
-          create_anchor = '''    attempts: {},
-                  retryRound: 0,
-                };'''
-          create_replacement = '''    attempts: {},
-                  retryRound: 0,
-                  performance: {
-                    batchCount: 0,
-                    totalSeconds: 0,
-                    lastBatchSeconds: null,
-                    lastServerTiming: {},
+          old = "    return payload;\n  } catch (error) {"
+          if text.count(old) != 1:
+              raise SystemExit(f"api return count={text.count(old)}")
+          new = '''    if (payload && typeof payload === "object") {
+                Object.defineProperty(payload, "__responseMeta", {
+                  configurable: true,
+                  enumerable: false,
+                  value: {
+                    serverTiming: response.headers.get("server-timing") || "",
+                    requested: response.headers.get("x-scan-requested"),
+                    resolved: response.headers.get("x-scan-resolved"),
                   },
-                };'''
-          if text.count(create_anchor) != 1:
-              raise SystemExit(f"create job anchor count={text.count(create_anchor)}")
-          text = text.replace(create_anchor, create_replacement, 1)
-
-          load_anchor = '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
-                    return job;'''
-          load_replacement = '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
-                    job.performance = job.performance && typeof job.performance === "object"
-                      ? job.performance
-                      : { batchCount: 0, totalSeconds: 0, lastBatchSeconds: null, lastServerTiming: {} };
-                    return job;'''
-          if text.count(load_anchor) != 1:
-              raise SystemExit(f"load job anchor count={text.count(load_anchor)}")
-          text = text.replace(load_anchor, load_replacement, 1)
-
-          chunk_anchor = '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-                  const firstPosition'''
-          chunk_replacement = '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-                  const batchStartedAt = performance.now();
-                  const firstPosition'''
-          if text.count(chunk_anchor) != 1:
-              raise SystemExit(f"chunk anchor count={text.count(chunk_anchor)}")
-          text = text.replace(chunk_anchor, chunk_replacement, 1)
-
-          cancel_anchor = '''    if (cancelRequested) {
-                    job.pending.unshift(...chunk);
-                    break;
-                  }
-
-                  const responseMap'''
-          cancel_replacement = '''    const batchSeconds = (performance.now() - batchStartedAt) / 1000;
-                  const serverTiming = parseServerTiming(response?.__responseMeta?.serverTiming);
-                  job.performance = job.performance || {};
-                  job.performance.batchCount = Number(job.performance.batchCount || 0) + 1;
-                  job.performance.totalSeconds = Number(job.performance.totalSeconds || 0) + batchSeconds;
-                  job.performance.lastBatchSeconds = batchSeconds;
-                  job.performance.lastServerTiming = serverTiming;
-                  const timingText = batchTimingText(chunk.length, batchSeconds, serverTiming);
-
-                  if (cancelRequested) {
-                    job.pending.unshift(...chunk);
-                    break;
-                  }
-
-                  const responseMap'''
-          if text.count(cancel_anchor) != 1:
-              raise SystemExit(f"cancel anchor count={text.count(cancel_anchor)}")
-          text = text.replace(cancel_anchor, cancel_replacement, 1)
-
-          message_anchor = '''      requestError
-                    ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，系統持續重試`
-                    : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,'''
-          message_replacement = '''      requestError
-                    ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔；${timingText}`
-                    : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔；${timingText}`,'''
-          if text.count(message_anchor) != 1:
-              raise SystemExit(f"message anchor count={text.count(message_anchor)}")
-          text = text.replace(message_anchor, message_replacement, 1)
-
-          ticker_anchor = '''    const row = createElement("tr");
-                row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));'''
-          ticker_replacement = '''    const row = createElement("tr", { dataset: { ticker: item.ticker } });
-                const tickerCell = createElement("th", {
-                  scope: "row",
-                  className: "scan-ticker-cell",
-                  dataset: { ticker: item.ticker },
-                }, [
-                  createElement("span", { className: "scan-ticker-symbol", text: item.ticker }),
-                ]);
-                const displayNote = humanScanNote(item);
-                if (displayNote) {
-                  tickerCell.append(createElement("small", {
-                    className: "scan-ticker-note",
-                    text: displayNote,
-                  }));
-                }
-                row.append(tickerCell);'''
-          if text.count(ticker_anchor) != 1:
-              raise SystemExit(f"ticker anchor count={text.count(ticker_anchor)}")
-          text = text.replace(ticker_anchor, ticker_replacement, 1)
-
-          summary_anchor = '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-                ];'''
-          summary_replacement = '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-                  ["最近一批耗時", formatSeconds(activeScanJob?.performance?.lastBatchSeconds)],
-                  [
-                    "平均每批耗時",
-                    formatSeconds(
-                      activeScanJob?.performance?.batchCount
-                        ? activeScanJob.performance.totalSeconds / activeScanJob.performance.batchCount
-                        : null,
-                    ),
-                  ],
-                ];'''
-          if text.count(summary_anchor) != 1:
-              raise SystemExit(f"summary anchor count={text.count(summary_anchor)}")
-          text = text.replace(summary_anchor, summary_replacement, 1)
-
-          export_anchor = '''  const lines = [headers.join(","), ...latestScan.map((item) => headers.map((key) => escapeCsv(item[key])).join(","))];'''
-          export_replacement = '''  const lines = [
-                headers.join(","),
-                ...latestScan.map((item) => headers.map((key) => (
-                  escapeCsv(key === "note" ? humanScanNote(item) : item[key])
-                )).join(",")),
-              ];'''
-          if text.count(export_anchor) != 1:
-              raise SystemExit(f"fallback export anchor count={text.count(export_anchor)}")
-          text = text.replace(export_anchor, export_replacement, 1)
-
+                });
+              }
+              return payload;
+            } catch (error) {'''
+          text = text.replace(old, new, 1)
           path.write_text(text, encoding="utf-8")
           Path(".github/workflows/apply-scan-output-ui.yml").unlink()
           PY
-      - name: Commit UI changes
+      - name: Commit stage 1
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Keep scan table compact and show batch timings"
+          git commit -m "Add scan timing metadata helpers"
           git push origin HEAD:fix/scan-output-and-performance
