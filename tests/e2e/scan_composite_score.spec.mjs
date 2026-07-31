@@ -1,17 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 const formulas = {
-  original: {
-    key: "sortino_alpha_mdd_score",
-    label: "Sortino×Alpha/|MDD|",
+  stable: {
+    key: "sortino_growth_beta_score",
+    label: "穩健分數",
   },
-  recommended: {
-    key: "alpha_sqrt_sortino_mdd_score",
-    label: "建議分數",
+  growth: {
+    key: "sortino_growth_beta_quarter_score",
+    label: "成長分數",
   },
-  percentile: {
-    key: "percentile_composite_score",
-    label: "百分位分數",
+  drawdown: {
+    key: "sortino_growth_beta_mdd_score",
+    label: "回撤控制分數",
   },
 };
 
@@ -124,7 +124,7 @@ function formulaCell(row, formula) {
   return row.locator(`td[data-composite-metric="${formula.key}"]`);
 }
 
-test("compares and sorts three scan score formulas", async ({ page }) => {
+test("compares and sorts three Sortino growth-beta formulas", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, scanResults.map((item) => item.ticker)));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
@@ -137,21 +137,23 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
   await page.locator("#scan-end-period").fill("2025-12");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
-  const originalHeader = formulaHeader(page, formulas.original);
-  const recommendedHeader = formulaHeader(page, formulas.recommended);
-  const percentileHeader = formulaHeader(page, formulas.percentile);
+  const stableHeader = formulaHeader(page, formulas.stable);
+  const growthHeader = formulaHeader(page, formulas.growth);
+  const drawdownHeader = formulaHeader(page, formulas.drawdown);
   const tickerCells = page.locator("#scan-table tbody tr th:first-child");
 
-  await expect(originalHeader).toHaveText(formulas.original.label);
-  await expect(recommendedHeader).toHaveText(formulas.recommended.label);
-  await expect(percentileHeader).toHaveText(formulas.percentile.label);
+  await expect(stableHeader).toHaveText(formulas.stable.label);
+  await expect(growthHeader).toHaveText(formulas.growth.label);
+  await expect(drawdownHeader).toHaveText(formulas.drawdown.label);
   for (const formula of Object.values(formulas)) {
     await expect(formulaHeader(page, formula)).toHaveClass(/sortable/);
     await expect(formulaHeader(page, formula)).toHaveAttribute("data-sort-key", formula.key);
   }
-  await expect(page.locator('#scan-table th[data-composite-metric="ten_year_quality_score"]')).toHaveCount(0);
-  await expect(page.locator('#scan-table th[data-composite-metric="sortino_alpha_beta_mdd_score"]')).toHaveCount(0);
+  await expect(page.locator('#scan-table th[data-composite-metric="sortino_alpha_mdd_score"]')).toHaveCount(0);
+  await expect(page.locator('#scan-table th[data-composite-metric="alpha_sqrt_sortino_mdd_score"]')).toHaveCount(0);
+  await expect(page.locator('#scan-table th[data-composite-metric="percentile_composite_score"]')).toHaveCount(0);
   await expect(page.locator("#score-formula-comparison")).toContainText("每格顯示「名次 · 分數」");
+  await expect(page.locator("#score-formula-comparison")).toContainText("穩健＝Sortino × √((1 + CAGR) ÷ (1 + Beta))");
 
   const nvdaRow = page.locator("#scan-table tbody tr", { hasText: "NVDA" });
   const msftRow = page.locator("#scan-table tbody tr", { hasText: "MSFT" });
@@ -159,25 +161,23 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
   const shortRow = page.locator("#scan-table tbody tr", { hasText: "SHORT" });
   const zeroRow = page.locator("#scan-table tbody tr", { hasText: "ZERO" });
 
-  await expect(formulaCell(nvdaRow, formulas.original)).toHaveText("#3 · 0.6558");
-  await expect(formulaCell(msftRow, formulas.original)).toHaveText("#4 · 0.4000");
-  await expect(formulaCell(qualityRow, formulas.original)).toHaveText("#2 · 0.8000");
-  await expect(formulaCell(shortRow, formulas.original)).toHaveText("#1 · 11.1846");
+  await expect(formulaCell(nvdaRow, formulas.stable)).toHaveText("#3 · 1.0107");
+  await expect(formulaCell(msftRow, formulas.stable)).toHaveText("#4 · 0.9556");
+  await expect(formulaCell(qualityRow, formulas.stable)).toHaveText("#2 · 1.6330");
+  await expect(formulaCell(shortRow, formulas.stable)).toHaveText("#1 · 3.5785");
+  await expect(formulaCell(zeroRow, formulas.stable)).toHaveText("#5 · 0.7071");
 
-  await expect(formulaCell(nvdaRow, formulas.recommended)).toHaveText("#2 · 0.2343");
-  await expect(formulaCell(msftRow, formulas.recommended)).toHaveText("#4 · 0.1265");
-  await expect(formulaCell(qualityRow, formulas.recommended)).toHaveText("#3 · 0.2191");
-  await expect(formulaCell(shortRow, formulas.recommended)).toHaveText("#1 · 3.4956");
+  await expect(formulaCell(nvdaRow, formulas.growth)).toHaveText("#3 · 1.2743");
+  await expect(formulaCell(msftRow, formulas.growth)).toHaveText("#4 · 1.1434");
+  await expect(formulaCell(qualityRow, formulas.growth)).toHaveText("#2 · 1.8915");
+  await expect(formulaCell(shortRow, formulas.growth)).toHaveText("#1 · 4.6455");
+  await expect(formulaCell(zeroRow, formulas.growth)).toHaveText("#5 · 0.8409");
 
-  await expect(formulaCell(nvdaRow, formulas.percentile)).toHaveText("#2 · 50.00");
-  await expect(formulaCell(msftRow, formulas.percentile)).toHaveText("#4 · 20.00");
-  await expect(formulaCell(qualityRow, formulas.percentile)).toHaveText("#2 · 50.00");
-  await expect(formulaCell(shortRow, formulas.percentile)).toHaveText("#1 · 80.00");
-
-  for (const formula of Object.values(formulas)) {
-    await expect(formulaCell(zeroRow, formula)).toHaveText("—");
-    await expect(formulaCell(zeroRow, formula)).toHaveAttribute("title", /最大回撤為 0/);
-  }
+  await expect(formulaCell(nvdaRow, formulas.drawdown)).toHaveText("#3 · 0.9291");
+  await expect(formulaCell(msftRow, formulas.drawdown)).toHaveText("#4 · 0.9030");
+  await expect(formulaCell(qualityRow, formulas.drawdown)).toHaveText("#2 · 1.5228");
+  await expect(formulaCell(shortRow, formulas.drawdown)).toHaveText("#1 · 3.0430");
+  await expect(formulaCell(zeroRow, formulas.drawdown)).toHaveText("#5 · 0.7071");
 
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
@@ -187,9 +187,9 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
     "ZERO",
   ]);
 
-  await originalHeader.click();
-  await expect(originalHeader).toHaveText(`${formulas.original.label} ▼`);
-  await expect(originalHeader).toHaveAttribute("aria-sort", "descending");
+  await stableHeader.click();
+  await expect(stableHeader).toHaveText(`${formulas.stable.label} ▼`);
+  await expect(stableHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
     "QUALITY",
@@ -198,20 +198,20 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
     "ZERO",
   ]);
 
-  await originalHeader.click();
-  await expect(originalHeader).toHaveText(`${formulas.original.label} ▲`);
-  await expect(originalHeader).toHaveAttribute("aria-sort", "ascending");
+  await stableHeader.click();
+  await expect(stableHeader).toHaveText(`${formulas.stable.label} ▲`);
+  await expect(stableHeader).toHaveAttribute("aria-sort", "ascending");
   await expect(tickerCells).toHaveText([
+    "ZERO",
     "MSFT",
     "NVDA",
     "QUALITY",
     "SHORT （從 2024-03-27 開始）",
-    "ZERO",
   ]);
 
-  await percentileHeader.click();
-  await expect(percentileHeader).toHaveText(`${formulas.percentile.label} ▼`);
-  await expect(percentileHeader).toHaveAttribute("aria-sort", "descending");
+  await drawdownHeader.click();
+  await expect(drawdownHeader).toHaveText(`${formulas.drawdown.label} ▼`);
+  await expect(drawdownHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
     "SHORT （從 2024-03-27 開始）",
     "QUALITY",
@@ -221,9 +221,8 @@ test("compares and sorts three scan score formulas", async ({ page }) => {
   ]);
 
   await page.getByRole("button", { name: "方法與限制" }).click();
-  await expect(page.locator("#about-panel")).toContainText("Sortino × Alpha ÷ |最大回撤|");
-  await expect(page.locator("#about-panel")).toContainText("Alpha × √(Sortino ÷ |最大回撤|)");
-  await expect(page.locator("#about-panel")).toContainText("50% Alpha、30% Sortino、20% 低回撤");
-  await expect(page.locator("#about-panel")).not.toContainText("十年品質分數");
-  await expect(page.locator("#about-panel")).not.toContainText("Sortino × Alpha ÷ (1 + Beta)");
+  await expect(page.locator("#about-panel")).toContainText("Sortino × √((1 + CAGR) ÷ (1 + Beta))");
+  await expect(page.locator("#about-panel")).toContainText("Sortino × √(1 + CAGR) ÷ (1 + Beta)^0.25");
+  await expect(page.locator("#about-panel")).toContainText("(1 + |最大回撤|)");
+  await expect(page.locator("#about-panel")).not.toContainText("Sortino × Alpha ÷ |最大回撤|");
 });
