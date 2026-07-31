@@ -13,7 +13,7 @@ import pandas as pd
 TRADING_DAYS_PER_YEAR = 252
 DAYS_PER_YEAR = 365.25
 EPSILON = 1e-12
-METRIC_DEFINITION_VERSION = "2026-07-31.1"
+METRIC_DEFINITION_VERSION = "2026-08-01.1"
 DATA_SOURCE_NAME = "Yahoo Finance via yfinance"
 DATA_SOURCE_SETTINGS = {
     "interval": "1d",
@@ -127,6 +127,7 @@ def reproducibility_metadata(
         "data_source_version": package_version("yfinance"),
         "numpy_version": package_version("numpy"),
         "pandas_version": package_version("pandas"),
+        "scipy_version": package_version("scipy"),
         "risk_free_rate": float(risk_free_rate),
         "trading_days_per_year": TRADING_DAYS_PER_YEAR,
         "data_source_settings": dict(DATA_SOURCE_SETTINGS),

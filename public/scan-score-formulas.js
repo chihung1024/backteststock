@@ -1,4 +1,4 @@
-export const METRIC_DEFINITION_VERSION = "2026-07-31.1";
+export const METRIC_DEFINITION_VERSION = "2026-08-01.1";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
 const CACHE_INVALIDATION_SESSION_KEY = "backteststock-metric-cache-invalidated";

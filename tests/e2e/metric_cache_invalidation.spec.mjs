@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const STORAGE_KEY = "backteststock-scan-job-v2";
 const SESSION_KEY = "backteststock-metric-cache-invalidated";
-const METRIC_VERSION = "2026-07-31.1";
+const METRIC_VERSION = "2026-08-01.1";
 
 function scanPayload() {
   return {
