@@ -93,6 +93,7 @@ test("scan table stays compact and separates concise from audit CSV", async ({ p
 
   const formulaDetails = page.locator("#score-formula-comparison");
   await expect(formulaDetails).toBeVisible();
+  await expect(formulaDetails).toHaveJSProperty("tagName", "DETAILS");
   await expect(formulaDetails).toHaveJSProperty("open", false);
   await expect(formulaDetails.locator("summary")).toHaveText("分數公式與排名說明");
 
