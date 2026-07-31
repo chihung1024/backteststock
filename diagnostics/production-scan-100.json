@@ -1,0 +1,40 @@
+{
+  "measuredAt": "2026-07-31T17:54:30.941Z",
+  "origin": "https://backteststock.chired.workers.dev",
+  "period": {
+    "startYear": 2019,
+    "startMonth": 1,
+    "endYear": 2026,
+    "endMonth": 7
+  },
+  "events": [
+    {
+      "path": "/api/v2/screener",
+      "status": 200,
+      "elapsedMs": 1090,
+      "bytes": 22476
+    },
+    {
+      "path": "/api/scan",
+      "status": 503,
+      "elapsedMs": 89746,
+      "bytes": 220,
+      "error": "比較基準行情未完整取得；本批不產生可能失真的 Beta／Alpha，請稍後重試。"
+    }
+  ],
+  "candidateCount": 100,
+  "firstTickers": [
+    "NVDA",
+    "AAPL",
+    "GOOGL",
+    "GOOG",
+    "MSFT",
+    "AMZN",
+    "AVGO",
+    "META",
+    "TSLA",
+    "BRK-B"
+  ],
+  "outcome": "error",
+  "error": "/api/scan HTTP 503: 比較基準行情未完整取得；本批不產生可能失真的 Beta／Alpha，請稍後重試。"
+}
