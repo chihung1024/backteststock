@@ -196,7 +196,7 @@ def scan_handler():
         response = jsonify(results)
         serialize_duration_ms = (time.perf_counter() - serialize_started) * 1000
         total_duration_ms = (time.perf_counter() - request_started) * 1000
-        response.headers["Server-Timing"] = ", ".join(
+        timing_header = ", ".join(
             [
                 f"market;dur={market_duration_ms:.1f}",
                 f"compute;dur={compute_duration_ms:.1f}",
@@ -204,6 +204,10 @@ def scan_handler():
                 f"total;dur={total_duration_ms:.1f}",
             ]
         )
+        response.headers["Server-Timing"] = timing_header
+        # Cloudflare can hide Server-Timing from a Worker subrequest. Emit a
+        # normal application header at the origin so the edge can forward it.
+        response.headers["X-Backend-Server-Timing"] = timing_header
         response.headers["X-Scan-Requested"] = str(len(tickers))
         response.headers["X-Scan-Resolved"] = str(
             sum(1 for item in results if item.get("status") == "ok")
