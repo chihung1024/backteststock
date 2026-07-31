@@ -1,6 +1,17 @@
 name: Deploy Cloudflare Worker
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-cloudflare.yml"
+      - "worker/**"
+      - "public/**"
+      - "migrations/**"
+      - "wrangler.jsonc"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/render_wrangler_config.mjs"
   workflow_dispatch:
 
 permissions:
