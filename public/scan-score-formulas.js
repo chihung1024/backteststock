@@ -3,7 +3,7 @@ export const SCORE_FORMULAS = Object.freeze([
     key: "sortino_alpha_mdd_score",
     rankKey: "sortino_alpha_mdd_rank",
     statusKey: "sortino_alpha_mdd_score_status",
-    label: "原始分數",
+    label: "Sortino×Alpha/|MDD|",
     shortLabel: "原始",
     description: "Sortino × Alpha ÷ |最大回撤|",
     digits: 4,
