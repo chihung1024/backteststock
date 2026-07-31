@@ -123,7 +123,7 @@ function humanNote(item) {
     .replace(/\s*[）)]$/u, "");
   if (!raw) return "";
   return raw
-    .split(/；?\s*再現資訊\b/u)[0]
+    .split(/；?\s*再現資訊/u)[0]
     .replace(/[；;\s]+$/u, "")
     .trim();
 }
@@ -263,7 +263,7 @@ function decorateTable() {
 
     const symbol = document.createElement("span");
     symbol.className = "scan-ticker-symbol";
-    symbol.textContent = ticker;
+    symbol.textContent = `${ticker} `;
     cell.replaceChildren(symbol);
     cell.classList.add("scan-ticker-cell");
     cell.dataset.outputSignature = signature;
@@ -271,7 +271,7 @@ function decorateTable() {
     if (note) {
       const detail = document.createElement("small");
       detail.className = "scan-ticker-note";
-      detail.textContent = `\n${note}`;
+      detail.textContent = `（${note}）`;
       cell.append(detail);
       cell.title = note;
     } else {

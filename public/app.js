@@ -167,7 +167,7 @@ function humanScanNote(item) {
     .replace(/\s*[）)]$/u, "");
   if (!raw) return "";
   return raw
-    .split(/；?\s*再現資訊\b/u)[0]
+    .split(/；?\s*再現資訊/u)[0]
     .replace(/[；;\s]+$/u, "")
     .trim();
 }
