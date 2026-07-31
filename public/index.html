@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="美股投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/app.js"></script>
-  <script type="module" src="/scan-composite-score.js"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260801.2">
+  <script type="module" src="/app.js?v=20260801.2"></script>
+  <script type="module" src="/scan-output-ui.js?v=20260801.2"></script>
+  <script type="module" src="/scan-composite-score.js?v=20260801.2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -224,7 +225,10 @@
             <p class="eyebrow">SCAN RESULTS</p>
             <h3>個股績效列表</h3>
           </div>
-          <button id="export-scan" class="button ghost" type="button">匯出 CSV</button>
+          <div class="toolbar">
+          <button id="export-scan" class="button ghost" type="button">匯出精簡 CSV</button>
+          <button id="export-scan-audit" class="button ghost" type="button">匯出稽核 CSV</button>
+        </div>
         </div>
         <div id="scan-context" class="result-context hidden"></div>
         <div id="scan-summary" class="summary-grid"></div>

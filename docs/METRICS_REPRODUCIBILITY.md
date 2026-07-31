@@ -13,7 +13,7 @@
 - `keepna=false`
 - 起始日包含，結束日不包含
 
-`requirements.txt` 精確鎖定 NumPy、pandas、SciPy 與 yfinance 版本。由於 `repair=true` 會使用 yfinance 的價格修復功能，SciPy 是正式環境的必要依賴，不得只在開發環境安裝。每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋；CSV 的 `note` 欄也保存同一份精簡再現資訊。
+`requirements.txt` 精確鎖定 NumPy、pandas、SciPy 與 yfinance 版本。由於 `repair=true` 會使用 yfinance 的價格修復功能，SciPy 是正式環境的必要依賴，不得只在開發環境安裝。每筆掃描結果另回傳資料源版本、參數與 SHA-256 指紋。互動畫面及精簡 CSV 只顯示人類可讀備註；完整版本、參數與指紋放在獨立稽核 CSV，避免污染股票代碼與主要績效欄。
 
 Yahoo Finance 仍可能事後修訂歷史資料。指紋能判斷兩次計算是否使用完全相同輸入，但若上游已修改且本系統未保存舊行情，指紋本身不能還原舊價格。
 
@@ -111,6 +111,7 @@ Beta 與 Alpha 使用完全相同的成對日報酬樣本。
 - `requested_start` / `requested_end_exclusive`
 - `metric_start` / `metric_end`
 - `metric_price_observations` / `metric_return_observations`
+- `fingerprint_algorithm`
 - `price_fingerprint`
 - `aligned_price_fingerprint`
 

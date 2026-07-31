@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import pandas as pd
 import yfinance as yf
@@ -78,6 +79,7 @@ def reproducibility_note(metadata: dict, asset_hash: str | None, paired_hash: st
 
 @app.route("/api/scan", methods=["POST"])
 def scan_handler():
+    request_started = time.perf_counter()
     raw_tickers = []
     try:
         data = request.get_json(silent=True)
@@ -98,27 +100,25 @@ def scan_handler():
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
 
-        # Resolve the one shared benchmark independently before the large asset
-        # batch. This prevents one missing benchmark from invalidating or
-        # repeatedly delaying up to 100 otherwise usable asset histories. The
-        # process TTL cache makes later browser batches reuse the same data.
-        benchmark_resolved, benchmark_unresolved = legacy.download_prices_finitely(
-            [benchmark_ticker],
-            start_text,
-            end_text,
-        )
+        # Fetch benchmark and assets together. The finite downloader retries
+        # only unresolved symbols, so a missing benchmark is retried alone and
+        # never invalidates otherwise usable asset histories.
+        market_started = time.perf_counter()
         resolved, unresolved = legacy.download_prices_finitely(
-            tickers,
+            legacy.deduplicate([benchmark_ticker, *tickers]),
             start_text,
             end_text,
         )
+        market_duration_ms = (time.perf_counter() - market_started) * 1000
         unresolved_set = set(unresolved)
-        benchmark_prices = benchmark_resolved.get(benchmark_ticker)
+        benchmark_prices = resolved.get(benchmark_ticker)
         benchmark_available = (
-            benchmark_ticker not in set(benchmark_unresolved)
+            benchmark_ticker not in unresolved_set
             and benchmark_prices is not None
             and not benchmark_prices.empty
         )
+
+        compute_started = time.perf_counter()
 
         shared_metadata = reproducibility_metadata(
             risk_free_rate=legacy.RISK_FREE_RATE,
@@ -171,7 +171,6 @@ def scan_handler():
             reproducibility = reproducibility_note(
                 row_metadata, asset_hash, paired_hash
             )
-            notes.append(f"再現資訊 {reproducibility}")
             results.append(
                 {
                     "ticker": ticker,
@@ -187,12 +186,29 @@ def scan_handler():
                         else 0.0
                     ),
                     "benchmark_available": benchmark_available,
-                    "note": f"（{'；'.join(notes)}）",
+                    "note": f"（{'；'.join(notes)}）" if notes else None,
                     **row_metadata,
                     "reproducibility": reproducibility,
                 }
             )
-        return jsonify(results)
+        compute_duration_ms = (time.perf_counter() - compute_started) * 1000
+        serialize_started = time.perf_counter()
+        response = jsonify(results)
+        serialize_duration_ms = (time.perf_counter() - serialize_started) * 1000
+        total_duration_ms = (time.perf_counter() - request_started) * 1000
+        response.headers["Server-Timing"] = ", ".join(
+            [
+                f"market;dur={market_duration_ms:.1f}",
+                f"compute;dur={compute_duration_ms:.1f}",
+                f"serialize;dur={serialize_duration_ms:.1f}",
+                f"total;dur={total_duration_ms:.1f}",
+            ]
+        )
+        response.headers["X-Scan-Requested"] = str(len(tickers))
+        response.headers["X-Scan-Resolved"] = str(
+            sum(1 for item in results if item.get("status") == "ok")
+        )
+        return response
     except legacy.ValidationError as exc:
         return error_response(str(exc), 400)
     except ValueError as exc:

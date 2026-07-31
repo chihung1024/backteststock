@@ -14,6 +14,7 @@ TRADING_DAYS_PER_YEAR = 252
 DAYS_PER_YEAR = 365.25
 EPSILON = 1e-12
 METRIC_DEFINITION_VERSION = "2026-08-01.1"
+FINGERPRINT_ALGORITHM = "sha256-le-i8-f8-v1"
 DATA_SOURCE_NAME = "Yahoo Finance via yfinance"
 DATA_SOURCE_SETTINGS = {
     "interval": "1d",
@@ -76,36 +77,52 @@ def align_value_series(asset_history, benchmark_history=None):
     return aligned["asset"], aligned["benchmark"]
 
 
+def _canonical_float64(values) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    if np.isnan(array).any():
+        array = array.copy()
+        array[np.isnan(array)] = np.nan
+    return array.astype("<f8", copy=False)
+
+
 def series_fingerprint(history) -> str | None:
+    """Hash normalized dates and values as canonical little-endian records."""
     values = normalize_value_series(history)
     if values.empty:
         return None
+    records = np.empty(
+        len(values),
+        dtype=np.dtype([("date", "<i8"), ("value", "<f8")], align=False),
+    )
+    records["date"] = np.asarray(values.index.asi8, dtype="<i8")
+    records["value"] = _canonical_float64(values.to_numpy())
     digest = hashlib.sha256()
-    for date, value in values.items():
-        digest.update(date.strftime("%Y-%m-%d").encode("ascii"))
-        digest.update(b"=")
-        digest.update(format(float(value), ".17g").encode("ascii"))
-        digest.update(b"\n")
+    digest.update(f"{FINGERPRINT_ALGORITHM}:series\0".encode("ascii"))
+    digest.update(records.tobytes(order="C"))
     return digest.hexdigest()
 
 
 def aligned_fingerprint(asset_history, benchmark_history) -> str | None:
+    """Hash benchmark-calendar pairs without Python row iteration."""
     asset = normalize_value_series(asset_history, name="asset")
     benchmark = normalize_value_series(benchmark_history, name="benchmark")
     if benchmark.empty:
         return None
-    paired = pd.concat([asset.reindex(benchmark.index), benchmark], axis=1)
+    aligned_asset = asset.reindex(benchmark.index)
+    records = np.empty(
+        len(benchmark),
+        dtype=np.dtype(
+            [("date", "<i8"), ("asset", "<f8"), ("benchmark", "<f8")],
+            align=False,
+        ),
+    )
+    records["date"] = np.asarray(benchmark.index.asi8, dtype="<i8")
+    records["asset"] = _canonical_float64(aligned_asset.to_numpy())
+    records["benchmark"] = _canonical_float64(benchmark.to_numpy())
     digest = hashlib.sha256()
-    for date, row in paired.iterrows():
-        asset_text = "NA" if pd.isna(row["asset"]) else format(float(row["asset"]), ".17g")
-        line = (
-            f"{date:%Y-%m-%d}="
-            f"{asset_text},"
-            f"{format(float(row['benchmark']), '.17g')}\n"
-        )
-        digest.update(line.encode("ascii"))
+    digest.update(f"{FINGERPRINT_ALGORITHM}:aligned\0".encode("ascii"))
+    digest.update(records.tobytes(order="C"))
     return digest.hexdigest()
-
 
 def benchmark_coverage(asset_history, benchmark_history) -> float:
     asset = normalize_value_series(asset_history, name="asset")
@@ -128,6 +145,7 @@ def reproducibility_metadata(
         "numpy_version": package_version("numpy"),
         "pandas_version": package_version("pandas"),
         "scipy_version": package_version("scipy"),
+        "fingerprint_algorithm": FINGERPRINT_ALGORITHM,
         "risk_free_rate": float(risk_free_rate),
         "trading_days_per_year": TRADING_DAYS_PER_YEAR,
         "data_source_settings": dict(DATA_SOURCE_SETTINGS),

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from api.metrics import (
+    FINGERPRINT_ALGORITHM,
     METRIC_DEFINITION_VERSION,
     aligned_fingerprint,
     benchmark_coverage,
@@ -116,3 +117,4 @@ def test_reproducibility_metadata_includes_price_repair_runtime():
     metadata = reproducibility_metadata(risk_free_rate=0.0, benchmark="SPY")
     assert metadata["data_source_settings"]["repair"] is True
     assert metadata["scipy_version"] == "1.17.1"
+    assert metadata["fingerprint_algorithm"] == FINGERPRINT_ALGORITHM
