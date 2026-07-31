@@ -210,19 +210,31 @@ function ensureFormulaComparisonNote() {
   const tableWrap = table?.closest(".table-wrap");
   if (!tableWrap) return;
 
-  let note = document.querySelector("#score-formula-comparison");
-  if (!note) {
-    note = document.createElement("div");
-    note.id = "score-formula-comparison";
-    note.className = "result-context";
-    tableWrap.insertAdjacentElement("beforebegin", note);
+  let details = document.querySelector("#score-formula-comparison");
+  if (details && details.tagName !== "DETAILS") {
+    details.remove();
+    details = null;
   }
-  note.textContent = [
-    "公式比較：每格顯示「名次 · 分數」。",
-    ...SCORE_FORMULAS.map((formula) => `${formula.shortLabel}＝${formula.description}；`),
-    "名次以目前已完整取得且可計算的全部標的為母體，掃描進行中會動態更新。",
-  ].join("");
+  if (details) return;
+
+  details = document.createElement("details");
+  details.id = "score-formula-comparison";
+  details.className = "result-context score-formula-details";
+
+  const summary = document.createElement("summary");
+  summary.textContent = "分數公式與排名說明";
+  const list = document.createElement("ul");
+  SCORE_FORMULAS.forEach((formula) => {
+    const item = document.createElement("li");
+    item.textContent = `${formula.shortLabel}：${formula.description}`;
+    list.append(item);
+  });
+  const note = document.createElement("p");
+  note.textContent = "每格顯示「名次 · 分數」；排名以全部已完成且可計算標的為母體，掃描進行中會動態更新。";
+  details.append(summary, list, note);
+  tableWrap.insertAdjacentElement("beforebegin", details);
 }
+
 
 function removeInjectedColumns(table, headerRow) {
   [...headerRow.querySelectorAll("th[data-composite-metric]")].forEach((cell) => cell.remove());
