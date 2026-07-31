@@ -1,3 +1,5 @@
+import { METRIC_DEFINITION_VERSION } from "../public/scan-score-formulas.js";
+
 const originArgument = process.argv[2];
 
 if (!originArgument) {
@@ -8,6 +10,8 @@ const origin = new URL(originArgument);
 const MIN_RUSSELL_MEMBERS = 1_500;
 const MIN_FUNDAMENTALS_COVERAGE = 1_000;
 const REQUEST_TIMEOUT_MS = 240_000;
+const BACKEND_VERSION_ATTEMPTS = 24;
+const BACKEND_VERSION_DELAY_MS = 15_000;
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -49,6 +53,42 @@ async function requestJson(pathname, init = {}, options = {}) {
 
   throw new Error(`Production smoke request ${pathname} failed: ${lastError?.message}`);
 }
+
+async function waitForBackendMetricVersion() {
+  let lastObserved = null;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= BACKEND_VERSION_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(new URL("/api/health", origin), {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      lastObserved = response.headers.get("x-metric-definition-version");
+      if (response.ok && lastObserved === METRIC_DEFINITION_VERSION) {
+        return lastObserved;
+      }
+      lastError = `HTTP ${response.status}, metric=${lastObserved || "missing"}`;
+    } catch (error) {
+      lastError = error.message;
+    }
+
+    console.warn(
+      `Backend version not ready on attempt ${attempt}/${BACKEND_VERSION_ATTEMPTS}: `
+      + `${lastError}; expected ${METRIC_DEFINITION_VERSION}`,
+    );
+    if (attempt < BACKEND_VERSION_ATTEMPTS) {
+      await sleep(BACKEND_VERSION_DELAY_MS);
+    }
+  }
+
+  throw new Error(
+    `Backend did not expose metric version ${METRIC_DEFINITION_VERSION}; `
+    + `last observed ${lastObserved || "missing"}: ${lastError}`,
+  );
+}
+
+const backendMetricVersion = await waitForBackendMetricVersion();
 
 const edgeHealth = await requestJson("/api/edge-health");
 assertCondition(edgeHealth.status === "ok", "Edge health did not report status=ok.");
@@ -120,7 +160,7 @@ const scanContract = await requestJson(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      tickers: [screenerPayload.candidates[0].ticker],
+      tickers: ["AAPL"],
       benchmark: "SPY",
       startYear: 2025,
       startMonth: 1,
@@ -128,24 +168,46 @@ const scanContract = await requestJson(
       endMonth: 3,
     }),
   },
-  { attempts: 2, delayMs: 5_000 },
+  { attempts: 3, delayMs: 15_000 },
 );
 assertCondition(Array.isArray(scanContract), "Scan endpoint did not return an array.");
-assertCondition(scanContract.length === 1, "Scan endpoint did not settle one requested ticker.");
+assertCondition(scanContract.length === 1, "Scan endpoint did not return the requested AAPL row.");
+const scanRow = scanContract[0];
 assertCondition(
-  scanContract[0]?.retryable === false && ["ok", "failed"].includes(scanContract[0]?.status),
-  "Scan endpoint returned a non-terminal result or whole-request failure.",
+  scanRow?.ticker === "AAPL" && scanRow.status === "ok" && scanRow.retryable === false,
+  `Live scan did not succeed: ${JSON.stringify(scanRow).slice(0, 500)}`,
+);
+assertCondition(
+  scanRow.metric_definition_version === METRIC_DEFINITION_VERSION,
+  `Scan metric version ${scanRow.metric_definition_version} does not match ${METRIC_DEFINITION_VERSION}.`,
+);
+assertCondition(
+  Number(scanRow.metric_price_observations) >= 20,
+  `Live scan returned only ${scanRow.metric_price_observations ?? 0} price observations.`,
+);
+assertCondition(scanRow.benchmark_available === true, "SPY benchmark data was unavailable.");
+assertCondition(Number.isFinite(scanRow.beta), "Live scan did not calculate Beta.");
+assertCondition(Number.isFinite(scanRow.alpha), "Live scan did not calculate Alpha.");
+assertCondition(
+  scanRow.data_source_settings?.repair === true,
+  "Live scan did not use the required yfinance repair=true contract.",
 );
 
 console.log(
   JSON.stringify(
     {
       workerOrigin: origin.origin,
+      backendMetricVersion,
       universeVersion: russellDetail.version,
       memberCount: russellDetail.members.length,
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
       returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),
-          scanContractStatus: scanContract[0].status,
+      scanContractStatus: scanRow.status,
+      scanTicker: scanRow.ticker,
+      scanPriceObservations: scanRow.metric_price_observations,
+      scanBeta: scanRow.beta,
+      scanAlpha: scanRow.alpha,
+      scipyVersion: scanRow.scipy_version,
     },
     null,
     2,
