@@ -26,131 +26,151 @@ jobs:
           path = Path("public/app.js")
           text = path.read_text(encoding="utf-8")
 
-          def replace_once(old, new, label):
+          def section(start_marker, end_marker):
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              return start, end, text[start:end]
+
+          def replace_in_section(start_marker, end_marker, old, new, label):
               global text
-              count = text.count(old)
+              start, end, current = section(start_marker, end_marker)
+              count = current.count(old)
               if count != 1:
                   raise SystemExit(f"{label}: expected one match, found {count}")
-              text = text.replace(old, new, 1)
+              current = current.replace(old, new, 1)
+              text = text[:start] + current + text[end:]
 
-          replace_once(
-              '''    attempts: {},
-              retryRound: 0,
-            };''',
-              '''    attempts: {},
-              retryRound: 0,
-              performance: {
-                batchCount: 0,
-                totalSeconds: 0,
-                lastBatchSeconds: null,
-                lastServerTiming: {},
-              },
-            };''',
+          replace_in_section(
+              "function createScanJob",
+              "function saveScanJob",
+              "    retryRound: 0,\n  };\n",
+              '''    retryRound: 0,
+                performance: {
+                  batchCount: 0,
+                  totalSeconds: 0,
+                  lastBatchSeconds: null,
+                  lastServerTiming: {},
+                },
+              };
+          ''',
               "create job performance",
           )
 
-          replace_once(
+          replace_in_section(
+              "function loadScanJob",
+              "function clearScanJob",
               '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
-              return job;''',
+              return job;
+          ''',
               '''      job.attempts = job.attempts && typeof job.attempts === "object" ? job.attempts : {};
               job.performance = job.performance && typeof job.performance === "object"
                 ? job.performance
                 : { batchCount: 0, totalSeconds: 0, lastBatchSeconds: null, lastServerTiming: {} };
-              return job;''',
+              return job;
+          ''',
               "load job performance",
           )
 
-          replace_once(
-              '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-    const firstPosition''',
-              '''    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-    const batchStartedAt = performance.now();
-    const firstPosition''',
+          replace_in_section(
+              "async function processScanJob",
+              "async function executeScan",
+              "    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);\n",
+              "    const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);\n    const batchStartedAt = performance.now();\n",
               "batch timer start",
           )
 
-          replace_once(
+          replace_in_section(
+              "async function processScanJob",
+              "async function executeScan",
               '''    if (cancelRequested) {
-      job.pending.unshift(...chunk);
-      break;
-    }
+                job.pending.unshift(...chunk);
+                break;
+              }
 
-    const responseMap''',
+              const responseMap''',
               '''    const batchSeconds = (performance.now() - batchStartedAt) / 1000;
-    const serverTiming = parseServerTiming(response?.__responseMeta?.serverTiming);
-    job.performance = job.performance || {};
-    job.performance.batchCount = Number(job.performance.batchCount || 0) + 1;
-    job.performance.totalSeconds = Number(job.performance.totalSeconds || 0) + batchSeconds;
-    job.performance.lastBatchSeconds = batchSeconds;
-    job.performance.lastServerTiming = serverTiming;
-    const timingText = batchTimingText(chunk.length, batchSeconds, serverTiming);
+              const serverTiming = parseServerTiming(response?.__responseMeta?.serverTiming);
+              job.performance = job.performance || {};
+              job.performance.batchCount = Number(job.performance.batchCount || 0) + 1;
+              job.performance.totalSeconds = Number(job.performance.totalSeconds || 0) + batchSeconds;
+              job.performance.lastBatchSeconds = batchSeconds;
+              job.performance.lastServerTiming = serverTiming;
+              const timingText = batchTimingText(chunk.length, batchSeconds, serverTiming);
 
-    if (cancelRequested) {
-      job.pending.unshift(...chunk);
-      break;
-    }
+              if (cancelRequested) {
+                job.pending.unshift(...chunk);
+                break;
+              }
 
-    const responseMap''',
+              const responseMap''',
               "batch timing capture",
           )
 
-          replace_once(
+          replace_in_section(
+              "async function processScanJob",
+              "async function executeScan",
               '''      requestError
-        ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，系統持續重試`
-        : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,''',
+                ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，系統持續重試`
+                : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔`,''',
               '''      requestError
-        ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔；${timingText}`
-        : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔；${timingText}`,''',
+                ? `行情服務暫時未完整回應；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔；${timingText}`
+                : `已取得 ${job.results.length} / ${job.payload.tickers.length} 檔，未完成 ${job.pending.length} 檔；${timingText}`,''',
               "progress timing text",
           )
 
-          replace_once(
+          replace_in_section(
+              "function renderScanTable",
+              "function median",
               '''    const row = createElement("tr");
-    row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));''',
+              row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));''',
               '''    const row = createElement("tr", { dataset: { ticker: item.ticker } });
-    const tickerCell = createElement("th", {
-      scope: "row",
-      className: "scan-ticker-cell",
-      dataset: { ticker: item.ticker },
-    }, [
-      createElement("span", { className: "scan-ticker-symbol", text: item.ticker }),
-    ]);
-    const displayNote = humanScanNote(item);
-    if (displayNote) {
-      tickerCell.append(createElement("small", {
-        className: "scan-ticker-note",
-        text: displayNote,
-      }));
-    }
-    row.append(tickerCell);''',
+              const tickerCell = createElement("th", {
+                scope: "row",
+                className: "scan-ticker-cell",
+                dataset: { ticker: item.ticker },
+              }, [
+                createElement("span", { className: "scan-ticker-symbol", text: item.ticker }),
+              ]);
+              const displayNote = humanScanNote(item);
+              if (displayNote) {
+                tickerCell.append(createElement("small", {
+                  className: "scan-ticker-note",
+                  text: displayNote,
+                }));
+              }
+              row.append(tickerCell);''',
               "compact ticker cell",
           )
 
-          replace_once(
+          replace_in_section(
+              "function renderScanSummary",
+              "function renderScanContext",
               '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-  ];''',
+              ];''',
               '''    ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
-    ["最近一批耗時", formatSeconds(activeScanJob?.performance?.lastBatchSeconds)],
-    [
-      "平均每批耗時",
-      formatSeconds(
-        activeScanJob?.performance?.batchCount
-          ? activeScanJob.performance.totalSeconds / activeScanJob.performance.batchCount
-          : null,
-      ),
-    ],
-  ];''',
+                ["最近一批耗時", formatSeconds(activeScanJob?.performance?.lastBatchSeconds)],
+                [
+                  "平均每批耗時",
+                  formatSeconds(
+                    activeScanJob?.performance?.batchCount
+                      ? activeScanJob.performance.totalSeconds / activeScanJob.performance.batchCount
+                      : null,
+                  ),
+                ],
+              ];''',
               "summary timing cards",
           )
 
-          replace_once(
+          replace_in_section(
+              "function exportScan",
+              "function switchTab",
               '''  const lines = [headers.join(","), ...latestScan.map((item) => headers.map((key) => escapeCsv(item[key])).join(","))];''',
               '''  const lines = [
-    headers.join(","),
-    ...latestScan.map((item) => headers.map((key) => (
-      escapeCsv(key === "note" ? humanScanNote(item) : item[key])
-    )).join(",")),
-  ];''',
+                headers.join(","),
+                ...latestScan.map((item) => headers.map((key) => (
+                  escapeCsv(key === "note" ? humanScanNote(item) : item[key])
+                )).join(",")),
+              ];''',
               "fallback concise note export",
           )
 
