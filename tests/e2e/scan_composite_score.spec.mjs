@@ -152,8 +152,11 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
   await expect(page.locator('#scan-table th[data-composite-metric="sortino_alpha_mdd_score"]')).toHaveCount(0);
   await expect(page.locator('#scan-table th[data-composite-metric="alpha_sqrt_sortino_mdd_score"]')).toHaveCount(0);
   await expect(page.locator('#scan-table th[data-composite-metric="percentile_composite_score"]')).toHaveCount(0);
-  await expect(page.locator("#score-formula-comparison")).toContainText("每格顯示「名次 · 分數」");
-  await expect(page.locator("#score-formula-comparison")).toContainText("穩健＝Sortino × √((1 + CAGR) ÷ (1 + Beta))");
+  const formulaDetails = page.locator("#score-formula-comparison");
+  await expect(formulaDetails).toHaveJSProperty("tagName", "DETAILS");
+  await expect(formulaDetails).toHaveJSProperty("open", false);
+  await expect(formulaDetails).toContainText("每格顯示「名次 · 分數」");
+  await expect(formulaDetails).toContainText("穩健：Sortino × √((1 + CAGR) ÷ (1 + Beta))");
 
   const nvdaRow = page.locator("#scan-table tbody tr", { hasText: "NVDA" });
   const msftRow = page.locator("#scan-table tbody tr", { hasText: "MSFT" });
