@@ -1,0 +1,78 @@
+name: Diagnose production scan
+
+on:
+  push:
+    branches: [fix/scan-stall-finite-fallback]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Measure production scan contract and latency
+        env:
+          ORIGIN: https://backteststock.chired.workers.dev
+        run: |
+          node <<'NODE'
+          const origin = process.env.ORIGIN;
+          const started = Date.now();
+          async function json(path, init = {}, timeout = 260_000) {
+            const begin = Date.now();
+            const response = await fetch(new URL(path, origin), {
+              ...init,
+              headers: { accept: "application/json", ...(init.headers || {}) },
+              signal: AbortSignal.timeout(timeout),
+            });
+            const text = await response.text();
+            console.log(JSON.stringify({ path, status: response.status, elapsedMs: Date.now() - begin, bytes: text.length }));
+            let payload;
+            try { payload = JSON.parse(text); } catch { payload = { raw: text.slice(0, 1000) }; }
+            if (!response.ok) throw new Error(`${path} HTTP ${response.status}: ${text.slice(0, 1000)}`);
+            return payload;
+          }
+
+          const screener = await json("/api/v2/screener", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              universe: "sp500",
+              sector: "any",
+              filters: { marketCap: { min: 10_000_000_000 } },
+              sort: "marketCap-desc",
+              limit: 100,
+            }),
+          }, 60_000);
+          const tickers = screener.candidates.map((item) => item.ticker);
+          console.log(JSON.stringify({ candidateCount: tickers.length, first: tickers.slice(0, 10) }));
+
+          const scan = await json("/api/scan", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              tickers,
+              benchmark: "SPY",
+              startYear: 2019,
+              startMonth: 1,
+              endYear: 2026,
+              endMonth: 7,
+            }),
+          });
+          const rows = Array.isArray(scan) ? scan : [];
+          console.log(JSON.stringify({
+            totalElapsedMs: Date.now() - started,
+            responseType: Array.isArray(scan) ? "array" : typeof scan,
+            rowCount: rows.length,
+            ok: rows.filter((row) => row.status === "ok").length,
+            failed: rows.filter((row) => row.status === "failed").length,
+            retryable: rows.filter((row) => row.retryable === true).length,
+            metricVersions: [...new Set(rows.map((row) => row.metric_definition_version).filter(Boolean))],
+            sampleErrors: rows.filter((row) => row.error).slice(0, 5).map((row) => ({ ticker: row.ticker, error: row.error })),
+          }, null, 2));
+          NODE
