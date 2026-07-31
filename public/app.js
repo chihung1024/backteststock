@@ -159,6 +159,47 @@ function formatMetric(value, type) {
   return numeric.toFixed(2);
 }
 
+
+function humanScanNote(item) {
+  const raw = String(item?.note || "")
+    .trim()
+    .replace(/^[（(]\s*/u, "")
+    .replace(/\s*[）)]$/u, "");
+  if (!raw) return "";
+  return raw
+    .split(/；?\s*再現資訊\b/u)[0]
+    .replace(/[；;\s]+$/u, "")
+    .trim();
+}
+
+function parseServerTiming(value) {
+  const timings = {};
+  String(value || "").split(",").forEach((entry) => {
+    const [name, ...parameters] = entry.trim().split(";");
+    const duration = parameters.find((parameter) => parameter.trim().startsWith("dur="));
+    const numeric = Number(duration?.split("=")[1]);
+    if (name && Number.isFinite(numeric)) timings[name] = numeric;
+  });
+  return timings;
+}
+
+function formatSeconds(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toFixed(1)} 秒`;
+}
+
+function batchTimingText(count, elapsedSeconds, serverTiming) {
+  const phases = [];
+  if (Number.isFinite(serverTiming.market)) {
+    phases.push(`行情 ${(serverTiming.market / 1000).toFixed(1)} 秒`);
+  }
+  if (Number.isFinite(serverTiming.compute)) {
+    phases.push(`計算 ${(serverTiming.compute / 1000).toFixed(1)} 秒`);
+  }
+  const details = phases.length ? `（${phases.join("、")}）` : "";
+  return `本批 ${count} 檔 ${formatSeconds(elapsedSeconds)}${details}`;
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -207,6 +248,17 @@ async function apiFetch(path, options = {}, timeoutMs = 50_000) {
         || response.status === 429
         || response.status >= 500;
       throw error;
+    }
+    if (payload && typeof payload === "object") {
+      Object.defineProperty(payload, "__responseMeta", {
+        configurable: true,
+        enumerable: false,
+        value: {
+          serverTiming: response.headers.get("server-timing") || "",
+          requested: response.headers.get("x-scan-requested"),
+          resolved: response.headers.get("x-scan-resolved"),
+        },
+      });
     }
     return payload;
   } catch (error) {
