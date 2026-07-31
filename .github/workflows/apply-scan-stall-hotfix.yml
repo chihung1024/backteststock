@@ -1,0 +1,399 @@
+name: Apply scan stall hotfix
+
+on:
+  push:
+    branches: [fix/scan-stall-finite-fallback]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/scan-stall-finite-fallback
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Apply reviewed source changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          app_path = Path("public/app.js")
+          app = app_path.read_text(encoding="utf-8")
+          if not app.startswith('const STORAGE_KEY'):
+              raise SystemExit("public/app.js: unexpected header")
+          app = 'import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js";\n\n' + app
+          app = app.replace(
+              'const SCAN_REQUEST_RETRIES = 3;\nconst SCAN_RETRY_DELAYS_MS',
+              'const SCAN_REQUEST_RETRIES = 2;\nconst SCAN_MAX_TICKER_ATTEMPTS = 2;\nconst SCAN_RETRY_DELAYS_MS',
+              1,
+          )
+          old_helper_anchor = '''function orderedJobResults(job, resultMap) {
+            return job.payload.tickers.map((ticker) => resultMap.get(ticker)).filter(Boolean);
+          }
+
+          function renderScanJobState'''
+          new_helper_anchor = '''function orderedJobResults(job, resultMap) {
+            return job.payload.tickers.map((ticker) => resultMap.get(ticker)).filter(Boolean);
+          }
+
+          function terminalScanFailure(ticker, reason) {
+            return {
+              ticker,
+              status: "failed",
+              retryable: false,
+              error_code: "scan_retry_budget_exhausted",
+              error: reason,
+              metric_definition_version: METRIC_DEFINITION_VERSION,
+            };
+          }
+
+          function renderScanJobState'''
+          if old_helper_anchor not in app:
+              raise SystemExit("public/app.js: helper anchor not found")
+          app = app.replace(old_helper_anchor, new_helper_anchor, 1)
+          old_loop = '''  while (job.pending.length && !cancelRequested) {
+              const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
+              let response = [];
+              let requestError = null;
+              try {
+                response = await scanChunk(job.payload, chunk);
+              } catch (error) {
+                if (error.retryable === false) throw error;
+                requestError = error;
+              }
+
+              if (cancelRequested) {
+                job.pending.unshift(...chunk);
+                break;
+              }
+
+              const responseMap = new Map(
+                (Array.isArray(response) ? response : [])
+                  .filter((item) => item?.ticker)
+                  .map((item) => [item.ticker, item]),
+              );
+              let newlySettled = 0;
+              for (const ticker of chunk) {
+                const item = responseMap.get(ticker);
+                if (!requestError && item && item.retryable !== true && item.status !== "pending") {
+                  resultMap.set(ticker, item);
+                  newlySettled += 1;
+                } else {
+                  job.pending.push(ticker);
+                  job.attempts[ticker] = Number(job.attempts[ticker] || 0) + 1;
+                }
+              }
+          '''
+          new_loop = '''  while (job.pending.length && !cancelRequested) {
+              const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
+              const firstPosition = resultMap.size + 1;
+              const lastPosition = Math.min(resultMap.size + chunk.length, job.payload.tickers.length);
+              setScanProgress(
+                job.results.length,
+                job.payload.tickers.length,
+                `正在取得第 ${firstPosition}–${lastPosition} 檔；已完成 ${job.results.length} / ${job.payload.tickers.length} 檔`,
+              );
+              let response = [];
+              let requestError = null;
+              try {
+                response = await scanChunk(job.payload, chunk);
+              } catch (error) {
+                if (error.retryable === false) throw error;
+                requestError = error;
+              }
+
+              if (cancelRequested) {
+                job.pending.unshift(...chunk);
+                break;
+              }
+
+              const responseMap = new Map(
+                (Array.isArray(response) ? response : [])
+                  .filter((item) => item?.ticker)
+                  .map((item) => [item.ticker, item]),
+              );
+              let newlySettled = 0;
+              for (const ticker of chunk) {
+                const item = responseMap.get(ticker);
+                if (!requestError && item && item.retryable !== true && item.status !== "pending") {
+                  resultMap.set(ticker, item);
+                  newlySettled += 1;
+                  continue;
+                }
+
+                const attempts = Number(job.attempts[ticker] || 0) + 1;
+                job.attempts[ticker] = attempts;
+                if (attempts >= SCAN_MAX_TICKER_ATTEMPTS) {
+                  const detail = requestError?.message || item?.error || "行情服務未回傳可結算結果。";
+                  resultMap.set(
+                    ticker,
+                    terminalScanFailure(
+                      ticker,
+                      `行情服務連續 ${attempts} 輪未完成，已停止重試：${detail}`,
+                    ),
+                  );
+                  newlySettled += 1;
+                } else {
+                  job.pending.push(ticker);
+                }
+              }
+          '''
+          if old_loop not in app:
+              raise SystemExit("public/app.js: process loop anchor not found")
+          app = app.replace(old_loop, new_loop, 1)
+          app_path.write_text(app, encoding="utf-8")
+
+          scan_path = Path("api/scan_v2.py")
+          scan = scan_path.read_text(encoding="utf-8")
+          old_benchmark = '''        unresolved_set = set(unresolved)
+                  benchmark_prices = resolved.get(benchmark_ticker)
+                  if (
+                      benchmark_ticker in unresolved_set
+                      or benchmark_prices is None
+                      or benchmark_prices.empty
+                  ):
+                      return error_response(
+                          "比較基準行情未完整取得；本批不產生可能失真的 Beta／Alpha，請稍後重試。",
+                          503,
+                      )
+
+                  shared_metadata = reproducibility_metadata(
+                      risk_free_rate=legacy.RISK_FREE_RATE,
+                      benchmark=benchmark_ticker,
+                      extra={
+                          "requested_start": start_text,
+                          "requested_end_exclusive": end_text,
+                          "benchmark_price_fingerprint": series_fingerprint(benchmark_prices),
+                      },
+                  )'''
+          new_benchmark = '''        unresolved_set = set(unresolved)
+                  benchmark_prices = resolved.get(benchmark_ticker)
+                  benchmark_available = (
+                      benchmark_ticker not in unresolved_set
+                      and benchmark_prices is not None
+                      and not benchmark_prices.empty
+                  )
+
+                  shared_metadata = reproducibility_metadata(
+                      risk_free_rate=legacy.RISK_FREE_RATE,
+                      benchmark=benchmark_ticker,
+                      extra={
+                          "requested_start": start_text,
+                          "requested_end_exclusive": end_text,
+                          "benchmark_available": benchmark_available,
+                          "benchmark_price_fingerprint": (
+                              series_fingerprint(benchmark_prices)
+                              if benchmark_available
+                              else None
+                          ),
+                      },
+                  )'''
+          if old_benchmark not in scan:
+              raise SystemExit("api/scan_v2.py: benchmark block not found")
+          scan = scan.replace(old_benchmark, new_benchmark, 1)
+          scan = scan.replace(
+              '''            metrics = calculate_metrics(
+                          prices,
+                          benchmark_prices,
+                          risk_free_rate=legacy.RISK_FREE_RATE,
+                      )
+                      asset_hash = series_fingerprint(prices)
+                      paired_hash = aligned_fingerprint(prices, benchmark_prices)
+                      notes = []''',
+              '''            metrics = calculate_metrics(
+                          prices,
+                          benchmark_prices if benchmark_available else None,
+                          risk_free_rate=legacy.RISK_FREE_RATE,
+                      )
+                      asset_hash = series_fingerprint(prices)
+                      paired_hash = (
+                          aligned_fingerprint(prices, benchmark_prices)
+                          if benchmark_available
+                          else None
+                      )
+                      notes = []''',
+              1,
+          )
+          scan = scan.replace(
+              '''            if prices.index[0] > start_date + pd.offsets.BDay(5):
+                          notes.append(f"從 {prices.index[0].strftime('%Y-%m-%d')} 開始")
+
+                      row_metadata = {''',
+              '''            if prices.index[0] > start_date + pd.offsets.BDay(5):
+                          notes.append(f"從 {prices.index[0].strftime('%Y-%m-%d')} 開始")
+                      if not benchmark_available:
+                          notes.append("比較基準行情無法取得，Beta／Alpha 暫不計算")
+
+                      row_metadata = {''',
+              1,
+          )
+          scan = scan.replace(
+              '''                    "data_coverage": benchmark_coverage(prices, benchmark_prices),
+                              "note": f"（{'；'.join(notes)}）",
+                              **row_metadata,''',
+              '''                    "data_coverage": (
+                                  benchmark_coverage(prices, benchmark_prices)
+                                  if benchmark_available
+                                  else 0.0
+                              ),
+                              "benchmark_available": benchmark_available,
+                              "note": f"（{'；'.join(notes)}）",
+                              **row_metadata,''',
+              1,
+          )
+          scan_path.write_text(scan, encoding="utf-8")
+
+          test_path = Path("tests/test_production_runtime.py")
+          tests = test_path.read_text(encoding="utf-8")
+          start = tests.index("def test_scan_refuses_results_when_benchmark_is_unavailable")
+          end = tests.index("\ndef test_scan_download_contract_is_adjusted_repaired_daily", start)
+          replacement = '''def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, monkeypatch):
+              asset = pd.Series(
+                  [100, 101, 102], index=pd.bdate_range("2024-01-02", periods=3), name="AAA"
+              )
+              monkeypatch.setattr(
+                  scan_v2.legacy,
+                  "download_prices_finitely",
+                  lambda *_args, **_kwargs: ({"AAA": asset}, ["SPY"]),
+              )
+              response = scan_client.post(
+                  "/api/scan",
+                  json={
+                      "tickers": ["AAA"],
+                      "benchmark": "SPY",
+                      "startYear": 2024,
+                      "startMonth": 1,
+                      "endYear": 2024,
+                      "endMonth": 1,
+                  },
+              )
+              assert response.status_code == 200
+              result = response.get_json()[0]
+              expected = calculate_metrics(
+                  asset, risk_free_rate=scan_v2.legacy.RISK_FREE_RATE
+              )
+              assert result["status"] == "ok"
+              assert result["retryable"] is False
+              assert result["cagr"] == pytest.approx(expected["cagr"])
+              assert result["beta"] is None
+              assert result["alpha"] is None
+              assert result["benchmark_available"] is False
+              assert result["data_coverage"] == 0.0
+              assert "Beta／Alpha 暫不計算" in result["note"]
+
+          '''
+          tests = tests[:start] + replacement + tests[end + 1:]
+          test_path.write_text(tests, encoding="utf-8")
+
+          smoke_path = Path("scripts/smoke_test_production.mjs")
+          smoke = smoke_path.read_text(encoding="utf-8")
+          marker = '''console.log(
+            JSON.stringify('''
+          scan_smoke = '''const scanContract = await requestJson(
+            "/api/scan",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                tickers: [screenerPayload.candidates[0].ticker],
+                benchmark: "SPY",
+                startYear: 2025,
+                startMonth: 1,
+                endYear: 2025,
+                endMonth: 3,
+              }),
+            },
+            { attempts: 2, delayMs: 5_000 },
+          );
+          assertCondition(Array.isArray(scanContract), "Scan endpoint did not return an array.");
+          assertCondition(scanContract.length === 1, "Scan endpoint did not settle one requested ticker.");
+          assertCondition(
+            scanContract[0]?.retryable === false && ["ok", "failed"].includes(scanContract[0]?.status),
+            "Scan endpoint returned a non-terminal result or whole-request failure.",
+          );
+
+          console.log(
+            JSON.stringify('''
+          if smoke.count(marker) != 1:
+              raise SystemExit("smoke script insertion marker not found")
+          smoke = smoke.replace(marker, scan_smoke, 1)
+          smoke = smoke.replace(
+              '''      returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),''',
+              '''      returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),
+                    scanContractStatus: scanContract[0].status,''',
+              1,
+          )
+          smoke_path.write_text(smoke, encoding="utf-8")
+
+          Path("tests/e2e/scan_retry_termination.spec.mjs").write_text(r'''import { expect, test } from "@playwright/test";
+
+          const STORAGE_KEY = "backteststock-scan-job-v2";
+          const METRIC_VERSION = "2026-07-31.1";
+
+          async function fulfillJson(route, body, status = 200) {
+            await route.fulfill({
+              status,
+              contentType: "application/json",
+              body: JSON.stringify(body),
+            });
+          }
+
+          test("repeated scan 503 responses terminate with explicit failures", async ({ page }) => {
+            let scanRequests = 0;
+            await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+            await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+            await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+            await page.route("**/api/scan", async (route) => {
+              scanRequests += 1;
+              await fulfillJson(route, { error: "temporary upstream outage", retryable: true }, 503);
+            });
+
+            await page.goto("/");
+            await page.getByRole("button", { name: "個股掃描" }).click();
+            await page.locator("#scan-tickers").fill("AAA");
+            await page.locator("#scan-start-period").fill("2025-01");
+            await page.locator("#scan-end-period").fill("2025-03");
+            await page.getByRole("button", { name: "開始集體回測" }).click();
+
+            await expect(page.locator("#loading-overlay")).toHaveClass(/hidden/, { timeout: 30_000 });
+            await expect(page.locator("#scan-summary")).toContainText("0 / 1");
+            await expect(page.locator("#scan-summary")).toContainText("失敗標的");
+            await expect(page.locator("#scan-table")).toContainText("已停止重試");
+
+            const job = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+            expect(scanRequests).toBe(4);
+            expect(job.status).toBe("completed");
+            expect(job.pending).toEqual([]);
+            expect(job.results).toHaveLength(1);
+            expect(job.results[0]).toMatchObject({
+              ticker: "AAA",
+              status: "failed",
+              retryable: false,
+              metric_definition_version: METRIC_VERSION,
+            });
+          });
+          ''', encoding="utf-8")
+
+          Path(".github/workflows/apply-scan-stall-hotfix.yml").unlink()
+          PY
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Stop full-universe scans from stalling indefinitely"
+          git push origin HEAD:fix/scan-stall-finite-fallback
