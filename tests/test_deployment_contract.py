@@ -46,9 +46,9 @@ def test_scan_and_backtest_share_identical_market_data_contract():
     assert index_v2.DATA_SOURCE_SETTINGS is DATA_SOURCE_SETTINGS
     assert DATA_SOURCE_SETTINGS == {
         "interval": "1d",
-        "auto_adjust": True,
+        "auto_adjust": False,
         "repair": True,
-        "actions": False,
+        "actions": True,
         "keepna": False,
     }
 
@@ -66,7 +66,7 @@ def test_production_requirements_are_fully_pinned():
     assert "numpy==2.2.6" in package_lines
     assert "pandas==2.2.3" in package_lines
     assert "scipy==1.17.1" in package_lines
-    assert "yfinance==1.2.1" in package_lines
+    assert "yfinance==1.5.2" in package_lines
 
 
 def test_yfinance_price_repair_dependency_is_installed():
