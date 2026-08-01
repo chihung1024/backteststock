@@ -6,9 +6,14 @@ import logging
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 from api import index as legacy
+from api import market_data
+from api.corporate_actions import (
+    CORPORATE_ACTION_POLICY_VERSION,
+    RETURN_BASIS,
+    audit_from_series,
+)
 from api.metrics import (
     DATA_SOURCE_SETTINGS,
     METRIC_DEFINITION_VERSION,
@@ -19,34 +24,74 @@ from api.metrics import (
 
 logger = logging.getLogger(__name__)
 
-
-def bulk_download_prices(tickers, start_date, end_date):
-    """Use the same adjusted/repaired daily-price contract as production scan."""
-    return yf.download(
-        list(tickers),
-        start=start_date,
-        end=end_date,
-        interval=DATA_SOURCE_SETTINGS["interval"],
-        auto_adjust=DATA_SOURCE_SETTINGS["auto_adjust"],
-        actions=DATA_SOURCE_SETTINGS["actions"],
-        repair=DATA_SOURCE_SETTINGS["repair"],
-        keepna=DATA_SOURCE_SETTINGS["keepna"],
-        progress=False,
-        threads=min(legacy.MARKET_DATA_DOWNLOAD_THREADS, max(len(tickers), 1)),
-        timeout=legacy.MARKET_DATA_TIMEOUT_SECONDS,
-        group_by="column",
-        multi_level_index=True,
+if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
+    raise RuntimeError(
+        "Production backtest requires explicit Adj Close with corporate actions retained"
     )
 
 
-def run_simulation(portfolio_config, price_data, initial_amount, benchmark_history=None):
-    """Simulate static weights with period rebalances effective at prior close."""
+def bulk_download_prices(tickers, start_date, end_date):
+    """Fetch explicit Adj Close, raw Close, actions, and repair diagnostics."""
+    return market_data.bulk_download_prices(
+        tickers,
+        start_date,
+        end_date,
+        timeout_seconds=legacy.MARKET_DATA_TIMEOUT_SECONDS,
+        download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
+    )
+
+
+def download_data_reliably(tickers, start_date, end_date):
+    return market_data.download_data_reliably(
+        tickers,
+        start_date,
+        end_date,
+        attempts=legacy.MARKET_DATA_ATTEMPTS,
+        backoff_seconds=legacy.MARKET_DATA_BACKOFF_SECONDS,
+        timeout_seconds=legacy.MARKET_DATA_TIMEOUT_SECONDS,
+        download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
+        batch_size=legacy.MARKET_DATA_BATCH_SIZE,
+    )
+
+
+def download_data_silently(tickers, start_date, end_date):
+    prices, _failures = download_data_reliably(tickers, start_date, end_date)
+    return prices
+
+
+def _portfolio_action_status(audits: dict[str, dict]) -> str:
+    statuses = {audit.get("status", "audit_not_recorded") for audit in audits.values()}
+    if "review_required" in statuses:
+        return "review_required"
+    if statuses & {"adjusted_close_unverifiable", "insufficient_audit_history"}:
+        return "audit_incomplete"
+    if statuses and statuses == {"verified_standard_actions"}:
+        return "verified_standard_actions"
+    return "audit_not_recorded"
+
+
+def run_simulation(
+    portfolio_config,
+    price_data,
+    initial_amount,
+    benchmark_history=None,
+    corporate_action_audits=None,
+):
+    """Simulate weights using explicit adjusted total-return price series."""
     tickers = portfolio_config["tickers"]
     weights = np.asarray(portfolio_config["weights"], dtype=float) / 100.0
     df_prices = price_data[tickers].dropna().astype(float).copy()
     if len(df_prices) < 2:
         return None
 
+    component_audits = {
+        ticker: dict(
+            (corporate_action_audits or {}).get(
+                ticker, audit_from_series(price_data[ticker])
+            )
+        )
+        for ticker in tickers
+    }
     portfolio_history = pd.Series(index=df_prices.index, dtype=float, name="value")
     rebalancing_dates = legacy.get_rebalancing_dates(
         df_prices, portfolio_config["rebalancingPeriod"]
@@ -73,6 +118,10 @@ def run_simulation(portfolio_config, price_data, initial_amount, benchmark_histo
     return {
         "name": portfolio_config["name"],
         **metrics,
+        "return_basis": RETURN_BASIS,
+        "corporate_action_policy_version": CORPORATE_ACTION_POLICY_VERSION,
+        "corporate_action_status": _portfolio_action_status(component_audits),
+        "component_corporate_action_audits": component_audits,
         "portfolio_value_fingerprint": series_fingerprint(history_frame),
         "rebalancing_execution": "previous_close_before_period_start",
         "portfolioHistory": [
@@ -98,6 +147,26 @@ def _common_calendar(prices_raw, tickers):
     return common
 
 
+def _action_warning(audits: dict[str, dict]) -> str | None:
+    review = sorted(
+        ticker
+        for ticker, audit in audits.items()
+        if audit.get("status") == "review_required"
+    )
+    incomplete = sorted(
+        ticker
+        for ticker, audit in audits.items()
+        if audit.get("status")
+        in {"adjusted_close_unverifiable", "insufficient_audit_history"}
+    )
+    parts = []
+    if review:
+        parts.append("公司行為調整需人工覆核：" + ", ".join(review))
+    if incomplete:
+        parts.append("公司行為稽核資料不足：" + ", ".join(incomplete))
+    return "；".join(parts) if parts else None
+
+
 def backtest_handler():
     try:
         data = legacy.require_json_object()
@@ -117,11 +186,17 @@ def backtest_handler():
         required_tickers = legacy.deduplicate(
             portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else [])
         )
-        prices_raw = legacy.download_data_silently(
+        prices_raw = download_data_silently(
             tuple(sorted(required_tickers)),
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
         )
+        action_audits = dict(
+            prices_raw.attrs.get("corporate_action_audits", {})
+        )
+        for ticker in required_tickers:
+            action_audits.setdefault(ticker, audit_from_series(prices_raw.get(ticker)))
+
         failed_tickers = [
             ticker
             for ticker in required_tickers
@@ -145,6 +220,14 @@ def backtest_handler():
             )
         if effective_end < end_exclusive - pd.offsets.BDay(5):
             warning_parts.append(f"有效結束日為 {effective_end:%Y-%m-%d}")
+        action_warning = _action_warning(action_audits)
+        if action_warning:
+            warning_parts.append(action_warning)
+        if benchmark_ticker and benchmark_ticker.startswith("^"):
+            warning_parts.append(
+                "比較基準為價格指數；Yahoo Adjusted Close 通常不會補入指數成分股股利，"
+                "需評估改用可投資 ETF 作為總報酬基準"
+            )
 
         benchmark_history = None
         benchmark_result = None
@@ -157,11 +240,18 @@ def backtest_handler():
                 benchmark_history,
                 risk_free_rate=legacy.RISK_FREE_RATE,
             )
+            benchmark_audit = action_audits[benchmark_ticker]
             benchmark_result = {
                 "name": benchmark_ticker,
                 **benchmark_metrics,
                 "beta": 1.0,
                 "alpha": 0.0,
+                "return_basis": RETURN_BASIS,
+                "corporate_action_policy_version": CORPORATE_ACTION_POLICY_VERSION,
+                "corporate_action_status": benchmark_audit.get(
+                    "status", "audit_not_recorded"
+                ),
+                "corporate_action_audit": benchmark_audit,
                 "portfolio_value_fingerprint": series_fingerprint(benchmark_history),
                 "portfolioHistory": [
                     {"date": date.strftime("%Y-%m-%d"), "value": float(value)}
@@ -172,7 +262,11 @@ def backtest_handler():
         results = []
         for portfolio in portfolios:
             result = run_simulation(
-                portfolio, common_prices, initial_amount, benchmark_history
+                portfolio,
+                common_prices,
+                initial_amount,
+                benchmark_history,
+                corporate_action_audits=action_audits,
             )
             if result:
                 results.append(result)
@@ -190,6 +284,13 @@ def backtest_handler():
                 "common_price_observations": int(len(common_prices)),
                 "calendar_policy": "global_complete_case_across_all_assets_and_benchmark",
                 "rebalancing_execution": "previous_close_before_period_start",
+                "market_data_contract_version": market_data.MARKET_DATA_CONTRACT_VERSION,
+                "corporate_action_audits": action_audits,
+                "corporate_action_review_tickers": sorted(
+                    ticker
+                    for ticker, audit in action_audits.items()
+                    if audit.get("status") == "review_required"
+                ),
                 "price_fingerprints": {
                     ticker: series_fingerprint(common_prices[ticker])
                     for ticker in required_tickers
@@ -216,11 +317,9 @@ def backtest_handler():
         return legacy.error_response("伺服器發生未預期的錯誤。", 500)
 
 
-# All legacy endpoints remain available, but the two shared computational hooks
-# and the backtest route are replaced before the WSGI app is exported.
-legacy.bulk_download_prices = bulk_download_prices
-legacy.calculate_metrics = calculate_metrics
-legacy.run_simulation = run_simulation
+# Reuse the legacy Flask app and auxiliary routes, but replace only the
+# production backtest route.  Do not mutate legacy market-data functions;
+# unit tests and legacy endpoints retain their own isolated behavior.
 legacy.app.view_functions["backtest_handler"] = backtest_handler
 app = legacy.app
 

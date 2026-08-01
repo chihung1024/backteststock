@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from api import index_v2, scan_v2
+from api import index_v2, market_data, scan_v2
+from api.corporate_actions import RETURN_BASIS
 from api.metrics import calculate_metrics
 
 
@@ -34,7 +35,7 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     def fake_download(requested, *_args, **_kwargs):
         return ({ticker: source[ticker] for ticker in requested if ticker in source}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -69,6 +70,10 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     assert len(result["price_fingerprint"]) == 64
     assert len(result["aligned_price_fingerprint"]) == 64
     assert "repair=true" in result["reproducibility"]
+    assert "adjust=false" in result["reproducibility"]
+    assert "actions=true" in result["reproducibility"]
+    assert result["return_basis"] == RETURN_BASIS
+    assert result["corporate_action_status"] == "audit_not_recorded"
     assert result["note"] is None
     assert "aligned_sha256=" in result["reproducibility"]
     assert "market;dur=" in response.headers["Server-Timing"]
@@ -89,7 +94,7 @@ def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, mon
             return ({}, ["SPY"])
         return ({"AAA": asset}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -129,7 +134,7 @@ def test_scan_resolves_benchmark_and_assets_in_one_large_batch(scan_client, monk
         calls.append(list(requested))
         return ({ticker: source[ticker] for ticker in requested}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -146,7 +151,7 @@ def test_scan_resolves_benchmark_and_assets_in_one_large_batch(scan_client, monk
     assert [row["ticker"] for row in response.get_json()] == ["AAA", "BBB"]
 
 
-def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):
+def test_scan_download_contract_preserves_raw_adjusted_and_actions(monkeypatch):
     captured = {}
 
     def fake_download(tickers, **kwargs):
@@ -154,14 +159,14 @@ def test_scan_download_contract_is_adjusted_repaired_daily(monkeypatch):
         captured.update(kwargs)
         return pd.DataFrame()
 
-    monkeypatch.setattr(scan_v2.yf, "download", fake_download)
+    monkeypatch.setattr(market_data.yf, "download", fake_download)
     scan_v2.bulk_download_prices(["AAA", "SPY"], "2024-01-01", "2024-02-01")
 
     assert captured["tickers"] == ["AAA", "SPY"]
     assert captured["interval"] == "1d"
-    assert captured["auto_adjust"] is True
+    assert captured["auto_adjust"] is False
     assert captured["repair"] is True
-    assert captured["actions"] is False
+    assert captured["actions"] is True
     assert captured["keepna"] is False
 
 
@@ -174,7 +179,7 @@ def test_backtest_uses_one_global_common_period(backtest_client, monkeypatch):
         },
         index=dates,
     )
-    monkeypatch.setattr(index_v2.legacy, "download_data_silently", lambda *_a, **_k: prices)
+    monkeypatch.setattr(index_v2, "download_data_silently", lambda *_a, **_k: prices)
 
     response = backtest_client.post(
         "/api/backtest",
@@ -203,7 +208,9 @@ def test_backtest_uses_one_global_common_period(backtest_client, monkeypatch):
     assert payload["metadata"]["calendar_policy"] == (
         "global_complete_case_across_all_assets_and_benchmark"
     )
+    assert payload["metadata"]["return_basis"] == RETURN_BASIS
     assert payload["data"][0]["metric_start"] == effective_start
+    assert payload["data"][0]["return_basis"] == RETURN_BASIS
     assert payload["benchmark"]["metric_start"] == effective_start
     assert payload["benchmark"]["beta"] == 1.0
     assert payload["benchmark"]["alpha"] == 0.0
