@@ -16,7 +16,7 @@ function formatLocalDate(date) {
   ].join("-");
 }
 
-test("daily controls default to previous-year same date through yesterday", async ({ page }) => {
+test("daily controls default to ten-years-ago same date through yesterday", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
@@ -24,10 +24,10 @@ test("daily controls default to previous-year same date through yesterday", asyn
 
   const today = new Date();
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  const previousYear = today.getFullYear() - 1;
-  const maxDay = new Date(previousYear, today.getMonth() + 1, 0).getDate();
+  const startYear = today.getFullYear() - 10;
+  const maxDay = new Date(startYear, today.getMonth() + 1, 0).getDate();
   const start = new Date(
-    previousYear,
+    startYear,
     today.getMonth(),
     Math.min(today.getDate(), maxDay),
   );
