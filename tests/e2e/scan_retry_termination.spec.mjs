@@ -24,8 +24,8 @@ test("repeated scan 503 responses terminate with explicit failures", async ({ pa
   await page.goto("/");
   await page.getByRole("button", { name: "個股掃描" }).click();
   await page.locator("#scan-tickers").fill("AAA");
-  await page.locator("#scan-start-period").fill("2025-01");
-  await page.locator("#scan-end-period").fill("2025-03");
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-03-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   await expect(page.locator("#loading-overlay")).toHaveClass(/hidden/, { timeout: 30_000 });

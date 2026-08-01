@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import numpy as np
 import pandas as pd
@@ -168,6 +169,7 @@ def _action_warning(audits: dict[str, dict]) -> str | None:
 
 
 def backtest_handler():
+    request_started = time.perf_counter()
     try:
         data = legacy.require_json_object()
         start_date, end_exclusive = legacy.parse_period(data)
@@ -186,11 +188,14 @@ def backtest_handler():
         required_tickers = legacy.deduplicate(
             portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else [])
         )
+        market_started = time.perf_counter()
         prices_raw = download_data_silently(
             tuple(sorted(required_tickers)),
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
         )
+        market_ms = (time.perf_counter() - market_started) * 1000
+        compute_started = time.perf_counter()
         action_audits = dict(
             prices_raw.attrs.get("corporate_action_audits", {})
         )
@@ -297,14 +302,28 @@ def backtest_handler():
                 },
             },
         )
-        return legacy.jsonify(
-            {
-                "data": results,
-                "benchmark": benchmark_result,
-                "warning": "；".join(warning_parts) if warning_parts else None,
-                "metadata": metadata,
-            }
+        payload = {
+            "data": results,
+            "benchmark": benchmark_result,
+            "warning": "；".join(warning_parts) if warning_parts else None,
+            "metadata": metadata,
+        }
+        compute_ms = (time.perf_counter() - compute_started) * 1000
+        serialize_started = time.perf_counter()
+        response = legacy.jsonify(payload)
+        serialize_ms = (time.perf_counter() - serialize_started) * 1000
+        total_ms = (time.perf_counter() - request_started) * 1000
+        timing = (
+            f"market;dur={market_ms:.1f}, compute;dur={compute_ms:.1f}, "
+            f"serialize;dur={serialize_ms:.1f}, total;dur={total_ms:.1f}"
         )
+        response.headers["Server-Timing"] = timing
+        response.headers["X-Backend-Server-Timing"] = timing
+        response.headers["X-Backtest-Requested"] = str(len(required_tickers))
+        response.headers["X-Backtest-Resolved"] = str(
+            len(required_tickers) - len(failed_tickers)
+        )
+        return response
     except legacy.ValidationError as exc:
         return legacy.error_response(str(exc), 400)
     except legacy.DataSourceError as exc:

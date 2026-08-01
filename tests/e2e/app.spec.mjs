@@ -195,8 +195,8 @@ test("initializes the UI and completes the Universe scanner flow", async ({ page
     sort: "marketCap-desc",
   });
 
-  await page.locator("#scan-start-period").fill("2025-01");
-  await page.locator("#scan-end-period").fill("2025-12");
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   await expect(page.locator("#scan-results")).toBeVisible();
@@ -268,8 +268,8 @@ test("defaults to every filtered candidate and paginates more than 100 results",
 
   expect(screenerPayload.limit).toBeNull();
   await expect(page.locator("#scan-tickers")).toHaveValue(/T0125/);
-  await page.locator("#scan-start-period").fill("2025-01");
-  await page.locator("#scan-end-period").fill("2025-12");
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   await expect(page.locator("#scan-summary")).toContainText("125 / 125");
@@ -298,8 +298,8 @@ test("accepts more than 100 manually entered tickers", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "個股掃描" }).click();
   await page.locator("#scan-tickers").fill(tickers.join(", "));
-  await page.locator("#scan-start-period").fill("2025-01");
-  await page.locator("#scan-end-period").fill("2025-12");
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   await expect(page.locator("#scan-summary")).toContainText("101 / 101");

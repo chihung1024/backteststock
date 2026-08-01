@@ -6,7 +6,7 @@
   <meta name="description" content="美股投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
-  <script type="module" src="/app.js?v=20260801.4"></script>
+  <script type="module" src="/app.js?v=20260801.5"></script>
   <script type="module" src="/scan-output-ui.js?v=20260801.4"></script>
   <script type="module" src="/scan-composite-score.js?v=20260801.3"></script>
 </head>
@@ -52,12 +52,12 @@
             <input id="initial-amount" type="number" min="1" max="1000000000000" step="100" value="10000" inputmode="decimal">
           </label>
           <label>
-            <span>起始月份</span>
-            <input id="start-period" type="month" value="2015-01">
+            <span>起始日期</span>
+            <input id="start-period" type="date">
           </label>
           <label>
-            <span>結束月份</span>
-            <input id="end-period" type="month">
+            <span>結束日期</span>
+            <input id="end-period" type="date">
           </label>
           <label>
             <span>再平衡週期</span>
@@ -79,13 +79,14 @@
 
         <div id="backtest-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">調整後股價包含拆股及股息效果；未納入稅務、滑價與交易成本。</p>
+          <p class="form-note">預設為今天 day 0 往前一個完整年度（起始日為一年前同日、結束日為昨天）；調整後股價包含拆股及股息效果。</p>
           <button id="run-backtest" class="button primary" type="submit">執行回測</button>
         </div>
       </form>
 
       <section id="backtest-results" class="results hidden" aria-live="polite">
         <div id="backtest-warning" class="message warning hidden"></div>
+        <div id="backtest-timing" class="result-context hidden"></div>
         <div class="result-header">
           <div>
             <p class="eyebrow">RESULTS</p>
@@ -193,12 +194,12 @@
         </label>
         <div class="control-grid scanner-controls">
           <label>
-            <span>起始月份</span>
-            <input id="scan-start-period" type="month" value="2019-01">
+            <span>起始日期</span>
+            <input id="scan-start-period" type="date">
           </label>
           <label>
-            <span>結束月份</span>
-            <input id="scan-end-period" type="month">
+            <span>結束日期</span>
+            <input id="scan-end-period" type="date">
           </label>
           <label>
             <span>比較基準</span>
