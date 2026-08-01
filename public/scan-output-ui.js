@@ -74,6 +74,24 @@ const AUDIT_HEADERS = [
   "benchmark_available",
   "requested_start",
   "requested_end_exclusive",
+  "return_basis",
+  "return_price_column",
+  "dividend_reinvestment_assumption",
+  "market_data_contract_version",
+  "corporate_action_policy_version",
+  "corporate_action_status",
+  "benchmark_corporate_action_status",
+  "dividend_events",
+  "stock_split_events",
+  "capital_gain_events",
+  "price_repaired_rows",
+  "unexplained_adjustment_changes",
+  "distribution_adjustment_mismatches",
+  "split_like_unreported_changes",
+  "large_unexplained_returns",
+  "corporate_action_warning_dates",
+  "standard_action_coverage",
+  "nonstandard_action_limitations",
   "auto_adjust",
   "repair",
   "interval",
@@ -181,9 +199,9 @@ window.fetch = async function fetchWithScanOutputTiming(input, init) {
         elapsedMs: performance.now() - startedAt,
         status: response.status,
         serverTiming:
-        response.headers.get("server-timing")
-        || response.headers.get("x-backend-server-timing")
-        || "",
+          response.headers.get("server-timing")
+          || response.headers.get("x-backend-server-timing")
+          || "",
       });
       if (response.ok) {
         response.clone().json().then(captureRows).catch(() => {});
@@ -349,7 +367,16 @@ function exportValue(matrixResult, item, key) {
   if (["auto_adjust", "repair", "interval", "actions", "keepna"].includes(key)) {
     return item?.data_source_settings?.[key];
   }
-  return item?.[key];
+  if (key === "benchmark_corporate_action_status") {
+    return item?.benchmark_corporate_action_audit?.status;
+  }
+  if (["standard_action_coverage", "nonstandard_action_limitations"].includes(key)) {
+    const values = item?.[key];
+    return Array.isArray(values) ? values.join(" | ") : values;
+  }
+  const value = item?.[key];
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return value;
 }
 
 function escapeCsv(value) {
