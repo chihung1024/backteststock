@@ -10,28 +10,6 @@ async function fulfillJson(route, body) {
   });
 }
 
-function scanResult(ticker, index) {
-  return {
-    ticker,
-    status: "ok",
-    retryable: false,
-    total_return: 1 + index * 0.01,
-    cagr: 0.20 + index * 0.001,
-    volatility: 0.20,
-    mdd: -0.25,
-    sharpe_ratio: 1.1,
-    sortino_ratio: 1.4 + index * 0.01,
-    beta: 0.8 + index * 0.01,
-    alpha: 0.03,
-    data_coverage: 1,
-    trading_days: 2500,
-    data_start: "2016-08-01",
-    data_end: "2026-07-31",
-    corporate_action_status: "verified_standard_actions",
-    metric_definition_version: "2026-08-01.2",
-  };
-}
-
 test("scan results allow a persistent manual 20-stock candidate pool", async ({ page }) => {
   await page.addInitScript(({ savedTickers }) => {
     localStorage.setItem("backteststock-scan-job-v2", JSON.stringify({
@@ -104,7 +82,8 @@ test("scan results allow a persistent manual 20-stock candidate pool", async ({ 
   await expect(page.locator("#optimizer-source-tickers")).toHaveAttribute("readonly", "");
   await expect(page.locator("#optimizer-ranking-field")).toBeDisabled();
   await expect(page.locator("#optimizer-source-status")).toContainText("手動候選池 20 檔");
-  await expect(page.locator("#optimizer-candidate-mode-note")).toContainText("人為選擇偏差");
+  await expect(page.locator("#optimizer-candidate-mode-note"))
+    .toContainText("可能已參考原定樣本外期間");
   await expect(page.locator("#optimizer-ranking-field option")).toContainText([
     "Sortino",
     "CAGR",
