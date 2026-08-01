@@ -33,6 +33,8 @@ API 新契約使用：
 - 公司行為稽核。
 - 同一請求中的標的一次大批下載。
 
+本階段不建立持久化日線資料層，也不增加每日預抓行情流程；首次遇到全新日期與標的組合時，仍由正式行情來源即時取得最新資料。
+
 Cloudflare Worker 對未攜帶 Authorization 或 Cookie、且成功回傳 JSON 的 `/api/backtest` 與 `/api/scan` POST 請求，依路徑及完整 request body 的 SHA-256 建立 15 分鐘 Edge 快取。不同日期、權重、標的、基準或再平衡設定不會共用結果。
 
 回應標頭：
