@@ -3,6 +3,8 @@ name: Verify optimizer real data
 on:
   push:
     branches: [verify/optimizer-mvp-real-data]
+  pull_request:
+    branches: [feature/portfolio-optimizer-mvp]
 
 permissions:
   contents: read
