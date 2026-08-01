@@ -1,0 +1,37 @@
+name: Fix optimizer lint
+
+on:
+  push:
+    branches: [feature/portfolio-optimizer-mvp]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ contains(github.event.head_commit.message, 'Trigger optimizer lint fix') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/portfolio-optimizer-mvp
+          fetch-depth: 0
+      - name: Remove unused import
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('api/optimizer.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'from flask import Flask, jsonify, request\n'
+          new = 'from flask import Flask, jsonify\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'unexpected import matches={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/optimizer.py
+          git commit -m "Remove unused optimizer request import"
+          git push origin HEAD:feature/portfolio-optimizer-mvp
