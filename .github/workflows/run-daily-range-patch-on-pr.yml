@@ -31,6 +31,10 @@ jobs:
               "text, count = pattern.subn(replacement, text, count=1)",
               "text, count = pattern.subn(lambda _match: replacement, text, count=1)",
           )
+          normalized = normalized.replace(
+              'raise SystemExit(f"{path}: expected one replacement anchor, found {count}")',
+              'raise SystemExit(f"{path}: expected one replacement anchor, found {count}; anchor={old!r}")',
+          )
           exec(compile(normalized, 'apply-daily-range-performance', 'exec'))
           for path in (
               Path('.github/workflows/run-daily-range-patch-on-pr.yml'),
