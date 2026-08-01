@@ -1,4 +1,4 @@
-# Fully resolved production environment for metric definition 2026-08-01.1.
+# Fully resolved production environment for metric definition 2026-08-01.2.
 # Update deliberately together with tests and a metric-version review.
 Flask==3.1.2
 cachetools==5.5.2
@@ -6,7 +6,7 @@ numpy==2.2.6
 pandas==2.2.3
 requests==2.32.5
 scipy==1.17.1
-yfinance==1.2.1
+yfinance==1.5.2
 
 beautifulsoup4==4.15.0
 blinker==1.9.0
