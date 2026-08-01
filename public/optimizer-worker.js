@@ -682,52 +682,81 @@ function addUniqueRanked(output, seen, records, count, source, objective) {
     output.push({ ...record, selectionSource: source });
     added += 1;
   }
+  return added;
 }
 
 function selectVerificationRecords(records, primaryObjective) {
   const output = [];
   const seen = new Set();
-  addUniqueRanked(
+  const requested = Object.fromEntries(
+    OBJECTIVES.map((objective) => [
+      objective,
+      objective === primaryObjective ? 120 : 30,
+    ]),
+  );
+  requested.pareto_diversity = 60;
+  const actual = Object.fromEntries(
+    [...OBJECTIVES, "pareto_diversity"].map((key) => [key, 0]),
+  );
+
+  actual[primaryObjective] = addUniqueRanked(
     output,
     seen,
     records,
-    120,
+    requested[primaryObjective],
     `primary:${primaryObjective}`,
     primaryObjective,
   );
   for (const objective of OBJECTIVES) {
     if (objective === primaryObjective) continue;
-    addUniqueRanked(output, seen, records, 30, `secondary:${objective}`, objective);
-  }
-
-  const pareto = approximatePareto(records);
-  const anchors = output.slice(0, 20).map((record) => record.mask);
-  pareto.sort((left, right) => {
-    const leftDistance = Math.min(
-      ...anchors.map((anchor) => hammingDistance(left.mask, anchor)),
-    );
-    const rightDistance = Math.min(
-      ...anchors.map((anchor) => hammingDistance(right.mask, anchor)),
-    );
-    return rightDistance - leftDistance || left.mask - right.mask;
-  });
-  for (const record of pareto) {
-    if (output.length >= 300) break;
-    if (seen.has(record.mask)) continue;
-    seen.add(record.mask);
-    output.push({ ...record, selectionSource: "pareto-diversity" });
-  }
-  if (output.length < 300) {
-    addUniqueRanked(
+    actual[objective] = addUniqueRanked(
       output,
       seen,
       records,
-      300 - output.length,
-      "pareto-fill",
-      primaryObjective,
+      requested[objective],
+      `secondary:${objective}`,
+      objective,
     );
   }
-  return output.slice(0, 300);
+
+  const anchors = output.slice(0, 20).map((record) => record.mask);
+  const diversityDistance = (record) => Math.min(
+    ...anchors.map((anchor) => hammingDistance(record.mask, anchor)),
+  );
+  const pareto = approximatePareto(records)
+    .filter((record) => !seen.has(record.mask))
+    .sort((left, right) => (
+      diversityDistance(right) - diversityDistance(left)
+      || compareRecords(left, right, primaryObjective)
+      || left.mask - right.mask
+    ));
+  const remaining = records
+    .filter((record) => !seen.has(record.mask))
+    .sort((left, right) => (
+      diversityDistance(right) - diversityDistance(left)
+      || compareRecords(left, right, primaryObjective)
+      || left.mask - right.mask
+    ));
+  for (const record of [...pareto, ...remaining]) {
+    if (actual.pareto_diversity >= requested.pareto_diversity) break;
+    if (seen.has(record.mask)) continue;
+    seen.add(record.mask);
+    output.push({ ...record, selectionSource: "pareto-diversity" });
+    actual.pareto_diversity += 1;
+  }
+
+  const mismatches = [...OBJECTIVES, "pareto_diversity"].filter(
+    (key) => actual[key] !== requested[key],
+  );
+  if (output.length !== 300 || mismatches.length) {
+    throw new Error(
+      `精確複驗配額不完整：${JSON.stringify({ requested, actual })}`,
+    );
+  }
+  return {
+    records: output,
+    allocation: { requested, actual },
+  };
 }
 
 export function serializeMasksLittleEndian(masks) {
@@ -788,7 +817,11 @@ export async function optimizeSnapshot({ snapshot, settings, progress = () => {}
     trainingDates,
     progress,
   });
-  const verificationRecords = selectVerificationRecords(deepRecords, primaryObjective);
+  const verificationSelection = selectVerificationRecords(
+    deepRecords,
+    primaryObjective,
+  );
+  const verificationRecords = verificationSelection.records;
   const evaluatedMaskHash = await digestMasks(selection.masks);
   return {
     combinations: verificationRecords.map((record, index) => ({
@@ -814,6 +847,7 @@ export async function optimizeSnapshot({ snapshot, settings, progress = () => {}
       evaluatedMaskHash,
       randomSeed: hashSeed(seedText),
       budgetAllocation: selection.allocation,
+      exactVerificationAllocation: verificationSelection.allocation,
       localSearchTrace: selection.trace,
       evaluatedMasks: Array.from(selection.masks),
       stopReason: selection.masks.length >= searchBudget

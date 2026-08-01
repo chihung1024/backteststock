@@ -105,8 +105,36 @@ test("optimizer evaluates all proxies and returns deterministic verification set
       pareto_diversity: 100,
     },
   });
+  assert.deepEqual(result.search.exactVerificationAllocation, {
+    requested: {
+      sortino_ratio: 120,
+      cagr: 30,
+      mdd_abs: 30,
+      beta_abs: 30,
+      alpha: 30,
+      pareto_diversity: 60,
+    },
+    actual: {
+      sortino_ratio: 120,
+      cagr: 30,
+      mdd_abs: 30,
+      beta_abs: 30,
+      alpha: 30,
+      pareto_diversity: 60,
+    },
+  });
   assert.equal(result.combinations.length, 300);
   assert.equal(new Set(result.combinations.map((item) => item.mask)).size, 300);
+  const sourceCounts = Object.groupBy(
+    result.combinations,
+    (item) => item.selectionSource,
+  );
+  assert.equal(sourceCounts["primary:sortino_ratio"].length, 120);
+  assert.equal(sourceCounts["secondary:cagr"].length, 30);
+  assert.equal(sourceCounts["secondary:mdd_abs"].length, 30);
+  assert.equal(sourceCounts["secondary:beta_abs"].length, 30);
+  assert.equal(sourceCounts["secondary:alpha"].length, 30);
+  assert.equal(sourceCounts["pareto-diversity"].length, 60);
   assert.ok(result.combinations.every((item) => item.tickers.length === 10));
   assert.deepEqual(progressStages, new Set(["proxy", "selected", "deep"]));
 });
