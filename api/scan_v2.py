@@ -6,10 +6,11 @@ import logging
 import time
 
 import pandas as pd
-import yfinance as yf
 from flask import Flask, jsonify, request
 
+from api import market_data
 from api import scan as legacy
+from api.corporate_actions import audit_from_series, flattened_audit_fields
 from api.metrics import (
     DATA_SOURCE_SETTINGS,
     METRIC_DEFINITION_VERSION,
@@ -25,28 +26,35 @@ logger = logging.getLogger(__name__)
 
 
 def bulk_download_prices(tickers, start_date, end_date, *, use_threads=True):
-    """Fetch one deterministic adjusted daily price shape for every API path."""
-    thread_count = min(legacy.MARKET_DATA_DOWNLOAD_THREADS, max(len(tickers), 1))
-    return yf.download(
-        list(tickers),
-        start=start_date,
-        end=end_date,
-        interval=DATA_SOURCE_SETTINGS["interval"],
-        auto_adjust=DATA_SOURCE_SETTINGS["auto_adjust"],
-        actions=DATA_SOURCE_SETTINGS["actions"],
-        repair=DATA_SOURCE_SETTINGS["repair"],
-        keepna=DATA_SOURCE_SETTINGS["keepna"],
-        progress=False,
-        threads=thread_count if use_threads else False,
-        timeout=legacy.MARKET_DATA_TIMEOUT_SECONDS,
-        group_by="column",
-        multi_level_index=True,
+    """Fetch raw/adjusted prices and actions under one explicit contract."""
+    return market_data.bulk_download_prices(
+        tickers,
+        start_date,
+        end_date,
+        use_threads=use_threads,
+        timeout_seconds=legacy.MARKET_DATA_TIMEOUT_SECONDS,
+        download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
     )
 
 
-# Reuse the established finite retry/cache implementation, but force identical
-# download semantics to the portfolio endpoint.
+def download_prices_finitely(tickers, start_date, end_date):
+    """Resolve a large batch while retaining each symbol's action audit."""
+    return market_data.download_prices_finitely(
+        tickers,
+        start_date,
+        end_date,
+        attempts=legacy.MARKET_DATA_ATTEMPTS,
+        backoff_seconds=legacy.MARKET_DATA_BACKOFF_SECONDS,
+        timeout_seconds=legacy.MARKET_DATA_TIMEOUT_SECONDS,
+        download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
+        batch_size=legacy.MAX_SCAN_TICKERS,
+    )
+
+
+# Keep legacy route internals and test seams, but force every production call
+# through the explicit Adj Close + actions data contract.
 legacy.bulk_download_prices = bulk_download_prices
+legacy.download_prices_finitely = download_prices_finitely
 
 
 @app.after_request
@@ -67,7 +75,10 @@ def reproducibility_note(metadata: dict, asset_hash: str | None, paired_hash: st
         [
             f"metric={metadata['metric_definition_version']}",
             f"source=yfinance-{metadata['data_source_version']}",
+            f"basis={metadata['return_basis']}",
+            f"corp_actions={metadata['corporate_action_policy_version']}",
             f"adjust={str(settings['auto_adjust']).lower()}",
+            f"actions={str(settings['actions']).lower()}",
             f"repair={str(settings['repair']).lower()}",
             f"rf={metadata['risk_free_rate']:.12g}",
             f"benchmark={metadata.get('benchmark', '')}",
@@ -75,6 +86,17 @@ def reproducibility_note(metadata: dict, asset_hash: str | None, paired_hash: st
             f"aligned_sha256={paired_hash or ''}",
         ]
     )
+
+
+def _audit_note(audit: dict) -> str | None:
+    status = audit.get("status")
+    if status == "review_required":
+        dates = audit.get("warning_dates") or []
+        suffix = f"（{', '.join(dates[:3])}）" if dates else ""
+        return f"公司行為調整需人工覆核{suffix}"
+    if status in {"adjusted_close_unverifiable", "insufficient_audit_history"}:
+        return "調整收盤價缺少足夠原始資料可供公司行為稽核"
+    return None
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -100,9 +122,8 @@ def scan_handler():
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
 
-        # Fetch benchmark and assets together. The finite downloader retries
-        # only unresolved symbols, so a missing benchmark is retried alone and
-        # never invalidates otherwise usable asset histories.
+        # Benchmark and assets remain one large request.  The finite downloader
+        # retries only unresolved symbols and never silently substitutes raw Close.
         market_started = time.perf_counter()
         resolved, unresolved = legacy.download_prices_finitely(
             legacy.deduplicate([benchmark_ticker, *tickers]),
@@ -117,6 +138,7 @@ def scan_handler():
             and benchmark_prices is not None
             and not benchmark_prices.empty
         )
+        benchmark_audit = audit_from_series(benchmark_prices)
 
         compute_started = time.perf_counter()
 
@@ -132,6 +154,8 @@ def scan_handler():
                     if benchmark_available
                     else None
                 ),
+                "benchmark_corporate_action_audit": benchmark_audit,
+                "market_data_contract_version": market_data.MARKET_DATA_CONTRACT_VERSION,
             },
         )
         results = []
@@ -142,10 +166,15 @@ def scan_handler():
                 failure.update(
                     metric_definition_version=METRIC_DEFINITION_VERSION,
                     benchmark=benchmark_ticker,
+                    return_basis=shared_metadata["return_basis"],
+                    corporate_action_policy_version=shared_metadata[
+                        "corporate_action_policy_version"
+                    ],
                 )
                 results.append(failure)
                 continue
 
+            audit = audit_from_series(prices)
             metrics = calculate_metrics(
                 prices,
                 benchmark_prices if benchmark_available else None,
@@ -162,11 +191,16 @@ def scan_handler():
                 notes.append(f"從 {prices.index[0].strftime('%Y-%m-%d')} 開始")
             if not benchmark_available:
                 notes.append("比較基準行情無法取得，Beta／Alpha 暫不計算")
+            audit_note = _audit_note(audit)
+            if audit_note:
+                notes.append(audit_note)
 
             row_metadata = {
                 **shared_metadata,
                 "price_fingerprint": asset_hash,
                 "aligned_price_fingerprint": paired_hash,
+                "corporate_action_audit": audit,
+                **flattened_audit_fields(audit),
             }
             reproducibility = reproducibility_note(
                 row_metadata, asset_hash, paired_hash
@@ -205,8 +239,6 @@ def scan_handler():
             ]
         )
         response.headers["Server-Timing"] = timing_header
-        # Cloudflare can hide Server-Timing from a Worker subrequest. Emit a
-        # normal application header at the origin so the edge can forward it.
         response.headers["X-Backend-Server-Timing"] = timing_header
         response.headers["X-Scan-Requested"] = str(len(tickers))
         response.headers["X-Scan-Resolved"] = str(
