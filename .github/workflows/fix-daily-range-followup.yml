@@ -1,0 +1,41 @@
+name: Fix daily range follow-up
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: perf/daily-range-edge-cache
+      - name: Fix function boundary and remove workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("api/index.py")
+          content = path.read_text(encoding="utf-8")
+          old = "def validate_initial_amount\n(value):"
+          if content.count(old) != 1:
+              raise SystemExit(f"Expected one broken function boundary, found {content.count(old)}")
+          path.write_text(
+              content.replace(old, "def validate_initial_amount(value):", 1),
+              encoding="utf-8",
+          )
+          Path(".github/workflows/fix-daily-range-followup.yml").unlink()
+          PY
+          git diff --check
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix daily period function boundary"
+          git push origin HEAD:perf/daily-range-edge-cache
