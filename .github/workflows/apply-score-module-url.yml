@@ -1,0 +1,48 @@
+name: Apply score module URL synchronization
+
+on:
+  push:
+    branches: [fix/corporate-action-total-return-audit]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/corporate-action-total-return-audit
+      - name: Synchronize module URLs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: replacement anchor is not unique")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_once(
+              "public/app.js",
+              'from "./scan-score-formulas.js";',
+              'from "./scan-score-formulas.js?v=20260801.2";',
+          )
+          replace_once(
+              "public/index.html",
+              '<script type="module" src="/app.js?v=20260801.3"></script>',
+              '<script type="module" src="/app.js?v=20260801.4"></script>',
+          )
+          PY
+          git diff --check
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/app.js public/index.html
+          git commit -m "Use one versioned score module instance"
+          git push origin HEAD:fix/corporate-action-total-return-audit
