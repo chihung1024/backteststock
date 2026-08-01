@@ -10,17 +10,27 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
+from api.corporate_actions import (
+    CORPORATE_ACTION_POLICY_VERSION,
+    NONSTANDARD_ACTION_LIMITATIONS,
+    RETURN_BASIS,
+    RETURN_PRICE_COLUMN,
+    STANDARD_ACTION_COVERAGE,
+)
+
 TRADING_DAYS_PER_YEAR = 252
 DAYS_PER_YEAR = 365.25
 EPSILON = 1e-12
-METRIC_DEFINITION_VERSION = "2026-08-01.1"
+METRIC_DEFINITION_VERSION = "2026-08-01.2"
 FINGERPRINT_ALGORITHM = "sha256-le-i8-f8-v1"
 DATA_SOURCE_NAME = "Yahoo Finance via yfinance"
 DATA_SOURCE_SETTINGS = {
     "interval": "1d",
-    "auto_adjust": True,
+    # Keep raw Close and explicit Adj Close.  Every performance metric consumes
+    # Adj Close; raw Close and actions remain available for adjustment audits.
+    "auto_adjust": False,
     "repair": True,
-    "actions": False,
+    "actions": True,
     "keepna": False,
 }
 
@@ -124,6 +134,7 @@ def aligned_fingerprint(asset_history, benchmark_history) -> str | None:
     digest.update(records.tobytes(order="C"))
     return digest.hexdigest()
 
+
 def benchmark_coverage(asset_history, benchmark_history) -> float:
     asset = normalize_value_series(asset_history, name="asset")
     benchmark = normalize_value_series(benchmark_history, name="benchmark")
@@ -149,6 +160,14 @@ def reproducibility_metadata(
         "risk_free_rate": float(risk_free_rate),
         "trading_days_per_year": TRADING_DAYS_PER_YEAR,
         "data_source_settings": dict(DATA_SOURCE_SETTINGS),
+        "return_basis": RETURN_BASIS,
+        "return_price_column": RETURN_PRICE_COLUMN,
+        "dividend_reinvestment_assumption": (
+            "gross_distribution_reinvestment_as_embedded_in_yahoo_adjusted_close"
+        ),
+        "corporate_action_policy_version": CORPORATE_ACTION_POLICY_VERSION,
+        "standard_action_coverage": list(STANDARD_ACTION_COVERAGE),
+        "nonstandard_action_limitations": list(NONSTANDARD_ACTION_LIMITATIONS),
     }
     if benchmark:
         metadata["benchmark"] = benchmark
@@ -180,11 +199,16 @@ def _empty_result() -> dict:
 
 
 def calculate_metrics(asset_history, benchmark_history=None, risk_free_rate: float = 0.0):
-    """Calculate all metrics from one common, date-aligned price/value sample.
+    """Calculate every metric from an adjusted total-return value series.
+
+    Callers must supply explicit Yahoo ``Adj Close`` (or a portfolio value built
+    from such series).  Cash distributions, capital-gains distributions and
+    split adjustments are therefore reflected to the extent Yahoo reports and
+    yfinance repairs them.  This function never mixes raw Close with Adj Close.
 
     Sharpe and Sortino use arithmetic daily excess returns annualized by 252.
     Beta and Jensen alpha use the same paired daily-return observations.
-    When a benchmark is supplied, every reported metric uses the common price dates.
+    When a benchmark is supplied, every reported metric uses common price dates.
     """
     if not math.isfinite(risk_free_rate) or risk_free_rate <= -1:
         raise ValueError("risk_free_rate must be finite and greater than -1")
