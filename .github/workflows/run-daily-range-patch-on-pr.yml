@@ -15,14 +15,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: perf/daily-range-edge-cache
-      - name: Execute embedded patch
+      - name: Apply implementation and tests
         run: |
-          ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).dig("jobs", "apply", "steps", 1, "run")' \
-            .github/workflows/apply-daily-range-performance.yml > /tmp/apply-daily-range.sh
-          bash /tmp/apply-daily-range.sh
-          rm -f \
-            .github/workflows/run-daily-range-patch-on-pr.yml \
-            diagnostics/daily-range-trigger.txt
+          python scripts/apply_daily_range_patch.py
           git diff --check
       - name: Commit implementation
         run: |
