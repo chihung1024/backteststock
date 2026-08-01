@@ -407,6 +407,23 @@ function addDiversity({ selected, masks, target, random, anchors }) {
   }
 }
 
+function searchBudgetPlan(primaryObjective, searchBudget) {
+  const primaryQuota = Math.floor(searchBudget * 0.50);
+  const secondaryQuota = Math.floor(searchBudget * 0.10);
+  const requested = Object.fromEntries(
+    OBJECTIVES.map((objective) => [
+      objective,
+      objective === primaryObjective ? primaryQuota : secondaryQuota,
+    ]),
+  );
+  requested.pareto_diversity = (
+    searchBudget
+    - primaryQuota
+    - secondaryQuota * (OBJECTIVES.length - 1)
+  );
+  return requested;
+}
+
 function selectDeepMasks({
   records,
   indexByMask,
@@ -420,35 +437,47 @@ function selectDeepMasks({
   const selected = new Set();
   const trace = [];
   const random = xorshift32(hashSeed(seedText));
-  const allocation = Object.fromEntries(
-    OBJECTIVES.map((objective) => [
-      objective,
-      objective === primaryObjective ? 15000 : 3000,
-    ]),
+  const requested = searchBudgetPlan(primaryObjective, searchBudget);
+  const actual = Object.fromEntries(
+    [...OBJECTIVES, "pareto_diversity"].map((key) => [key, 0]),
   );
+  const objectiveOrder = [
+    primaryObjective,
+    ...OBJECTIVES.filter((objective) => objective !== primaryObjective),
+  ];
 
-  for (const objective of OBJECTIVES) {
+  for (const objective of objectiveOrder) {
     const ranking = rankings[objective];
+    const localCandidates = new Set();
     const seedCount = objective === primaryObjective ? 80 : 30;
     for (let seed = 0; seed < seedCount; seed += 1) {
       const seedIndex = ranking[seed];
-      selected.add(records[seedIndex].mask);
+      localCandidates.add(records[seedIndex].mask);
       hillClimb({
         seedIndex,
         objective,
         records,
         indexByMask,
-        selected,
+        selected: localCandidates,
         trace,
         random,
       });
     }
-    let added = 0;
+
+    const addForObjective = (mask) => {
+      if (actual[objective] >= requested[objective] || selected.has(mask)) return;
+      selected.add(mask);
+      actual[objective] += 1;
+    };
+    for (const mask of localCandidates) addForObjective(mask);
     for (const recordIndex of ranking) {
-      if (added >= allocation[objective]) break;
-      const before = selected.size;
-      selected.add(records[recordIndex].mask);
-      if (selected.size > before) added += 1;
+      addForObjective(records[recordIndex].mask);
+      if (actual[objective] >= requested[objective]) break;
+    }
+    if (actual[objective] !== requested[objective]) {
+      throw new Error(
+        `無法滿足 ${objective} 搜尋配額：${actual[objective]} / ${requested[objective]}`,
+      );
     }
   }
 
@@ -456,25 +485,34 @@ function selectDeepMasks({
   const anchors = OBJECTIVES.flatMap(
     (objective) => rankings[objective].slice(0, 5).map((index) => records[index].mask),
   );
-  const diversityTarget = Math.min(searchBudget, selected.size + 3000);
-  addDiversity({ selected, masks, target: diversityTarget, random, anchors });
-
-  if (selected.size < searchBudget) {
-    for (const recordIndex of rankings[primaryObjective]) {
-      selected.add(records[recordIndex].mask);
-      if (selected.size >= searchBudget) break;
-    }
-  }
+  const diversityStart = selected.size;
+  addDiversity({
+    selected,
+    masks,
+    target: diversityStart + requested.pareto_diversity,
+    random,
+    anchors,
+  });
   if (selected.size < searchBudget) {
     for (const mask of masks) {
       selected.add(mask);
       if (selected.size >= searchBudget) break;
     }
   }
+  actual.pareto_diversity = selected.size - diversityStart;
+  if (
+    selected.size !== searchBudget
+    || actual.pareto_diversity !== requested.pareto_diversity
+  ) {
+    throw new Error(
+      `無法滿足 Pareto／多樣性配額：${actual.pareto_diversity} / ${requested.pareto_diversity}`,
+    );
+  }
+
   return {
-    masks: Uint32Array.from([...selected].slice(0, searchBudget)),
+    masks: Uint32Array.from(selected),
     trace,
-    allocation,
+    allocation: { requested, actual },
   };
 }
 
@@ -692,8 +730,17 @@ function selectVerificationRecords(records, primaryObjective) {
   return output.slice(0, 300);
 }
 
+export function serializeMasksLittleEndian(masks) {
+  const bytes = new Uint8Array(masks.length * 4);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < masks.length; index += 1) {
+    view.setUint32(index * 4, masks[index], true);
+  }
+  return bytes;
+}
+
 async function digestMasks(masks) {
-  const bytes = new Uint8Array(masks.buffer, masks.byteOffset, masks.byteLength);
+  const bytes = serializeMasksLittleEndian(masks);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((value) => value.toString(16).padStart(2, "0"))

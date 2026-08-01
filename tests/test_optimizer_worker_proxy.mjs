@@ -43,12 +43,12 @@ test("ordinary API routes still reject payloads above 256 KiB", async () => {
 });
 
 
-test("optimizer payloads above 2 MiB fail closed", async () => {
+test("optimizer payloads above 3 MiB fail closed", async () => {
   const response = await worker.fetch(
     new Request("https://example.com/api/optimizer/verify", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ value: "x".repeat(2 * 1024 * 1024 + 1024) }),
+      body: JSON.stringify({ value: "x".repeat(3 * 1024 * 1024 + 1024) }),
     }),
     { BACKEND_ORIGIN: "https://backend.example.com" },
   );

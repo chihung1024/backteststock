@@ -6,6 +6,7 @@ import {
   optimizeSnapshot,
   popcount20,
   relativeBandBounds,
+  serializeMasksLittleEndian,
 } from "../public/optimizer-worker.js";
 
 
@@ -23,6 +24,15 @@ test("relative band uses target-weight percentage", () => {
   const bounds = relativeBandBounds(0.10, 0.20);
   assert.ok(Math.abs(bounds.lower - 0.08) < 1e-12);
   assert.ok(Math.abs(bounds.upper - 0.12) < 1e-12);
+});
+
+
+test("mask audit bytes use explicit little-endian uint32 encoding", () => {
+  const bytes = serializeMasksLittleEndian(Uint32Array.from([0x01020304, 0xa0b0c0d0]));
+  assert.deepEqual(
+    [...bytes],
+    [0x04, 0x03, 0x02, 0x01, 0xd0, 0xc0, 0xb0, 0xa0],
+  );
 });
 
 
@@ -77,6 +87,24 @@ test("optimizer evaluates all proxies and returns deterministic verification set
   assert.equal(result.search.exactVerificationCount, 300);
   assert.equal(result.search.evaluatedMasks.length, 1000);
   assert.equal(result.search.evaluatedMaskHash.length, 64);
+  assert.deepEqual(result.search.budgetAllocation, {
+    requested: {
+      sortino_ratio: 500,
+      cagr: 100,
+      mdd_abs: 100,
+      beta_abs: 100,
+      alpha: 100,
+      pareto_diversity: 100,
+    },
+    actual: {
+      sortino_ratio: 500,
+      cagr: 100,
+      mdd_abs: 100,
+      beta_abs: 100,
+      alpha: 100,
+      pareto_diversity: 100,
+    },
+  });
   assert.equal(result.combinations.length, 300);
   assert.equal(new Set(result.combinations.map((item) => item.mask)).size, 300);
   assert.ok(result.combinations.every((item) => item.tickers.length === 10));

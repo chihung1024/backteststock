@@ -13,3 +13,5 @@ This branch implements the agreed MVP end to end:
 - objective champions, exact-result table, Pareto chart and audit exports.
 
 The optimizer does not create a persistent daily-price database and does not weaken Adjusted Close, repair or corporate-action audit requirements.
+
+Final hardening guarantees exact unique budget contributions, explicit little-endian mask hashing, and a 3 MiB optimizer-only edge request ceiling compatible with the 2 MiB compressed snapshot ceiling.

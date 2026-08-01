@@ -49,3 +49,9 @@
 - 描述性樣本外 Pareto。
 - 再平衡日期、觸發股票、交易名目金額、成本與換手率。
 - candidate pool、dataset、價格、公式、公司行為、演算法、random seed、搜尋預算與搜尋軌跡。
+
+## 最終工程邊界
+
+- 30,000 組實際唯一貢獻必須等於：主要目標 15,000、其餘四目標各 3,000、Pareto／多樣性 3,000。輸出同時保存 requested 與 actual；不允許只報名義配額。
+- 搜尋 bitmask 雜湊固定使用 little-endian unsigned 32-bit 序列，不依賴瀏覽器或 CPU 原生位元組序。
+- 後端壓縮快照上限 2 MiB；Base64 膨脹與 300 組複驗設定納入後，Cloudflare optimizer 專用請求上限為 3 MiB。普通 API 仍為 256 KiB。
