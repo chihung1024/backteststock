@@ -3,11 +3,15 @@ const API_ROUTES = new Map([
   ["/api/all-tickers", new Set(["GET"])],
   ["/api/backtest", new Set(["POST"])],
   ["/api/scan", new Set(["POST"])],
+  ["/api/optimizer/calendar", new Set(["POST"])],
+  ["/api/optimizer/prepare", new Set(["POST"])],
+  ["/api/optimizer/verify", new Set(["POST"])],
   ["/api/screener", new Set(["POST"])],
   ["/api/v2/screener", new Set(["POST"])],
 ]);
 
 const MAX_REQUEST_BYTES = 256 * 1024;
+const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const API_TIMEOUT_MS = 240_000;
 const EDGE_CACHE_VERSION = "2026-08-01.1";
 const EDGE_CACHE_TTL_SECONDS = 15 * 60;
@@ -38,7 +42,7 @@ function applySecurityHeaders(response, requestId) {
   if ((headers.get("content-type") || "").includes("text/html")) {
     headers.set(
       "content-security-policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     );
   }
 
@@ -49,16 +53,23 @@ function applySecurityHeaders(response, requestId) {
   });
 }
 
-async function readValidatedBody(request, requestId) {
+function requestSizeLimit(pathname) {
+  return String(pathname || "").startsWith("/api/optimizer/")
+    ? OPTIMIZER_MAX_REQUEST_BYTES
+    : MAX_REQUEST_BYTES;
+}
+
+async function readValidatedBody(request, requestId, pathname) {
   if (request.method === "GET" || request.method === "HEAD") return undefined;
 
+  const limit = requestSizeLimit(pathname);
   const declaredLength = Number(request.headers.get("content-length") || "0");
-  if (declaredLength > MAX_REQUEST_BYTES) {
+  if (declaredLength > limit) {
     return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
   }
 
   const body = await request.arrayBuffer();
-  if (body.byteLength > MAX_REQUEST_BYTES) {
+  if (body.byteLength > limit) {
     return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
   }
   return body;
@@ -77,7 +88,6 @@ function validateBackendOrigin(env, requestId) {
     return jsonResponse({ error: "後端服務設定無效。" }, 503, requestId);
   }
 }
-
 
 function cacheBackend(env) {
   return env.API_CACHE || globalThis.caches?.default || null;
@@ -151,9 +161,6 @@ async function proxyBackend(request, env, requestId, requestBody) {
     const responseHeaders = new Headers(response.headers);
     const backendServerTiming = response.headers.get("server-timing");
     if (backendServerTiming) {
-      // Cloudflare may omit Server-Timing from a proxied subrequest.
-      // Keep the standards-based header and mirror it to an application
-      // header that is stable across the edge proxy boundary.
       responseHeaders.set("server-timing", backendServerTiming);
       responseHeaders.set("x-backend-server-timing", backendServerTiming);
     }
@@ -191,7 +198,11 @@ async function proxyApi(request, env, requestId) {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
 
-  const requestBody = await readValidatedBody(request, requestId);
+  const requestBody = await readValidatedBody(
+    request,
+    requestId,
+    incomingUrl.pathname,
+  );
   if (requestBody instanceof Response) return requestBody;
 
   const cache = cacheBackend(env);
@@ -359,7 +370,11 @@ async function runVersionedScreener(request, env, requestId) {
   if (request.method !== "POST") {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
-  const rawBody = await readValidatedBody(request, requestId);
+  const rawBody = await readValidatedBody(
+    request,
+    requestId,
+    "/api/v2/screener",
+  );
   if (rawBody instanceof Response) return rawBody;
 
   let payload;
