@@ -12,7 +12,6 @@ from api import market_data
 from api import scan as legacy
 from api.corporate_actions import audit_from_series, flattened_audit_fields
 from api.metrics import (
-    DATA_SOURCE_SETTINGS,
     METRIC_DEFINITION_VERSION,
     aligned_fingerprint,
     benchmark_coverage,
