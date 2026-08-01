@@ -345,8 +345,14 @@ test("restores a saved scan and requests only unfinished tickers", async ({ page
 
   await page.goto("/");
   await expect(page.locator("#scan-summary")).toContainText("3 / 3");
+  await expect(page.locator("#scan-start-period")).toHaveValue("2025-01-01");
+  await expect(page.locator("#scan-end-period")).toHaveValue("2025-12-31");
   expect(scanPayloads).toHaveLength(1);
   expect(scanPayloads[0].tickers).toEqual(["NVDA"]);
+  expect(scanPayloads[0]).toMatchObject({
+    startDate: "2025-01-01",
+    endDate: "2025-12-31",
+  });
   await expect.poll(
     () => page.evaluate(() => {
       const saved = JSON.parse(localStorage.getItem("backteststock-scan-job-v2"));

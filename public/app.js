@@ -28,6 +28,7 @@ const SCAN_CHUNK_SIZE = 100;
 const SCAN_REQUEST_RETRIES = 2;
 const SCAN_MAX_TICKER_ATTEMPTS = 2;
 const SCAN_RETRY_DELAYS_MS = [1_500, 5_000, 15_000, 30_000, 60_000];
+const DEFAULT_LOOKBACK_YEARS = 10;
 
 function formatLocalDate(date) {
   const year = date.getFullYear();
@@ -36,14 +37,14 @@ function formatLocalDate(date) {
   return `${year}-${month}-${day}`;
 }
 
-function rollingYearRange(now = new Date()) {
+function rollingDefaultRange(now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const end = new Date(today);
   end.setDate(end.getDate() - 1);
-  const previousYear = today.getFullYear() - 1;
-  const maxDay = new Date(previousYear, today.getMonth() + 1, 0).getDate();
+  const startYear = today.getFullYear() - DEFAULT_LOOKBACK_YEARS;
+  const maxDay = new Date(startYear, today.getMonth() + 1, 0).getDate();
   const start = new Date(
-    previousYear,
+    startYear,
     today.getMonth(),
     Math.min(today.getDate(), maxDay),
   );
@@ -53,11 +54,21 @@ function rollingYearRange(now = new Date()) {
   };
 }
 
-const defaultRange = rollingYearRange();
+const defaultRange = rollingDefaultRange();
+
+function isValidLocalIsoDate(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [year, month, day] = raw.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year
+    && parsed.getMonth() === month - 1
+    && parsed.getDate() === day;
+}
 
 function normalizeSavedDate(value, boundary) {
   const raw = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (isValidLocalIsoDate(raw)) return raw;
   if (/^\d{4}-\d{2}$/.test(raw)) {
     if (boundary === "start") return `${raw}-01`;
     const [year, month] = raw.split("-").map(Number);
@@ -66,6 +77,46 @@ function normalizeSavedDate(value, boundary) {
     return migrated > defaultRange.endDate ? defaultRange.endDate : migrated;
   }
   return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
+}
+
+function scanPayloadDate(payload, boundary) {
+  const dateKey = boundary === "start" ? "startDate" : "endDate";
+  const direct = String(payload?.[dateKey] || "").trim();
+  if (isValidLocalIsoDate(direct)) return direct;
+
+  const yearKey = boundary === "start" ? "startYear" : "endYear";
+  const monthKey = boundary === "start" ? "startMonth" : "endMonth";
+  const year = Number(payload?.[yearKey]);
+  const month = Number(payload?.[monthKey]);
+  if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+    const day = boundary === "start" ? 1 : new Date(year, month, 0).getDate();
+    const candidate = [
+      year,
+      String(month).padStart(2, "0"),
+      String(day).padStart(2, "0"),
+    ].join("-");
+    if (boundary === "end" && candidate > defaultRange.endDate) {
+      return defaultRange.endDate;
+    }
+    return candidate;
+  }
+  return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
+}
+
+function normalizeScanPayloadDates(payload) {
+  const startDate = scanPayloadDate(payload, "start");
+  const endDate = scanPayloadDate(payload, "end");
+  const [startYear, startMonth] = startDate.split("-").map(Number);
+  const [endYear, endMonth] = endDate.split("-").map(Number);
+  return {
+    ...payload,
+    startDate,
+    endDate,
+    startYear,
+    startMonth,
+    endYear,
+    endMonth,
+  };
 }
 
 const defaultState = {
@@ -866,6 +917,7 @@ function loadScanJob() {
       && Array.isArray(job.pending)
       && Array.isArray(job.results)
     ) {
+      job.payload = normalizeScanPayloadDates(job.payload);
       const allowed = new Set(job.payload.tickers);
       const resultMap = new Map(
         job.results
@@ -893,10 +945,11 @@ function clearScanJob() {
 }
 
 function restoreScanControls(payload) {
-  document.querySelector("#scan-tickers").value = payload.tickers.join(", ");
-  document.querySelector("#scan-start-period").value = `${payload.startYear}-${String(payload.startMonth).padStart(2, "0")}`;
-  document.querySelector("#scan-end-period").value = `${payload.endYear}-${String(payload.endMonth).padStart(2, "0")}`;
-  document.querySelector("#scan-benchmark").value = payload.benchmark;
+  const normalized = normalizeScanPayloadDates(payload);
+  document.querySelector("#scan-tickers").value = normalized.tickers.join(", ");
+  document.querySelector("#scan-start-period").value = normalized.startDate;
+  document.querySelector("#scan-end-period").value = normalized.endDate;
+  document.querySelector("#scan-benchmark").value = normalized.benchmark;
 }
 
 function orderedJobResults(job, resultMap) {

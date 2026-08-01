@@ -6,7 +6,7 @@
   <meta name="description" content="美股投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
-  <script type="module" src="/app.js?v=20260801.5"></script>
+  <script type="module" src="/app.js?v=20260801.6"></script>
   <script type="module" src="/scan-output-ui.js?v=20260801.4"></script>
   <script type="module" src="/scan-composite-score.js?v=20260801.3"></script>
 </head>
@@ -79,7 +79,7 @@
 
         <div id="backtest-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">預設為今天 day 0 往前一個完整年度（起始日為一年前同日、結束日為昨天）；調整後股價包含拆股及股息效果。</p>
+          <p class="form-note">預設為今天 day 0 往前十個完整年度（起始日為十年前同日、結束日為昨天）；日期可自行調整，調整後股價包含拆股及股息效果。</p>
           <button id="run-backtest" class="button primary" type="submit">執行回測</button>
         </div>
       </form>
@@ -212,7 +212,7 @@
         </div>
         <div id="scan-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">優先每批 100 檔一次取得並逐檔驗收；只重排實際缺漏標的，並在此瀏覽器保存未完成進度。</p>
+          <p class="form-note">日期預設為今天 day 0 往前十個完整年度，可自行調整；優先每批 100 檔一次取得並逐檔驗收，只重排實際缺漏標的，並在此瀏覽器保存未完成進度。</p>
           <div class="toolbar">
             <button id="retry-scan" class="button ghost hidden" type="button">繼續未完成回測</button>
             <button id="run-scan" class="button primary" type="submit">開始集體回測</button>
