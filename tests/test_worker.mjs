@@ -217,3 +217,65 @@ test("proxy mirrors backend Server-Timing to a stable edge header", async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("identical backtest requests reuse the edge response cache", async () => {
+  const originalFetch = globalThis.fetch;
+  let backendCalls = 0;
+  const stored = new Map();
+  const cache = {
+    async match(request) {
+      return stored.get(request.url)?.clone() || null;
+    },
+    async put(request, response) {
+      stored.set(request.url, response.clone());
+    },
+  };
+  globalThis.fetch = async () => {
+    backendCalls += 1;
+    return new Response(
+      JSON.stringify({ data: [], benchmark: null, metadata: {} }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "server-timing": "market;dur=100",
+        },
+      },
+    );
+  };
+
+  try {
+    const env = {
+      BACKEND_ORIGIN: "https://backend.example",
+      API_CACHE: cache,
+    };
+    const body = JSON.stringify({
+      startDate: "2025-08-01",
+      endDate: "2026-07-31",
+      initialAmount: 10000,
+      portfolios: [
+        { name: "P", tickers: ["SPY"], weights: [100] },
+      ],
+    });
+    const request = () => new Request(
+      "https://example.com/api/backtest",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      },
+    );
+    const first = await worker.fetch(request(), env);
+    const second = await worker.fetch(request(), env);
+    assert.equal(first.headers.get("x-edge-cache"), "MISS");
+    assert.equal(second.headers.get("x-edge-cache"), "HIT");
+    assert.equal(backendCalls, 1);
+    assert.deepEqual(
+      await second.json(),
+      { data: [], benchmark: null, metadata: {} },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

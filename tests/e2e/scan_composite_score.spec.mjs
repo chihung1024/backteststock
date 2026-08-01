@@ -133,8 +133,8 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
   await page.goto("/");
   await page.getByRole("button", { name: "個股掃描" }).click();
   await page.locator("#scan-tickers").fill(scanResults.map((item) => item.ticker).join(", "));
-  await page.locator("#scan-start-period").fill("2016-01");
-  await page.locator("#scan-end-period").fill("2025-12");
+  await page.locator("#scan-start-period").fill("2016-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   const stableHeader = formulaHeader(page, formulas.stable);

@@ -94,25 +94,59 @@ def deduplicate(values: Iterable[str]):
     return list(dict.fromkeys(values))
 
 
+def _parse_iso_date(value, label):
+    raw = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        raise ValidationError(f"{label}格式必須為 YYYY-MM-DD。")
+    try:
+        parsed = pd.Timestamp(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label}不是有效日期。") from exc
+    if parsed.strftime("%Y-%m-%d") != raw:
+        raise ValidationError(f"{label}不是有效日期。")
+    return parsed.normalize()
+
+
 def parse_period(data):
+    start_date_value = data.get("startDate")
+    end_date_value = data.get("endDate")
+    if start_date_value is not None or end_date_value is not None:
+        if not start_date_value or not end_date_value:
+            raise ValidationError("起始日期與結束日期必須同時提供。")
+        start_date = _parse_iso_date(start_date_value, "起始日期")
+        end_inclusive = _parse_iso_date(end_date_value, "結束日期")
+        current_date = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+        if start_date.year < MIN_YEAR:
+            raise ValidationError(f"起始日期不得早於 {MIN_YEAR}-01-01。")
+        if end_inclusive > current_date:
+            raise ValidationError("結束日期不得晚於今天。")
+        if start_date > end_inclusive:
+            raise ValidationError("結束日期必須晚於或等於起始日期。")
+        return start_date, end_inclusive + pd.Timedelta(days=1)
+
     try:
         start_year = int(data["startYear"])
         start_month = int(data["startMonth"])
         end_year = int(data["endYear"])
         end_month = int(data["endMonth"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValidationError("起訖年月格式不正確。") from exc
+        raise ValidationError("請提供有效的起訖日期或起訖年月。") from exc
 
     current_year = pd.Timestamp.now(tz="UTC").year
     if not (
-        MIN_YEAR <= start_year <= current_year and MIN_YEAR <= end_year <= current_year
+        MIN_YEAR <= start_year <= current_year
+        and MIN_YEAR <= end_year <= current_year
     ):
-        raise ValidationError(f"年份必須介於 {MIN_YEAR} 與 {current_year} 之間。")
+        raise ValidationError(
+            f"年份必須介於 {MIN_YEAR} 與 {current_year} 之間。"
+        )
     if not (1 <= start_month <= 12 and 1 <= end_month <= 12):
         raise ValidationError("月份必須介於 1 與 12 之間。")
 
     start_date = pd.Timestamp(start_year, start_month, 1)
-    end_exclusive = pd.Timestamp(end_year, end_month, 1) + pd.offsets.MonthBegin(1)
+    end_exclusive = (
+        pd.Timestamp(end_year, end_month, 1) + pd.offsets.MonthBegin(1)
+    )
     if start_date >= end_exclusive:
         raise ValidationError("結束年月必須晚於起始年月。")
     return start_date, end_exclusive

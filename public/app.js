@@ -29,12 +29,50 @@ const SCAN_REQUEST_RETRIES = 2;
 const SCAN_MAX_TICKER_ATTEMPTS = 2;
 const SCAN_RETRY_DELAYS_MS = [1_500, 5_000, 15_000, 30_000, 60_000];
 
-const currentMonth = new Date().toISOString().slice(0, 7);
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function rollingYearRange(now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(today);
+  end.setDate(end.getDate() - 1);
+  const previousYear = today.getFullYear() - 1;
+  const maxDay = new Date(previousYear, today.getMonth() + 1, 0).getDate();
+  const start = new Date(
+    previousYear,
+    today.getMonth(),
+    Math.min(today.getDate(), maxDay),
+  );
+  return {
+    startDate: formatLocalDate(start),
+    endDate: formatLocalDate(end),
+  };
+}
+
+const defaultRange = rollingYearRange();
+
+function normalizeSavedDate(value, boundary) {
+  const raw = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}$/.test(raw)) {
+    if (boundary === "start") return `${raw}-01`;
+    const [year, month] = raw.split("-").map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    const migrated = `${raw}-${String(lastDay).padStart(2, "0")}`;
+    return migrated > defaultRange.endDate ? defaultRange.endDate : migrated;
+  }
+  return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
+}
+
 const defaultState = {
   settings: {
     initialAmount: 10000,
-    startPeriod: "2015-01",
-    endPeriod: currentMonth,
+    startPeriod: defaultRange.startDate,
+    endPeriod: defaultRange.endDate,
     rebalancingPeriod: "annually",
     benchmark: "SPY",
   },
@@ -80,6 +118,7 @@ const dom = {
   backtestError: document.querySelector("#backtest-error"),
   backtestResults: document.querySelector("#backtest-results"),
   backtestWarning: document.querySelector("#backtest-warning"),
+  backtestTiming: document.querySelector("#backtest-timing"),
   metricsTable: document.querySelector("#metrics-table"),
   chart: document.querySelector("#portfolio-chart"),
   chartLegend: document.querySelector("#chart-legend"),
@@ -114,6 +153,14 @@ function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (parsed?.settings && Array.isArray(parsed?.portfolios) && parsed.portfolios.length) {
+      parsed.settings.startPeriod = normalizeSavedDate(
+        parsed.settings.startPeriod,
+        "start",
+      );
+      parsed.settings.endPeriod = normalizeSavedDate(
+        parsed.settings.endPeriod,
+        "end",
+      );
       return parsed;
     }
   } catch (error) {
@@ -145,10 +192,21 @@ function createElement(tag, options = {}, children = []) {
   return element;
 }
 
-function parsePeriod(period) {
-  const [year, month] = period.split("-").map(Number);
-  if (!year || !month) throw new Error("請選擇有效的起訖月份。");
-  return { year, month };
+function parseDateInput(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error("請選擇有效的起訖日期。");
+  }
+  const date = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(date.getTime()) || formatLocalDate(date) !== raw) {
+    throw new Error("請選擇有效的起訖日期。");
+  }
+  return {
+    value: raw,
+    date,
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+  };
 }
 
 function formatMetric(value, type) {
@@ -258,8 +316,11 @@ async function apiFetch(path, options = {}, timeoutMs = 50_000) {
           response.headers.get("server-timing")
           || response.headers.get("x-backend-server-timing")
           || "",
-          requested: response.headers.get("x-scan-requested"),
-          resolved: response.headers.get("x-scan-resolved"),
+          requested: response.headers.get("x-scan-requested")
+            || response.headers.get("x-backtest-requested"),
+          resolved: response.headers.get("x-scan-resolved")
+            || response.headers.get("x-backtest-resolved"),
+          edgeCache: response.headers.get("x-edge-cache") || "",
         },
       });
     }
@@ -277,12 +338,21 @@ async function apiFetch(path, options = {}, timeoutMs = 50_000) {
 }
 
 function initializeControls() {
+  state.settings.startPeriod = normalizeSavedDate(
+    state.settings.startPeriod,
+    "start",
+  );
+  state.settings.endPeriod = normalizeSavedDate(
+    state.settings.endPeriod,
+    "end",
+  );
   document.querySelector("#initial-amount").value = state.settings.initialAmount;
   document.querySelector("#start-period").value = state.settings.startPeriod;
-  document.querySelector("#end-period").value = state.settings.endPeriod || currentMonth;
+  document.querySelector("#end-period").value = state.settings.endPeriod;
   document.querySelector("#rebalancing-period").value = state.settings.rebalancingPeriod;
   document.querySelector("#benchmark").value = state.settings.benchmark;
-  document.querySelector("#scan-end-period").value = currentMonth;
+  document.querySelector("#scan-start-period").value = defaultRange.startDate;
+  document.querySelector("#scan-end-period").value = defaultRange.endDate;
 }
 
 function renderPortfolios() {
@@ -463,11 +533,11 @@ function buildBacktestPayload() {
   if (!Number.isFinite(state.settings.initialAmount) || state.settings.initialAmount <= 0) {
     throw new Error("初始投資金額必須大於 0。");
   }
-  const start = parsePeriod(state.settings.startPeriod);
-  const end = parsePeriod(state.settings.endPeriod);
-  const startValue = start.year * 12 + start.month;
-  const endValue = end.year * 12 + end.month;
-  if (startValue > endValue) throw new Error("結束月份必須晚於或等於起始月份。");
+  const start = parseDateInput(state.settings.startPeriod);
+  const end = parseDateInput(state.settings.endPeriod);
+  if (start.date > end.date) {
+    throw new Error("結束日期必須晚於或等於起始日期。");
+  }
 
   const names = new Set();
   const portfolios = state.portfolios.map((portfolio) => {
@@ -495,6 +565,8 @@ function buildBacktestPayload() {
 
   return {
     initialAmount: state.settings.initialAmount,
+    startDate: start.value,
+    endDate: end.value,
     startYear: start.year,
     startMonth: start.month,
     endYear: end.year,
@@ -519,6 +591,8 @@ async function runBacktest(event) {
   }
 
   showLoading("正在下載行情並計算投資組合…");
+  dom.backtestTiming.classList.add("hidden");
+  const startedAt = performance.now();
   try {
     latestBacktest = await apiFetch("/api/backtest", {
       method: "POST",
@@ -526,6 +600,24 @@ async function runBacktest(event) {
       body: JSON.stringify(payload),
     });
     if (latestBacktest.warning) setMessage(dom.backtestWarning, latestBacktest.warning);
+    const elapsedSeconds = (performance.now() - startedAt) / 1000;
+    const timing = parseServerTiming(latestBacktest.__responseMeta?.serverTiming);
+    const phases = [];
+    if (Number.isFinite(timing.market)) {
+      phases.push(`行情下載與修復 ${(timing.market / 1000).toFixed(1)} 秒`);
+    }
+    if (Number.isFinite(timing.compute)) {
+      phases.push(`投組與稽核計算 ${(timing.compute / 1000).toFixed(1)} 秒`);
+    }
+    const cacheText = latestBacktest.__responseMeta?.edgeCache === "HIT"
+      ? "Edge 快取命中"
+      : "即時計算";
+    dom.backtestTiming.textContent = [
+      `總等待 ${elapsedSeconds.toFixed(1)} 秒`,
+      cacheText,
+      ...phases,
+    ].join("｜");
+    dom.backtestTiming.classList.remove("hidden");
     renderBacktestResults(latestBacktest);
     dom.backtestResults.classList.remove("hidden");
     dom.backtestResults.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -668,14 +760,18 @@ function parseTickers(value) {
 function buildScanPayload(tickerOverride = null) {
   const tickers = tickerOverride || parseTickers(document.querySelector("#scan-tickers").value);
   if (!tickers.length) throw new Error("請至少輸入一個股票代碼。");
-  const start = parsePeriod(document.querySelector("#scan-start-period").value);
-  const end = parsePeriod(document.querySelector("#scan-end-period").value);
-  if (start.year * 12 + start.month > end.year * 12 + end.month) throw new Error("結束月份必須晚於或等於起始月份。");
+  const start = parseDateInput(document.querySelector("#scan-start-period").value);
+  const end = parseDateInput(document.querySelector("#scan-end-period").value);
+  if (start.date > end.date) {
+    throw new Error("結束日期必須晚於或等於起始日期。");
+  }
   const benchmark = sanitizeTicker(document.querySelector("#scan-benchmark").value);
   if (!benchmark) throw new Error("請指定比較基準，以完整計算 Beta 與 Alpha。");
   return {
     tickers,
     benchmark,
+    startDate: start.value,
+    endDate: end.value,
     startYear: start.year,
     startMonth: start.month,
     endYear: end.year,
