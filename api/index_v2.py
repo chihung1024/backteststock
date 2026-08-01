@@ -15,6 +15,7 @@ from api.corporate_actions import (
     audit_from_series,
 )
 from api.metrics import (
+    DATA_SOURCE_SETTINGS,
     METRIC_DEFINITION_VERSION,
     calculate_metrics,
     reproducibility_metadata,
@@ -22,6 +23,11 @@ from api.metrics import (
 )
 
 logger = logging.getLogger(__name__)
+
+if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
+    raise RuntimeError(
+        "Production backtest requires explicit Adj Close with corporate actions retained"
+    )
 
 
 def bulk_download_prices(tickers, start_date, end_date):

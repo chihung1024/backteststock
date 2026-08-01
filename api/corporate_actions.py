@@ -126,9 +126,14 @@ def _split_like_unreported_returns(
     declared_actions: pd.Series,
 ) -> pd.Series:
     ratios = adjusted / adjusted.shift(1)
-    distances = np.abs(ratios.to_numpy(dtype=float)[:, None] / SPLIT_LIKE_RATIOS - 1.0)
-    nearest = pd.Series(np.nanmin(distances, axis=1), index=ratios.index)
-    return nearest.le(0.03) & ~declared_actions & ratios.notna()
+    nearest = pd.Series(np.inf, index=ratios.index, dtype=float)
+    valid = ratios.notna()
+    if valid.any():
+        distances = np.abs(
+            ratios.loc[valid].to_numpy(dtype=float)[:, None] / SPLIT_LIKE_RATIOS - 1.0
+        )
+        nearest.loc[valid] = np.min(distances, axis=1)
+    return nearest.le(0.03) & ~declared_actions & valid
 
 
 def build_corporate_action_audit(
