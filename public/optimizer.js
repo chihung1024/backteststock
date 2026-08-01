@@ -235,7 +235,9 @@ function addScoreFields(rows) {
 
 function rankingValue(row, field) {
   const rawField = field === "mdd_abs" ? "mdd" : field === "beta_abs" ? "beta" : field;
-  const numeric = Number(row?.[rawField]);
+  const rawValue = row?.[rawField];
+  if (rawValue == null || rawValue === "") return null;
+  const numeric = Number(rawValue);
   if (!Number.isFinite(numeric)) return null;
   return field === "mdd_abs" || field === "beta_abs"
     ? Math.abs(numeric)
@@ -249,7 +251,10 @@ function rankCandidates(rows, field, benchmark) {
     const reasons = [];
     if (row.ticker === benchmark) reasons.push("與比較基準相同");
     if (row.status !== "ok" || row.error) reasons.push(row.error || "回測失敗");
-    if (Number(row.data_coverage) < 0.98) reasons.push("資料覆蓋率低於 98%");
+    const coverage = Number(row.data_coverage);
+    if (!Number.isFinite(coverage) || coverage < 0.98) {
+      reasons.push("資料覆蓋率缺漏或低於 98%");
+    }
     if (row.corporate_action_status !== "verified_standard_actions") {
       reasons.push(`公司行為稽核=${row.corporate_action_status || "unknown"}`);
     }
@@ -272,6 +277,7 @@ function rankCandidates(rows, field, benchmark) {
 }
 
 function formatMetric(value, type = "number") {
+  if (value == null || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   if (type === "percent") return `${(numeric * 100).toFixed(2)}%`;
@@ -357,6 +363,7 @@ function runSearchWorker(snapshot, settings) {
 async function verifyCombinations(snapshotEnvelope, combinations, settings) {
   const results = [];
   let metadata = null;
+  const verificationBatches = [];
   const chunks = [];
   for (let offset = 0; offset < combinations.length; offset += 100) {
     chunks.push(combinations.slice(offset, offset + 100));
@@ -379,21 +386,34 @@ async function verifyCombinations(snapshotEnvelope, combinations, settings) {
     );
     results.push(...response.results);
     metadata = response.metadata;
+    verificationBatches.push({
+      batch: index + 1,
+      requested: chunks[index].length,
+      returned: response.results.length,
+      backendVerifiedCombinations: response.metadata?.verified_combinations ?? null,
+    });
   }
   setProgress("verify", chunks.length, chunks.length, "300 組精確複驗完成");
-  return { results, metadata };
+  return {
+    results,
+    metadata: {
+      ...(metadata || {}),
+      verified_combinations: results.length,
+      verification_batch_count: chunks.length,
+      verification_batches: verificationBatches,
+    },
+  };
 }
 
 function metricObjectiveValue(result, objective, period = "training") {
   const row = result[period] || {};
-  switch (objective) {
-    case "sortino_ratio": return Number(row.sortino_ratio);
-    case "cagr": return Number(row.cagr);
-    case "mdd_abs": return -Math.abs(Number(row.mdd));
-    case "beta_abs": return -Math.abs(Number(row.beta));
-    case "alpha": return Number(row.alpha);
-    default: return Number.NEGATIVE_INFINITY;
-  }
+  const rawField = objective === "mdd_abs" ? "mdd" : objective === "beta_abs" ? "beta" : objective;
+  const rawValue = row[rawField];
+  if (rawValue == null || rawValue === "") return Number.NEGATIVE_INFINITY;
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) return Number.NEGATIVE_INFINITY;
+  if (objective === "mdd_abs" || objective === "beta_abs") return -Math.abs(numeric);
+  return numeric;
 }
 
 function compareExact(left, right, objective, period = "training") {
@@ -634,7 +654,22 @@ function saveCompactJob(output) {
       ...output.search,
       evaluatedMasks: undefined,
     },
-    results: output.results,
+    results: output.results.map((row) => ({
+      combinationId: row.combinationId,
+      mask: row.mask,
+      tickers: row.tickers,
+      selectionSource: row.selectionSource,
+      training: {
+        ...row.training,
+        rebalanceEvents: undefined,
+        unexecutedFinalSignal: undefined,
+      },
+      validation: {
+        ...row.validation,
+        rebalanceEvents: undefined,
+        unexecutedFinalSignal: undefined,
+      },
+    })),
     verificationMetadata: output.verificationMetadata,
   };
   try {

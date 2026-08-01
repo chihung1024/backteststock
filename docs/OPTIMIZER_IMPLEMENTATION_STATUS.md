@@ -15,3 +15,5 @@ This branch implements the agreed MVP end to end:
 The optimizer does not create a persistent daily-price database and does not weaken Adjusted Close, repair or corporate-action audit requirements.
 
 Final hardening guarantees exact unique budget contributions, explicit little-endian mask hashing, and a 3 MiB optimizer-only edge request ceiling compatible with the 2 MiB compressed snapshot ceiling.
+
+The final implementation rejects silent out-of-sample truncation, treats null metrics as unavailable rather than zero, aggregates all three exact-verification batches to 300, and persists only compact summaries in localStorage while retaining full events in the audit JSON export.

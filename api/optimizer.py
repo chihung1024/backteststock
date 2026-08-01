@@ -167,7 +167,12 @@ def _split_dates(index: pd.DatetimeIndex, training_ratio: float) -> dict:
     }
 
 
-def _download_common_prices(tickers: list[str], start_text: str, end_text: str):
+def _download_common_prices(
+    tickers: list[str],
+    start_text: str,
+    end_text: str,
+    reference_ticker: str | None = None,
+):
     prices, failures = market_data.download_data_reliably(
         tickers,
         start_text,
@@ -189,13 +194,110 @@ def _download_common_prices(tickers: list[str], start_text: str, end_text: str):
         raise legacy.DataSourceError(
             "行情資料尚未完整取得：" + ", ".join(sorted(failed))
         )
-    common = prices[tickers].dropna().astype(float)
+
+    reference = reference_ticker or tickers[0]
+    if reference not in prices.columns or prices[reference].dropna().empty:
+        raise legacy.DataSourceError("比較基準行情無法建立共同交易日曆。")
+    reference_index = pd.DatetimeIndex(prices[reference].dropna().index)
+    if len(reference_index) < 60:
+        raise legacy.ValidationError("比較基準共同交易日不足 60 日。")
+    availability_masks = {
+        ticker: prices[ticker].reindex(reference_index).notna().to_numpy(dtype=bool)
+        for ticker in tickers
+    }
+    common = prices[tickers].reindex(reference_index).dropna().astype(float)
     if len(common) < 60:
         raise legacy.ValidationError("沒有足夠共同交易日建立最佳化資料。")
     audits = dict(prices.attrs.get("corporate_action_audits", {}))
     for ticker in tickers:
         audits.setdefault(ticker, audit_from_series(prices[ticker]))
+    common.attrs["optimizer_reference_index"] = reference_index
+    common.attrs["optimizer_availability_masks"] = availability_masks
     return common, audits
+
+
+def _strict_period_coverage(
+    common: pd.DataFrame,
+    candidate_tickers: list[str],
+    benchmark: str,
+    training_end: pd.Timestamp,
+    minimum_coverage: float = 0.98,
+) -> dict:
+    reference_index = common.attrs.get("optimizer_reference_index")
+    availability_masks = common.attrs.get("optimizer_availability_masks")
+    if reference_index is None or not isinstance(availability_masks, dict):
+        reference_index = pd.DatetimeIndex(common.index)
+        availability_masks = {
+            ticker: np.ones(len(reference_index), dtype=bool)
+            for ticker in [*candidate_tickers, benchmark]
+        }
+    reference_index = pd.DatetimeIndex(reference_index)
+    training_selector = np.asarray(reference_index <= training_end, dtype=bool)
+    validation_selector = ~training_selector
+    if training_selector.sum() < 30 or validation_selector.sum() < 20:
+        raise legacy.ValidationError(
+            "比較基準切割後的訓練或樣本外交易日不足。"
+        )
+
+    diagnostics = {}
+    failures = []
+    required = [*candidate_tickers, benchmark]
+    for ticker in required:
+        mask = np.asarray(
+            availability_masks.get(ticker, np.zeros(len(reference_index), dtype=bool)),
+            dtype=bool,
+        )
+        if len(mask) != len(reference_index):
+            raise legacy.ValidationError(f"行情覆蓋稽核長度不一致：{ticker}")
+        training_coverage = float(mask[training_selector].mean())
+        validation_coverage = float(mask[validation_selector].mean())
+        overall_coverage = float(mask.mean())
+        diagnostics[ticker] = {
+            "overall": overall_coverage,
+            "training": training_coverage,
+            "validation": validation_coverage,
+            "missing_training_days": int((~mask[training_selector]).sum()),
+            "missing_validation_days": int((~mask[validation_selector]).sum()),
+        }
+        if ticker != benchmark and (
+            training_coverage < minimum_coverage
+            or validation_coverage < minimum_coverage
+        ):
+            failures.append(
+                f"{ticker}(訓練 {training_coverage:.2%}、樣本外 {validation_coverage:.2%})"
+            )
+
+    common_mask = np.logical_and.reduce(
+        [np.asarray(availability_masks[ticker], dtype=bool) for ticker in required]
+    )
+    global_training = float(common_mask[training_selector].mean())
+    global_validation = float(common_mask[validation_selector].mean())
+    diagnostics["_global_complete_case"] = {
+        "training": global_training,
+        "validation": global_validation,
+        "minimum_required": minimum_coverage,
+    }
+    if global_training < minimum_coverage or global_validation < minimum_coverage:
+        failures.append(
+            "全體共同交易日"
+            f"(訓練 {global_training:.2%}、樣本外 {global_validation:.2%})"
+        )
+
+    common_positions = reference_index.get_indexer(common.index)
+    if (
+        len(common_positions) == 0
+        or common_positions[0] < 0
+        or common_positions[-1] < 0
+        or common_positions[0] > 5
+        or common_positions[-1] < len(reference_index) - 6
+    ):
+        failures.append("共同期間起訖與比較基準相差超過 5 個交易日")
+    if failures:
+        raise legacy.ValidationError(
+            "最佳化不得靜默縮短訓練或樣本外期間；行情覆蓋不足："
+            + "；".join(failures)
+        )
+    return diagnostics
 
 
 @app.route("/api/optimizer/calendar", methods=["POST"])
@@ -213,6 +315,7 @@ def optimizer_calendar():
             [benchmark],
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
+            benchmark,
         )
         split = _split_dates(common.index, ratio)
         return jsonify(
@@ -268,6 +371,7 @@ def optimizer_prepare():
             required,
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
+            benchmark,
         )
         if requested_training_end:
             training_end = legacy._parse_iso_date(
@@ -290,6 +394,13 @@ def optimizer_prepare():
             }
         else:
             split = _split_dates(common.index, ratio)
+
+        coverage_audit = _strict_period_coverage(
+            common,
+            candidates,
+            benchmark,
+            pd.Timestamp(split["trainingEnd"]),
+        )
 
         review = sorted(
             ticker
@@ -327,6 +438,8 @@ def optimizer_prepare():
                 end_exclusive - pd.Timedelta(days=1)
             ).strftime("%Y-%m-%d"),
             "commonCalendarPolicy": "global_complete_case_candidates_and_benchmark",
+            "dataCoverageAudit": coverage_audit,
+            "minimumPeriodCoverage": 0.98,
             "candidateSelection": data.get("candidateSelection") or {},
         }
         envelope = _encode_snapshot(snapshot)
@@ -342,6 +455,7 @@ def optimizer_prepare():
                     "corporateActionStatus": {
                         ticker: audits[ticker].get("status") for ticker in required
                     },
+                    "dataCoverageAudit": coverage_audit,
                     "optimizerAlgorithmVersion": OPTIMIZER_ALGORITHM_VERSION,
                     "rebalanceEngineVersion": REBALANCE_ENGINE_VERSION,
                 },

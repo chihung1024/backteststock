@@ -178,4 +178,7 @@ test("optimizer builds strict candidates and renders verified output", async ({ 
   await expect(page.locator("#optimizer-result-table tbody tr")).toHaveCount(300);
   await expect(page.locator("#optimizer-progress-label")).toContainText("全部完成");
   await expect(page.locator("#optimizer-reproducibility")).toContainText("dataset-hash");
+  await expect(page.locator("#optimizer-reproducibility")).toContainText(
+    '"verified_combinations": 300',
+  );
 });

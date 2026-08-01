@@ -105,7 +105,7 @@ def test_prepare_and_verify_use_same_signed_snapshot(client, monkeypatch):
     monkeypatch.setattr(
         optimizer,
         "_download_common_prices",
-        lambda tickers, _start, _end: (common[tickers], audits),
+        lambda tickers, _start, _end, _reference=None: (common[tickers], audits),
     )
 
     prepare_response = client.post(
@@ -157,3 +157,51 @@ def test_prepare_and_verify_use_same_signed_snapshot(client, monkeypatch):
     assert payload["metadata"]["rebalance_engine_version"] == (
         optimizer.REBALANCE_ENGINE_VERSION
     )
+
+
+def test_strict_period_coverage_rejects_silent_validation_truncation():
+    tickers = [f"T{index:02d}" for index in range(20)]
+    benchmark = "SPY"
+    reference = pd.bdate_range("2024-01-02", periods=100)
+    common = pd.DataFrame(
+        {ticker: np.linspace(100, 120, 70) for ticker in [*tickers, benchmark]},
+        index=reference[:70],
+    )
+    masks = {
+        ticker: np.ones(100, dtype=bool) for ticker in [*tickers, benchmark]
+    }
+    masks["T00"][70:] = False
+    common.attrs["optimizer_reference_index"] = reference
+    common.attrs["optimizer_availability_masks"] = masks
+
+    with pytest.raises(optimizer.legacy.ValidationError, match="不得靜默縮短"):
+        optimizer._strict_period_coverage(
+            common,
+            tickers,
+            benchmark,
+            reference[69],
+        )
+
+
+def test_strict_period_coverage_records_training_and_validation_ratios():
+    tickers = [f"T{index:02d}" for index in range(20)]
+    benchmark = "SPY"
+    reference = pd.bdate_range("2024-01-02", periods=100)
+    common = pd.DataFrame(
+        {ticker: np.linspace(100, 120, 100) for ticker in [*tickers, benchmark]},
+        index=reference,
+    )
+    common.attrs["optimizer_reference_index"] = reference
+    common.attrs["optimizer_availability_masks"] = {
+        ticker: np.ones(100, dtype=bool) for ticker in [*tickers, benchmark]
+    }
+    audit = optimizer._strict_period_coverage(
+        common,
+        tickers,
+        benchmark,
+        reference[69],
+    )
+    assert audit["T00"]["training"] == 1.0
+    assert audit["T00"]["validation"] == 1.0
+    assert audit["_global_complete_case"]["training"] == 1.0
+    assert audit["_global_complete_case"]["validation"] == 1.0
