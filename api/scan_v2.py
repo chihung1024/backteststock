@@ -12,6 +12,7 @@ from api import market_data
 from api import scan as legacy
 from api.corporate_actions import audit_from_series, flattened_audit_fields
 from api.metrics import (
+    DATA_SOURCE_SETTINGS,
     METRIC_DEFINITION_VERSION,
     aligned_fingerprint,
     benchmark_coverage,
@@ -22,6 +23,11 @@ from api.metrics import (
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
+
+if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
+    raise RuntimeError(
+        "Production scan requires explicit Adj Close with corporate actions retained"
+    )
 
 
 def bulk_download_prices(tickers, start_date, end_date, *, use_threads=True):
@@ -48,12 +54,6 @@ def download_prices_finitely(tickers, start_date, end_date):
         download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
         batch_size=legacy.MAX_SCAN_TICKERS,
     )
-
-
-# Keep legacy route internals and test seams, but force every production call
-# through the explicit Adj Close + actions data contract.
-legacy.bulk_download_prices = bulk_download_prices
-legacy.download_prices_finitely = download_prices_finitely
 
 
 @app.after_request
@@ -121,10 +121,8 @@ def scan_handler():
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
 
-        # Benchmark and assets remain one large request.  The finite downloader
-        # retries only unresolved symbols and never silently substitutes raw Close.
         market_started = time.perf_counter()
-        resolved, unresolved = legacy.download_prices_finitely(
+        resolved, unresolved = download_prices_finitely(
             legacy.deduplicate([benchmark_ticker, *tickers]),
             start_text,
             end_text,
@@ -140,7 +138,6 @@ def scan_handler():
         benchmark_audit = audit_from_series(benchmark_prices)
 
         compute_started = time.perf_counter()
-
         shared_metadata = reproducibility_metadata(
             risk_free_rate=legacy.RISK_FREE_RATE,
             benchmark=benchmark_ticker,
