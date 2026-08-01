@@ -17,6 +17,7 @@ jobs:
           ref: perf/daily-range-edge-cache
       - name: Apply implementation and tests
         run: |
+          python scripts/patch_app_daily.py
           python - <<'PY'
           from pathlib import Path
           import re
@@ -96,9 +97,11 @@ jobs:
           )
           if count != 1:
               raise SystemExit("Unable to replace patch_backtest_timing")
+          updated = updated.replace("    patch_frontend()\n", "", 1)
           path.write_text(updated, encoding="utf-8")
           PY
           python scripts/apply_daily_range_patch.py
+          rm -f scripts/patch_app_daily.py
           git diff --check
       - name: Commit implementation
         run: |
