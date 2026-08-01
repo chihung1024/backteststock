@@ -35,7 +35,7 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
     def fake_download(requested, *_args, **_kwargs):
         return ({ticker: source[ticker] for ticker in requested if ticker in source}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -94,7 +94,7 @@ def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, mon
             return ({}, ["SPY"])
         return ({"AAA": asset}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -134,7 +134,7 @@ def test_scan_resolves_benchmark_and_assets_in_one_large_batch(scan_client, monk
         calls.append(list(requested))
         return ({ticker: source[ticker] for ticker in requested}, [])
 
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -179,7 +179,7 @@ def test_backtest_uses_one_global_common_period(backtest_client, monkeypatch):
         },
         index=dates,
     )
-    monkeypatch.setattr(index_v2.legacy, "download_data_silently", lambda *_a, **_k: prices)
+    monkeypatch.setattr(index_v2, "download_data_silently", lambda *_a, **_k: prices)
 
     response = backtest_client.post(
         "/api/backtest",
