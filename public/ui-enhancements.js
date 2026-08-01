@@ -144,12 +144,30 @@ function injectLayoutAndSelectionStyles() {
     }
     .optimizer-mode-note { margin: 0; color: var(--muted); }
     .optimizer-mode-note.warning { color: var(--warning); }
+    a.disabled { pointer-events: none; opacity: 0.55; }
     @media (max-width: 760px) {
       .optimizer-mode-box { grid-template-columns: 1fr; }
       .optimizer-selection-status { width: 100%; justify-content: center; }
     }
   `;
   document.head.append(style);
+}
+
+function updateMethodologyText() {
+  const paragraphs = [...document.querySelectorAll("#about-panel .panel p")];
+  const formulaParagraph = paragraphs.find((paragraph) => (
+    paragraph.textContent.includes("個股績效列表")
+    && paragraph.textContent.includes("Sortino")
+  ));
+  if (!formulaParagraph) return;
+  formulaParagraph.textContent = [
+    "個股績效列表同時顯示四種可排序分數：",
+    "穩健公式 Sortino × √((1 + CAGR) ÷ (1 + Beta))、",
+    "成長公式 Sortino × √(1 + CAGR) ÷ (1 + Beta)^0.25、",
+    "回撤控制公式 Sortino × √((1 + CAGR) ÷ ((1 + Beta) × (1 + |最大回撤|)))，",
+    "以及優化公式 Sortino × √((1 + CAGR) ÷ ((1 + Beta)^2 × (1 + |最大回撤|)))；",
+    "每格同步顯示該公式名次。",
+  ].join("");
 }
 
 function currentScanJob() {
@@ -206,7 +224,7 @@ function saveManualSelection(job, tickers) {
 function enhanceScanSelection() {
   const scanTable = document.querySelector("#scan-table");
   const autoLink = document.querySelector("#open-optimizer");
-  if (!scanTable || !autoLink) return;
+  if (!scanTable || !autoLink || document.querySelector("#open-manual-optimizer")) return;
 
   let job = currentScanJob();
   let selected = readManualSelection(job);
@@ -288,12 +306,15 @@ function enhanceScanSelection() {
         header.scope = "col";
         header.className = "optimizer-select-column";
         header.textContent = "候選";
-        headerRow.prepend(header);
+        const tickerHeader = headerRow.querySelector("th");
+        tickerHeader?.insertAdjacentElement("afterend", header);
       }
       scanTable.querySelectorAll("tbody tr").forEach((row) => {
         if (row.querySelector(".optimizer-select-cell")) return;
-        const ticker = String(row.querySelector("th")?.textContent || "")
+        const tickerCell = row.querySelector("th[scope='row']") || row.querySelector("th");
+        const ticker = String(row.dataset.ticker || tickerCell?.textContent || "")
           .trim().split(/\s+/u)[0].toUpperCase();
+        if (!ticker || !tickerCell) return;
         const eligibility = resultEligibility(resultMap.get(ticker), benchmark);
         const cell = document.createElement("td");
         cell.className = "optimizer-select-cell";
@@ -304,7 +325,7 @@ function enhanceScanSelection() {
         checkbox.setAttribute("aria-label", `選擇 ${ticker} 為最佳化候選股`);
         if (!eligibility.eligible) checkbox.title = eligibility.reason;
         cell.append(checkbox);
-        row.prepend(cell);
+        tickerCell.insertAdjacentElement("afterend", cell);
       });
       refreshControls();
     } finally {
@@ -315,7 +336,7 @@ function enhanceScanSelection() {
   function scheduleApply() {
     if (scheduled) return;
     scheduled = true;
-    queueMicrotask(applySelectionCells);
+    requestAnimationFrame(applySelectionCells);
   }
 
   scanTable.addEventListener("change", (event) => {
@@ -356,7 +377,7 @@ function enhanceScanSelection() {
 
   const observer = new MutationObserver(scheduleApply);
   observer.observe(scanTable, { childList: true, subtree: true });
-  applySelectionCells();
+  scheduleApply();
 }
 
 function installOptimizerPrepareMetadataPatch() {
@@ -380,7 +401,7 @@ function installOptimizerPrepareMetadataPatch() {
         };
         init = { ...init, body: JSON.stringify(payload) };
       } catch {
-        // Leave malformed requests unchanged; the API will return its normal validation error.
+        // Leave malformed requests unchanged; the API returns its normal validation error.
       }
     }
     return nativeFetch(input, init);
@@ -392,6 +413,7 @@ function enhanceOptimizerMode() {
   const rankingField = document.querySelector("#optimizer-ranking-field");
   const sourceStatus = document.querySelector("#optimizer-source-status");
   if (!sourceTickers || !rankingField || !sourceStatus) return;
+  if (document.querySelector("#optimizer-candidate-mode")) return;
 
   const sourcePanel = sourceTickers.closest("section.panel");
   const sourceJob = currentScanJob();
@@ -456,11 +478,13 @@ function enhanceOptimizerMode() {
   applyMode(queryMode === "manual" ? "manual" : savedMode === "manual" ? "manual" : "auto");
 }
 
-injectLayoutAndSelectionStyles();
-installOptimizerPrepareMetadataPatch();
-
-setTimeout(() => {
-  refreshRollingBacktestDates();
-  enhanceScanSelection();
-  enhanceOptimizerMode();
-}, 0);
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  injectLayoutAndSelectionStyles();
+  installOptimizerPrepareMetadataPatch();
+  setTimeout(() => {
+    refreshRollingBacktestDates();
+    updateMethodologyText();
+    enhanceScanSelection();
+    enhanceOptimizerMode();
+  }, 0);
+}
