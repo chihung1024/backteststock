@@ -18,90 +18,28 @@ jobs:
       - name: Apply implementation and tests
         run: |
           python scripts/patch_app_daily.py
+          python scripts/patch_worker_edge_cache.py
+          python scripts/patch_backtest_timing.py
           python - <<'PY'
           from pathlib import Path
-          import re
-          import textwrap
 
           path = Path("scripts/apply_daily_range_patch.py")
           content = path.read_text(encoding="utf-8")
-          replacement = textwrap.dedent('''
-          def patch_backtest_timing() -> None:
-              replace_once("api/index_v2.py", "import logging\\n", "import logging\\nimport time\\n")
-              replace_once(
-                  "api/index_v2.py",
-                  "def backtest_handler():\\n    try:\\n        data = legacy.require_json_object()",
-                  "def backtest_handler():\\n    request_started = time.perf_counter()\\n    try:\\n        data = legacy.require_json_object()",
-              )
-              replace_once(
-                  "api/index_v2.py",
-                  "        prices_raw = download_data_silently(\\n"
-                  "            tuple(sorted(required_tickers)),\\n"
-                  "            start_date.strftime(\\\"%Y-%m-%d\\\"),\\n"
-                  "            end_exclusive.strftime(\\\"%Y-%m-%d\\\"),\\n"
-                  "        )\\n"
-                  "        action_audits = dict(\\n",
-                  "        market_started = time.perf_counter()\\n"
-                  "        prices_raw = download_data_silently(\\n"
-                  "            tuple(sorted(required_tickers)),\\n"
-                  "            start_date.strftime(\\\"%Y-%m-%d\\\"),\\n"
-                  "            end_exclusive.strftime(\\\"%Y-%m-%d\\\"),\\n"
-                  "        )\\n"
-                  "        market_ms = (time.perf_counter() - market_started) * 1000\\n"
-                  "        compute_started = time.perf_counter()\\n"
-                  "        action_audits = dict(\\n",
-              )
-              replace_once(
-                  "api/index_v2.py",
-                  "        return legacy.jsonify(\\n"
-                  "            {\\n"
-                  "                \\\"data\\\": results,\\n"
-                  "                \\\"benchmark\\\": benchmark_result,\\n"
-                  "                \\\"warning\\\": \\\"；\\\".join(warning_parts) if warning_parts else None,\\n"
-                  "                \\\"metadata\\\": metadata,\\n"
-                  "            }\\n"
-                  "        )\\n",
-                  "        payload = {\\n"
-                  "            \\\"data\\\": results,\\n"
-                  "            \\\"benchmark\\\": benchmark_result,\\n"
-                  "            \\\"warning\\\": \\\"；\\\".join(warning_parts) if warning_parts else None,\\n"
-                  "            \\\"metadata\\\": metadata,\\n"
-                  "        }\\n"
-                  "        compute_ms = (time.perf_counter() - compute_started) * 1000\\n"
-                  "        serialize_started = time.perf_counter()\\n"
-                  "        response = legacy.jsonify(payload)\\n"
-                  "        serialize_ms = (time.perf_counter() - serialize_started) * 1000\\n"
-                  "        total_ms = (time.perf_counter() - request_started) * 1000\\n"
-                  "        timing = (\\n"
-                  "            f\\\"market;dur={market_ms:.1f}, compute;dur={compute_ms:.1f}, \\\"\\n"
-                  "            f\\\"serialize;dur={serialize_ms:.1f}, total;dur={total_ms:.1f}\\\"\\n"
-                  "        )\\n"
-                  "        response.headers[\\\"Server-Timing\\\"] = timing\\n"
-                  "        response.headers[\\\"X-Backend-Server-Timing\\\"] = timing\\n"
-                  "        response.headers[\\\"X-Backtest-Requested\\\"] = str(len(required_tickers))\\n"
-                  "        response.headers[\\\"X-Backtest-Resolved\\\"] = str(\\n"
-                  "            len(required_tickers) - len(failed_tickers)\\n"
-                  "        )\\n"
-                  "        return response\\n",
-              )
-
-
-          def patch_html() -> None:
-          ''').lstrip()
-          updated, count = re.subn(
-              r"def patch_backtest_timing\(\) -> None:\n.*?\n\ndef patch_html\(\) -> None:\n",
-              lambda _match: replacement,
-              content,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise SystemExit("Unable to replace patch_backtest_timing")
-          updated = updated.replace("    patch_frontend()\n", "", 1)
-          path.write_text(updated, encoding="utf-8")
+          for call in (
+              "    patch_backtest_timing()\n",
+              "    patch_frontend()\n",
+              "    patch_worker()\n",
+          ):
+              if content.count(call) != 1:
+                  raise SystemExit(f"Unable to disable delegated call: {call.strip()}")
+              content = content.replace(call, "", 1)
+          path.write_text(content, encoding="utf-8")
           PY
           python scripts/apply_daily_range_patch.py
-          rm -f scripts/patch_app_daily.py
+          rm -f \
+            scripts/patch_app_daily.py \
+            scripts/patch_worker_edge_cache.py \
+            scripts/patch_backtest_timing.py
           git diff --check
       - name: Commit implementation
         run: |
