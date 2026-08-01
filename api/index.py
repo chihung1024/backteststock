@@ -152,8 +152,7 @@ def parse_period(data):
     return start_date, end_exclusive
 
 
-def validate_initial_amount
-(value):
+def validate_initial_amount(value):
     try:
         amount = float(value)
     except (TypeError, ValueError) as exc:
