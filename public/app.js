@@ -1,4 +1,4 @@
-import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js";
+import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260801.2";
 
 const STORAGE_KEY = "backteststock-state-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
