@@ -21,8 +21,8 @@ test("20 choose 10 enumeration is complete and canonical", () => {
 
 test("relative band uses target-weight percentage", () => {
   const bounds = relativeBandBounds(0.10, 0.20);
-  assert.equal(bounds.lower, 0.08);
-  assert.equal(bounds.upper, 0.12);
+  assert.ok(Math.abs(bounds.lower - 0.08) < 1e-12);
+  assert.ok(Math.abs(bounds.upper - 0.12) < 1e-12);
 });
 
 
