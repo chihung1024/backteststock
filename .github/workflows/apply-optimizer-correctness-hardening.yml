@@ -1,0 +1,30 @@
+name: Apply optimizer correctness hardening
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.head_ref == 'feature/portfolio-optimizer-mvp' && contains(github.event.pull_request.title, '最佳化器') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/portfolio-optimizer-mvp
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Apply correctness hardening
+        run: python scripts/apply_optimizer_correctness_hardening.py
+      - name: Commit hardened optimizer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Reject silent optimizer period truncation"
+          git push origin HEAD:feature/portfolio-optimizer-mvp
