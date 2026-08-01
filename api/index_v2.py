@@ -180,7 +180,7 @@ def backtest_handler():
         required_tickers = legacy.deduplicate(
             portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else [])
         )
-        prices_raw = legacy.download_data_silently(
+        prices_raw = download_data_silently(
             tuple(sorted(required_tickers)),
             start_date.strftime("%Y-%m-%d"),
             end_exclusive.strftime("%Y-%m-%d"),
@@ -311,13 +311,9 @@ def backtest_handler():
         return legacy.error_response("伺服器發生未預期的錯誤。", 500)
 
 
-# All legacy endpoints remain available, but every production price hook and
-# the backtest route are replaced before the WSGI app is exported.
-legacy.bulk_download_prices = bulk_download_prices
-legacy.download_data_reliably = download_data_reliably
-legacy.download_data_silently = download_data_silently
-legacy.calculate_metrics = calculate_metrics
-legacy.run_simulation = run_simulation
+# Reuse the legacy Flask app and auxiliary routes, but replace only the
+# production backtest route.  Do not mutate legacy market-data functions;
+# unit tests and legacy endpoints retain their own isolated behavior.
 legacy.app.view_functions["backtest_handler"] = backtest_handler
 app = legacy.app
 
