@@ -27,6 +27,10 @@ jobs:
               line[10:] if line.startswith("          ") else line
               for line in embedded.splitlines()
           )
+          normalized = normalized.replace(
+              "text, count = pattern.subn(replacement, text, count=1)",
+              "text, count = pattern.subn(lambda _match: replacement, text, count=1)",
+          )
           exec(compile(normalized, 'apply-daily-range-performance', 'exec'))
           for path in (
               Path('.github/workflows/run-daily-range-patch-on-pr.yml'),
