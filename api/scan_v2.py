@@ -8,6 +8,7 @@ import time
 import pandas as pd
 from flask import Flask, jsonify, request
 
+from api import index as date_contract
 from api import market_data
 from api import scan as legacy
 from api.corporate_actions import audit_from_series, flattened_audit_fields
@@ -117,7 +118,7 @@ def scan_handler():
             raise legacy.ValidationError("請指定比較基準，以完整計算 Beta 與 Alpha。")
 
         benchmark_ticker = legacy.normalize_ticker(data["benchmark"])
-        start_date, end_exclusive = legacy.parse_period(data)
+        start_date, end_exclusive = date_contract.parse_period(data)
         start_text = start_date.strftime("%Y-%m-%d")
         end_text = end_exclusive.strftime("%Y-%m-%d")
 
@@ -241,7 +242,7 @@ def scan_handler():
             sum(1 for item in results if item.get("status") == "ok")
         )
         return response
-    except legacy.ValidationError as exc:
+    except (legacy.ValidationError, date_contract.ValidationError) as exc:
         return error_response(str(exc), 400)
     except ValueError as exc:
         logger.warning("Metric configuration rejected", exc_info=exc)
