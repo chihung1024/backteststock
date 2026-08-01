@@ -1,0 +1,103 @@
+name: Verify final optimizer real data
+
+on:
+  pull_request:
+    branches: [feature/portfolio-optimizer-mvp]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      OPTIMIZER_SIGNING_SECRET: optimizer-final-real-data-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Load verification scripts from the completed baseline branch
+        run: |
+          git fetch origin verify/optimizer-mvp-real-data:refs/remotes/origin/verify/optimizer-mvp-real-data
+          mkdir -p scripts diagnostics
+          git show origin/verify/optimizer-mvp-real-data:scripts/verify_optimizer_real_prepare.py > scripts/verify_optimizer_real_prepare.py
+          git show origin/verify/optimizer-mvp-real-data:scripts/verify_optimizer_real_search.mjs > scripts/verify_optimizer_real_search.mjs
+          git show origin/verify/optimizer-mvp-real-data:scripts/verify_optimizer_real_exact.py > scripts/verify_optimizer_real_exact.py
+      - name: Install exact dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          npm ci
+      - name: Prepare signed real-data snapshot with strict period coverage
+        run: python scripts/verify_optimizer_real_prepare.py
+      - name: Run complete proxy and 30,000-combination search twice
+        run: node scripts/verify_optimizer_real_search.mjs
+      - name: Verify exact requested and actual allocations
+        run: |
+          node <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const output = JSON.parse(await readFile("diagnostics/optimizer-search-output.json", "utf8"));
+          const expectedSearch = {
+            sortino_ratio: 15000,
+            cagr: 3000,
+            mdd_abs: 3000,
+            beta_abs: 3000,
+            alpha: 3000,
+            pareto_diversity: 3000,
+          };
+          const expectedVerify = {
+            sortino_ratio: 120,
+            cagr: 30,
+            mdd_abs: 30,
+            beta_abs: 30,
+            alpha: 30,
+            pareto_diversity: 60,
+          };
+          const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+          if (!same(output.search.budgetAllocation.requested, expectedSearch)) throw new Error("search requested allocation mismatch");
+          if (!same(output.search.budgetAllocation.actual, expectedSearch)) throw new Error("search actual allocation mismatch");
+          if (!same(output.search.exactVerificationAllocation.requested, expectedVerify)) throw new Error("verify requested allocation mismatch");
+          if (!same(output.search.exactVerificationAllocation.actual, expectedVerify)) throw new Error("verify actual allocation mismatch");
+          const sources = Object.groupBy(output.combinations, (item) => item.selectionSource);
+          const sourceCounts = Object.fromEntries(Object.entries(sources).map(([key, value]) => [key, value.length]));
+          console.log(JSON.stringify({ searchAllocation: output.search.budgetAllocation, exactAllocation: output.search.exactVerificationAllocation, sourceCounts }, null, 2));
+          NODE
+      - name: Verify 300 exact portfolios without another market download
+        run: python scripts/verify_optimizer_real_exact.py
+      - name: Write final compact summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          prepare = json.loads(Path('diagnostics/optimizer-prepare-report.json').read_text())
+          search = json.loads(Path('diagnostics/optimizer-search-report.json').read_text())
+          exact = json.loads(Path('diagnostics/optimizer-exact-report.json').read_text())
+          output = json.loads(Path('diagnostics/optimizer-search-output.json').read_text())
+          summary = {
+              'prepare': prepare,
+              'search': search,
+              'searchAllocation': output['search']['budgetAllocation'],
+              'exactVerificationAllocation': output['search']['exactVerificationAllocation'],
+              'exact': {key: value for key, value in exact.items() if key != 'champions'},
+          }
+          Path('diagnostics/optimizer-final-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n'
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v6
+        if: ${{ always() }}
+        with:
+          name: optimizer-final-real-data-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
