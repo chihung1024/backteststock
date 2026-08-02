@@ -3,85 +3,73 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="候選池投資組合最佳化器">
-  <title>候選池投資組合最佳化器</title>
+  <meta name="description" content="固定來源池全量精確投資組合回測">
+  <title>全量精確投資組合回測</title>
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
   <link rel="stylesheet" href="/optimizer.css?v=20260801.1">
-  <script type="module" src="/optimizer.js?v=20260802.3"></script>
-  <script type="module" src="/ui-enhancements.js?v=20260802.3"></script>
-  <script type="module" src="/optimizer-ui-hardening.js?v=20260802.3"></script>
+  <link rel="stylesheet" href="/exhaustive-optimizer.css?v=20260802.1">
+  <script type="module" src="/exhaustive-optimizer.js?v=20260802.1"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
-
   <header class="site-header optimizer-site-header">
     <div>
-      <p class="eyebrow">PORTFOLIO OPTIMIZER</p>
-      <h1>候選池投資組合最佳化器</h1>
-      <p class="subtitle">訓練期前 20 名 · 20 選 10 · 偏移再平衡 · 樣本外驗證</p>
+      <p class="eyebrow">EXHAUSTIVE PORTFOLIO BACKTEST</p>
+      <h1>固定來源池全量精確回測</h1>
+      <p class="subtitle">N 選 K 全部組合 · 完整期間 · 等權再平衡 · 全結果自由排序</p>
     </div>
     <a class="button ghost" href="/">返回回測與個股掃描</a>
   </header>
 
-  <main id="main-content" class="optimizer-main">
+  <main id="main-content" class="optimizer-main exhaustive-main">
     <section class="panel optimizer-intro">
       <h2>研究契約</h2>
       <div class="optimizer-contract-grid">
-        <div><strong>候選池</strong><span>只用 70% 訓練期重新排序，取前 20 名</span></div>
-        <div><strong>投組</strong><span>10 檔，各 10%</span></div>
-        <div><strong>再平衡</strong><span>相對目標權重 ±20%，次一共同交易日收盤執行</span></div>
-        <div><strong>搜尋</strong><span>184,756 組全體快速評分，30,000 組五目標平衡深度搜尋</span></div>
-        <div><strong>複驗</strong><span>Python 精確複驗 300 組，可依任一訓練或樣本外指標排序</span></div>
-        <div><strong>資料</strong><span>Adj Close、repair、公司行為稽核與簽章快照</span></div>
+        <div><strong>來源池</strong><span>輸入多少檔就固定使用多少檔，不自動換股或預先排名</span></div>
+        <div><strong>組合</strong><span>完整枚舉 C(N,K)，每組持有 K 檔並等權配置</span></div>
+        <div><strong>期間</strong><span>整段歷史統一精確回測，不切訓練期與樣本外期</span></div>
+        <div><strong>再平衡</strong><span>權重門檻、月、季、年或不再平衡；成本逐次計入</span></div>
+        <div><strong>運算</strong><span>執行前以本機精確校準估時，確認後才啟動多 Worker</span></div>
+        <div><strong>保存</strong><span>完成批次存於瀏覽器 IndexedDB，可中止並接續</span></div>
       </div>
-      <p class="form-note">樣本外資料只用於驗證，不會回頭改變候選池、持股或最佳化參數。</p>
+      <p class="message warning">這是完整期間歷史排名工具。組合越多，越需要留意資料探勘與事後選擇偏誤；結果不等同未見資料預測。</p>
     </section>
 
     <section class="panel">
       <div class="panel-heading">
-        <div>
-          <p class="eyebrow">SOURCE UNIVERSE</p>
-          <h2>來源股票與期間</h2>
-        </div>
-        <span id="optimizer-source-status" class="status-badge">讀取掃描工作…</span>
+        <div><p class="eyebrow">UNIVERSE</p><h2>固定來源股票與期間</h2></div>
       </div>
       <label>
         <span>來源股票代碼</span>
-        <textarea id="optimizer-source-tickers" rows="6" placeholder="從個股掃描工作載入，或手動貼入至少 20 檔"></textarea>
-        <small>自動模式會重掃完整來源池；手動模式可選 20～30 檔短名單，兩者都只用訓練期排序後取前 20 檔。</small>
+        <textarea id="optimizer-source" rows="6" placeholder="例如：AAPL, MSFT, NVDA, AMZN ..."></textarea>
+        <small>可從個股績效列表帶入，也可自行增刪；預檢不會靜默排除任何股票。</small>
       </label>
       <div class="control-grid optimizer-controls">
-        <label>
-          <span>起始日期</span>
-          <input id="optimizer-start-date" type="date">
-        </label>
-        <label>
-          <span>結束日期</span>
-          <input id="optimizer-end-date" type="date">
-        </label>
-        <label>
-          <span>比較基準</span>
-          <input id="optimizer-benchmark" type="text" value="SPY" maxlength="20" autocomplete="off" spellcheck="false">
-        </label>
-        <label>
-          <span>候選池排序</span>
-          <select id="optimizer-ranking-field"></select>
-        </label>
+        <label><span>起始日期</span><input id="optimizer-start" type="date"></label>
+        <label><span>結束日期</span><input id="optimizer-end" type="date"></label>
+        <label><span>比較基準</span><input id="optimizer-benchmark" type="text" value="SPY" maxlength="20"></label>
       </div>
+      <button id="optimizer-reset-dates" class="button ghost compact" type="button">恢復每日自動日期</button>
     </section>
 
     <section class="panel">
       <div class="panel-heading">
-        <div>
-          <p class="eyebrow">RULES</p>
-          <h2>投組、搜尋與驗證設定</h2>
-        </div>
+        <div><p class="eyebrow">RULES</p><h2>投組與精確回測設定</h2></div>
       </div>
-      <div class="control-grid optimizer-controls">
-        <label class="optimizer-balanced-search-control">
-          <span>搜尋策略</span>
-          <input type="text" value="五目標平衡搜尋（無單一主要目標）" readonly>
-          <select id="optimizer-primary-objective" class="hidden" aria-hidden="true" tabindex="-1"></select>
+      <div class="control-grid optimizer-controls exhaustive-controls">
+        <label>
+          <span>每組持股數 K</span>
+          <input id="optimizer-holding-count" type="number" min="1" max="60" step="1" value="10">
+        </label>
+        <label>
+          <span>再平衡模式</span>
+          <select id="optimizer-rebalance-mode">
+            <option value="band">權重偏離門檻</option>
+            <option value="monthly">每月</option>
+            <option value="quarterly">每季</option>
+            <option value="annually">每年</option>
+            <option value="never">不再平衡</option>
+          </select>
         </label>
         <label>
           <span>目標權重相對偏移（%）</span>
@@ -93,95 +81,94 @@
           <input id="optimizer-cost-bps" type="number" min="0" max="1000" step="0.1" value="0">
         </label>
         <label>
-          <span>訓練期比例（%）</span>
-          <input id="optimizer-training-ratio" type="number" min="50" max="90" step="1" value="70">
+          <span>訊號後延遲共同交易日</span>
+          <select id="optimizer-execution-delay">
+            <option value="1" selected>1 日（建議，避免同收盤前視）</option>
+            <option value="0">0 日（同日收盤執行）</option>
+            <option value="2">2 日</option>
+          </select>
         </label>
         <label>
-          <span>深度搜尋預算</span>
-          <input id="optimizer-search-budget" type="number" min="6000" max="184756" step="1000" value="30000">
-          <small>預設分配：五目標各 5,400 組，Pareto／多樣性 3,000 組。</small>
-        </label>
-        <label>
-          <span>精確複驗</span>
-          <input type="text" value="300 組（5×48 + 60）" readonly>
+          <span>平行 Worker 數</span>
+          <input id="optimizer-worker-count" type="number" min="1" max="16" step="1" value="4">
         </label>
       </div>
-      <div class="optimizer-rule-note">
-        <p><strong>觸發：</strong>任一檔低於 8% 或高於 12%，當日收盤後產生訊號。</p>
-        <p><strong>執行：</strong>次一共同交易日收盤，全投組恢復各 10%；初始建倉與再平衡均納入交易成本。</p>
+      <div class="combination-estimate">
+        <div><span>完整組合數 C(N,K)</span><strong id="optimizer-combination-count">—</strong></div>
+        <p id="optimizer-static-estimate" class="form-note"></p>
       </div>
-      <div id="optimizer-error" class="message error hidden" role="alert"></div>
-      <div id="optimizer-warning" class="message warning hidden"></div>
-      <div id="optimizer-progress" class="scan-progress hidden" aria-live="polite">
-        <div class="progress-track"><span id="optimizer-progress-bar"></span></div>
-        <span id="optimizer-progress-label">準備最佳化…</span>
-      </div>
-      <div class="submit-row optimizer-submit-row">
-        <p class="form-note">完整工作可能需要數分鐘；搜尋在 Web Worker 執行，不會阻塞頁面操作。</p>
-        <div class="toolbar">
-          <button id="cancel-optimizer" class="button ghost hidden" type="button">取消</button>
-          <button id="run-optimizer" class="button primary" type="button">建立候選池並執行最佳化</button>
-        </div>
+      <div id="optimizer-preflight-error" class="message error"></div>
+      <div class="submit-row">
+        <p id="optimizer-preflight-progress" class="form-note">先執行資料預檢與本機測速，不會立即開始全量運算。</p>
+        <button id="optimizer-preflight-button" class="button primary" type="button">預檢、測速並估算</button>
       </div>
     </section>
 
-    <section id="optimizer-candidate-panel" class="panel hidden">
+    <section id="optimizer-confirmation" class="panel hidden">
+      <div class="panel-heading"><div><p class="eyebrow">CONFIRM</p><h2>執行前確認</h2></div></div>
+      <div id="optimizer-confirmation-summary"></div>
+      <div class="submit-row">
+        <button id="optimizer-cancel-confirmation" class="button ghost" type="button">返回修改</button>
+        <button id="optimizer-start-button" class="button primary" type="button">確認開始全量精確回測</button>
+      </div>
+    </section>
+
+    <section id="optimizer-run-panel" class="panel hidden">
+      <div class="panel-heading"><div><p class="eyebrow">RUN</p><h2>全量工作進度</h2></div></div>
+      <div class="progress-track"><span id="optimizer-run-progress-bar"></span></div>
+      <p id="optimizer-run-progress-label" class="result-context"></p>
+      <div class="toolbar">
+        <button id="optimizer-pause-button" class="button ghost" type="button">中止並保留進度</button>
+        <button id="optimizer-resume-button" class="button primary hidden" type="button">繼續未完成工作</button>
+        <button id="optimizer-discard-button" class="button ghost" type="button">刪除目前工作</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">SAVED JOBS</p><h2>本機工作紀錄</h2></div></div>
+      <div id="optimizer-job-history"></div>
+    </section>
+
+    <section id="optimizer-result-panel" class="panel hidden">
       <div class="panel-heading">
-        <div>
-          <p class="eyebrow">TRAINING CANDIDATES</p>
-          <h2>訓練期前 20 名候選池</h2>
+        <div><p class="eyebrow">ALL RESULTS</p><h2>全部精確結果</h2></div>
+        <div class="toolbar">
+          <button id="optimizer-export-page" class="button ghost" type="button">匯出本頁 CSV</button>
+          <button id="optimizer-export-all" class="button ghost" type="button">匯出全部 CSV</button>
         </div>
       </div>
-      <p id="optimizer-candidate-summary" class="result-context"></p>
-      <div class="table-wrap">
-        <table id="optimizer-candidate-table">
-          <caption class="sr-only">最佳化候選池</caption>
+      <div class="result-filter-grid">
+        <label><span>排序欄位</span><select id="optimizer-sort-field"></select></label>
+        <label><span>方向</span><select id="optimizer-sort-direction"><option value="desc">由高到低</option><option value="asc">由低到高</option></select></label>
+        <label><span>最低 Sortino</span><input id="optimizer-filter-sortino" type="number" step="0.1" placeholder="不限"></label>
+        <label><span>最低 CAGR（%）</span><input id="optimizer-filter-cagr" type="number" step="0.1" placeholder="不限"></label>
+        <label><span>最大 |MDD|（%）</span><input id="optimizer-filter-mdd" type="number" step="0.1" placeholder="不限"></label>
+        <button id="optimizer-apply-sort" class="button secondary" type="button">套用排序與篩選</button>
+      </div>
+      <p id="optimizer-result-summary" class="result-context"></p>
+      <div class="table-wrap exhaustive-result-wrap">
+        <table>
+          <thead><tr>
+            <th>排名</th><th>持股</th><th>優化分數</th><th>Sortino</th><th>CAGR</th><th>MDD</th><th>Beta</th><th>Alpha</th><th>年化換手</th><th>再平衡</th><th></th>
+          </tr></thead>
+          <tbody id="optimizer-result-body"></tbody>
         </table>
       </div>
+      <div class="pagination-row">
+        <button id="optimizer-previous-page" class="button ghost compact" type="button">上一頁</button>
+        <span id="optimizer-page-label"></span>
+        <button id="optimizer-next-page" class="button ghost compact" type="button">下一頁</button>
+      </div>
     </section>
 
-    <section id="optimizer-results" class="results hidden">
-      <div class="result-header">
-        <div>
-          <p class="eyebrow">VERIFIED RESULTS</p>
-          <h2>精確複驗與樣本外結果</h2>
-        </div>
-        <div class="toolbar">
-          <button id="export-optimizer-csv" class="button ghost" type="button">匯出結果 CSV</button>
-          <button id="export-optimizer-json" class="button ghost" type="button">匯出完整稽核 JSON</button>
-        </div>
+    <section id="optimizer-detail-panel" class="panel hidden">
+      <div class="panel-heading">
+        <div><p class="eyebrow">PORTFOLIO DETAIL</p><h2 id="optimizer-detail-title">投組詳情</h2></div>
+        <button id="optimizer-close-detail" class="button ghost compact" type="button">關閉</button>
       </div>
-
-      <section>
-        <h3>各目標訓練期冠軍</h3>
-        <div id="optimizer-champions" class="optimizer-champion-grid"></div>
-      </section>
-
-      <section class="panel optimizer-pareto-panel">
-        <h3>訓練期 Pareto 前緣：CAGR 對 |MDD|</h3>
-        <p class="form-note">Pareto 判定同時考慮 Sortino、CAGR、Alpha、|MDD|、|Beta| 與年化換手率。</p>
-        <svg id="optimizer-pareto-chart" role="img" aria-label="最佳化投組 Pareto 前緣"></svg>
-      </section>
-
-      <section>
-        <h3>300 組精確複驗（可自由排序）</h3>
-        <p class="message warning">樣本外排名僅作事後描述，不會回頭參與策略選擇。</p>
-        <div class="table-wrap optimizer-result-table-wrap">
-          <table id="optimizer-result-table">
-            <caption class="sr-only">精確複驗與樣本外結果</caption>
-          </table>
-        </div>
-      </section>
-
-      <details class="panel optimizer-repro-details">
-        <summary>完整再現資訊摘要</summary>
-        <pre id="optimizer-reproducibility"></pre>
-      </details>
+      <div id="optimizer-detail-body"></div>
     </section>
   </main>
-
-  <footer>
-    <p>Backtest Stock · Optimizer research tool only</p>
-  </footer>
+  <footer><p>Backtest Stock · Exhaustive historical research tool</p></footer>
 </body>
 </html>
