@@ -7,7 +7,9 @@
   <title>候選池投資組合最佳化器</title>
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
   <link rel="stylesheet" href="/optimizer.css?v=20260801.1">
-  <script type="module" src="/optimizer.js?v=20260801.1"></script>
+  <script type="module" src="/ui-enhancements.js?v=20260802.2"></script>
+  <script type="module" src="/optimizer-ui-hardening.js?v=20260802.2"></script>
+  <script type="module" src="/optimizer.js?v=20260802.2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -28,8 +30,8 @@
         <div><strong>候選池</strong><span>只用 70% 訓練期重新排序，取前 20 名</span></div>
         <div><strong>投組</strong><span>10 檔，各 10%</span></div>
         <div><strong>再平衡</strong><span>相對目標權重 ±20%，次一共同交易日收盤執行</span></div>
-        <div><strong>搜尋</strong><span>184,756 組全體快速評分，30,000 組深度搜尋</span></div>
-        <div><strong>複驗</strong><span>Python 精確複驗 300 組</span></div>
+        <div><strong>搜尋</strong><span>184,756 組全體快速評分，30,000 組五目標平衡深度搜尋</span></div>
+        <div><strong>複驗</strong><span>Python 精確複驗 300 組，可依任一訓練或樣本外指標排序</span></div>
         <div><strong>資料</strong><span>Adj Close、repair、公司行為稽核與簽章快照</span></div>
       </div>
       <p class="form-note">樣本外資料只用於驗證，不會回頭改變候選池、持股或最佳化參數。</p>
@@ -46,7 +48,7 @@
       <label>
         <span>來源股票代碼</span>
         <textarea id="optimizer-source-tickers" rows="6" placeholder="從個股掃描工作載入，或手動貼入至少 20 檔"></textarea>
-        <small>最佳化器會重新以訓練期逐批掃描，不直接沿用完整期間排名。</small>
+        <small>自動模式會重掃完整來源池；手動模式可選 20～30 檔短名單，兩者都只用訓練期排序後取前 20 檔。</small>
       </label>
       <div class="control-grid optimizer-controls">
         <label>
@@ -76,9 +78,10 @@
         </div>
       </div>
       <div class="control-grid optimizer-controls">
-        <label>
-          <span>主要最佳化目標</span>
-          <select id="optimizer-primary-objective"></select>
+        <label class="optimizer-balanced-search-control">
+          <span>搜尋策略</span>
+          <input type="text" value="五目標平衡搜尋（無單一主要目標）" readonly>
+          <select id="optimizer-primary-objective" class="hidden" aria-hidden="true" tabindex="-1"></select>
         </label>
         <label>
           <span>目標權重相對偏移（%）</span>
@@ -95,11 +98,12 @@
         </label>
         <label>
           <span>深度搜尋預算</span>
-          <input id="optimizer-search-budget" type="number" min="1000" max="184756" step="1000" value="30000">
+          <input id="optimizer-search-budget" type="number" min="6000" max="184756" step="1000" value="30000">
+          <small>預設分配：五目標各 5,400 組，Pareto／多樣性 3,000 組。</small>
         </label>
         <label>
           <span>精確複驗</span>
-          <input type="text" value="300 組（120 + 4×30 + 60）" readonly>
+          <input type="text" value="300 組（5×48 + 60）" readonly>
         </label>
       </div>
       <div class="optimizer-rule-note">
@@ -160,7 +164,7 @@
       </section>
 
       <section>
-        <h3>300 組精確複驗</h3>
+        <h3>300 組精確複驗（可自由排序）</h3>
         <p class="message warning">樣本外排名僅作事後描述，不會回頭參與策略選擇。</p>
         <div class="table-wrap optimizer-result-table-wrap">
           <table id="optimizer-result-table">
