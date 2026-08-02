@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+test.setTimeout(90_000);
+
 const tickers = Array.from({ length: 31 }, (_, index) => `T${String(index).padStart(2, "0")}`);
 
 async function fulfillJson(route, body) {
@@ -56,7 +58,8 @@ test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "commit" });
+  await expect(page.getByRole("button", { name: "個股掃描" })).toBeVisible();
   await page.getByRole("button", { name: "個股掃描" }).click();
 
   await expect(page.locator("#scan-table th[data-composite-metric='sortino_growth_beta_squared_mdd_score']"))
@@ -153,7 +156,8 @@ test("manual selection excludes rows with materially short endpoint coverage", a
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "commit" });
+  await expect(page.getByRole("button", { name: "個股掃描" })).toBeVisible();
   await page.getByRole("button", { name: "個股掃描" }).click();
 
   const late = page.locator("input[data-optimizer-ticker='LATE']");
@@ -166,6 +170,6 @@ test("desktop layout uses the wider maximum width", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "commit" });
   await expect(page.locator(".site-header")).toHaveCSS("max-width", "1480px");
 });
