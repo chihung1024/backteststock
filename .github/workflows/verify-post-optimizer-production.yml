@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/verify-post-optimizer-production.yml
       - scripts/verify_post_optimizer_production.py
+      - scripts/verify_post_optimizer_production_utf8.py
       - scripts/verify_post_optimizer_search.mjs
 
 permissions:
@@ -33,13 +34,13 @@ jobs:
           python -m pip install -r requirements.txt
           npm ci
       - name: Verify pages and prepare signed production snapshot
-        run: python scripts/verify_post_optimizer_production.py prepare
+        run: python scripts/verify_post_optimizer_production_utf8.py prepare
       - name: Run balanced 30,000 search twice
         run: node scripts/verify_post_optimizer_search.mjs
       - name: Verify exact results and snapshot-only reproducibility
-        run: python scripts/verify_post_optimizer_production.py exact
+        run: python scripts/verify_post_optimizer_production_utf8.py exact
       - name: Write compact final report
-        run: python scripts/verify_post_optimizer_production.py summary
+        run: python scripts/verify_post_optimizer_production_utf8.py summary
       - uses: actions/upload-artifact@v6
         if: ${{ always() }}
         with:
