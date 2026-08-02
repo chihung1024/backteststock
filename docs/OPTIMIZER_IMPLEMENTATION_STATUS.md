@@ -17,3 +17,12 @@ The optimizer does not create a persistent daily-price database and does not wea
 Final hardening guarantees exact unique budget contributions, explicit little-endian mask hashing, and a 3 MiB optimizer-only edge request ceiling compatible with the 2 MiB compressed snapshot ceiling.
 
 The final implementation rejects silent out-of-sample truncation, treats null metrics as unavailable rather than zero, aggregates all three exact-verification batches to 300, and persists only compact summaries in localStorage while retaining full events in the audit JSON export.
+
+## Dual-mode and daily-range hardening (2026-08-02)
+
+- The scan endpoint accepts exact `YYYY-MM-DD` start and end dates while retaining legacy year/month request compatibility.
+- The optimizer supports both strict automatic training-only candidate selection and a fixed manual 20-stock candidate mode.
+- Manual scan-result selections persist across sorting and pagination, are capped at 20, and must contain exactly 20 eligible stocks before launch.
+- The original three composite scores remain available, with an additional optimized score: `Sortino × sqrt((1 + CAGR) / ((1 + Beta)^2 × (1 + |MDD|)))`.
+- Automatic date defaults roll forward daily from the same local calendar date ten years ago through yesterday, while explicitly customized ranges remain unchanged.
+- Desktop content width is increased to 1480px.
