@@ -3,10 +3,13 @@ const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
 const DATE_MODE_STORAGE_KEY = "backteststock-backtest-date-mode-v1";
 const OPTIMIZER_MODE_STORAGE_KEY = "backteststock-optimizer-candidate-mode-v1";
 const MANUAL_SELECTION_STORAGE_KEY = "backteststock-optimizer-manual-selection-v1";
-const MANUAL_CANDIDATE_COUNT = 20;
+const MANUAL_SELECTION_MIN = 20;
+const MANUAL_SELECTION_MAX = 30;
+const OPTIMIZER_CANDIDATE_COUNT = 20;
 const LOOKBACK_YEARS = 10;
+const MAX_ENDPOINT_GAP_CALENDAR_DAYS = 10;
 const MANUAL_SELECTION_BIAS_WARNING = (
-  "手動候選池取自完整期間個股績效列表，可能已參考原定樣本外期間；"
+  "手動候選短名單取自完整期間個股績效列表，可能已參考原定樣本外期間；"
   + "樣本外結果屬事後驗證，不是完全未見資料。"
 );
 
@@ -175,7 +178,20 @@ function currentScanJob() {
   return job?.version === 2 ? job : null;
 }
 
-function resultEligibility(result, benchmark) {
+function parseDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value || ""))) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function endpointGapDays(left, right) {
+  const leftDate = parseDate(left);
+  const rightDate = parseDate(right);
+  if (!leftDate || !rightDate) return null;
+  return Math.round((rightDate.getTime() - leftDate.getTime()) / 86_400_000);
+}
+
+function resultEligibility(result, benchmark, payload = {}) {
   if (!result) return { eligible: false, reason: "尚無完成結果" };
   if (result.error || result.status !== "ok") {
     return { eligible: false, reason: result.error || "回測未成功" };
@@ -193,6 +209,21 @@ function resultEligibility(result, benchmark) {
       reason: `公司行為稽核=${result.corporate_action_status || "unknown"}`,
     };
   }
+
+  const startGap = endpointGapDays(payload.startDate, result.data_start);
+  if (startGap != null && startGap > MAX_ENDPOINT_GAP_CALENDAR_DAYS) {
+    return {
+      eligible: false,
+      reason: `期初行情晚於回測起日 ${startGap} 個日曆日`,
+    };
+  }
+  const endGap = endpointGapDays(result.data_end, payload.endDate);
+  if (endGap != null && endGap > MAX_ENDPOINT_GAP_CALENDAR_DAYS) {
+    return {
+      eligible: false,
+      reason: `期末行情早於回測迄日 ${endGap} 個日曆日`,
+    };
+  }
   return { eligible: true, reason: "" };
 }
 
@@ -204,19 +235,22 @@ function readManualSelection(job) {
   const allowed = new Set(job.payload.tickers);
   return [...new Set(saved.tickers.map((ticker) => String(ticker).toUpperCase()))]
     .filter((ticker) => allowed.has(ticker))
-    .slice(0, MANUAL_CANDIDATE_COUNT);
+    .slice(0, MANUAL_SELECTION_MAX);
 }
 
 function saveManualSelection(job, tickers) {
   writeJson(localStorage, MANUAL_SELECTION_STORAGE_KEY, {
-    version: 1,
+    version: 2,
     sourceJobId: job?.id || null,
     selectedAt: new Date().toISOString(),
-    tickers: [...tickers],
+    tickers: [...tickers].slice(0, MANUAL_SELECTION_MAX),
+    minimumTickers: MANUAL_SELECTION_MIN,
+    maximumTickers: MANUAL_SELECTION_MAX,
+    finalCandidateCount: OPTIMIZER_CANDIDATE_COUNT,
     startDate: job?.payload?.startDate || null,
     endDate: job?.payload?.endDate || null,
     benchmark: job?.payload?.benchmark || "SPY",
-    selectionBasis: "full_period_scan_results",
+    selectionBasis: "full_period_scan_shortlist",
     selectionBiasWarning: MANUAL_SELECTION_BIAS_WARNING,
   });
 }
@@ -253,26 +287,34 @@ function enhanceScanSelection() {
   manualLink.href = "/optimizer.html?mode=manual";
   manualLink.target = "_blank";
   manualLink.rel = "noopener";
-  manualLink.textContent = "使用已選 20 檔";
 
   toolbar.insertBefore(status, autoLink);
   toolbar.insertBefore(clearButton, autoLink);
   toolbar.insertBefore(manualLink, autoLink);
 
+  function selectionReady() {
+    return selected.length >= MANUAL_SELECTION_MIN
+      && selected.length <= MANUAL_SELECTION_MAX;
+  }
+
   function refreshControls(message = "") {
-    const complete = selected.length === MANUAL_CANDIDATE_COUNT;
-    status.textContent = message || `手動候選池 ${selected.length} / ${MANUAL_CANDIDATE_COUNT}`;
-    status.classList.toggle("complete", complete && !message);
+    const ready = selectionReady();
+    status.textContent = message || (
+      `手動候選短名單 ${selected.length} / ${MANUAL_SELECTION_MAX}`
+      + `（至少 ${MANUAL_SELECTION_MIN}）`
+    );
+    status.classList.toggle("complete", ready && !message);
     status.classList.toggle("error", Boolean(message));
-    manualLink.setAttribute("aria-disabled", String(!complete));
-    manualLink.tabIndex = complete ? 0 : -1;
-    manualLink.classList.toggle("disabled", !complete);
+    manualLink.textContent = `使用已選 ${selected.length} 檔`;
+    manualLink.setAttribute("aria-disabled", String(!ready));
+    manualLink.tabIndex = ready ? 0 : -1;
+    manualLink.classList.toggle("disabled", !ready);
     clearButton.disabled = selected.length === 0;
     scanTable.querySelectorAll("input[data-optimizer-ticker]").forEach((checkbox) => {
       const ticker = checkbox.dataset.optimizerTicker;
       checkbox.checked = selected.includes(ticker);
       checkbox.disabled = checkbox.dataset.eligible !== "true"
-        || (!checkbox.checked && selected.length >= MANUAL_CANDIDATE_COUNT);
+        || (!checkbox.checked && selected.length >= MANUAL_SELECTION_MAX);
       checkbox.closest("tr")?.classList.toggle(
         "optimizer-manual-selected",
         checkbox.checked,
@@ -300,6 +342,17 @@ function enhanceScanSelection() {
         (job.results || []).map((result) => [String(result.ticker).toUpperCase(), result]),
       );
       const benchmark = job.payload?.benchmark || "SPY";
+      const eligibleTickers = new Set(
+        [...resultMap.entries()]
+          .filter(([, result]) => resultEligibility(result, benchmark, job.payload).eligible)
+          .map(([ticker]) => ticker),
+      );
+      const filtered = selected.filter((ticker) => eligibleTickers.has(ticker));
+      if (filtered.length !== selected.length) {
+        selected = filtered;
+        saveManualSelection(job, selected);
+      }
+
       const headerRow = scanTable.querySelector("thead tr");
       if (headerRow && !headerRow.querySelector(".optimizer-select-column")) {
         const header = document.createElement("th");
@@ -315,7 +368,7 @@ function enhanceScanSelection() {
         const ticker = String(row.dataset.ticker || tickerCell?.textContent || "")
           .trim().split(/\s+/u)[0].toUpperCase();
         if (!ticker || !tickerCell) return;
-        const eligibility = resultEligibility(resultMap.get(ticker), benchmark);
+        const eligibility = resultEligibility(resultMap.get(ticker), benchmark, job.payload);
         const cell = document.createElement("td");
         cell.className = "optimizer-select-cell";
         const checkbox = document.createElement("input");
@@ -344,9 +397,9 @@ function enhanceScanSelection() {
     if (!checkbox) return;
     const ticker = checkbox.dataset.optimizerTicker;
     if (checkbox.checked) {
-      if (selected.length >= MANUAL_CANDIDATE_COUNT) {
+      if (selected.length >= MANUAL_SELECTION_MAX) {
         checkbox.checked = false;
-        refreshControls(`最多只能選擇 ${MANUAL_CANDIDATE_COUNT} 檔。`);
+        refreshControls(`最多只能選擇 ${MANUAL_SELECTION_MAX} 檔。`);
         setTimeout(() => refreshControls(), 1800);
         return;
       }
@@ -365,9 +418,11 @@ function enhanceScanSelection() {
   });
 
   manualLink.addEventListener("click", (event) => {
-    if (selected.length !== MANUAL_CANDIDATE_COUNT) {
+    if (!selectionReady()) {
       event.preventDefault();
-      refreshControls(`請先選滿 ${MANUAL_CANDIDATE_COUNT} 檔。`);
+      refreshControls(
+        `請選擇 ${MANUAL_SELECTION_MIN}～${MANUAL_SELECTION_MAX} 檔。`,
+      );
       setTimeout(() => refreshControls(), 1800);
       return;
     }
@@ -384,7 +439,7 @@ function installOptimizerPrepareMetadataPatch() {
   if (window.__backteststockOptimizerFetchPatched) return;
   window.__backteststockOptimizerFetchPatched = true;
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = (input, init = {}) => {
+  window.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input?.url || "";
     if (
       url.includes("/api/optimizer/prepare")
@@ -395,8 +450,12 @@ function installOptimizerPrepareMetadataPatch() {
         const payload = JSON.parse(init.body);
         payload.candidateSelection = {
           ...(payload.candidateSelection || {}),
-          mode: "manual_fixed_20",
-          selectionBasis: "full_period_scan_results",
+          mode: "manual_shortlist_training_ranked_top20",
+          selectionBasis: "full_period_scan_shortlist",
+          sourceShortlistCount: parseTickersForMetadata(
+            document.querySelector("#optimizer-source-tickers")?.value,
+          ).length,
+          finalCandidateCount: OPTIMIZER_CANDIDATE_COUNT,
           selectionBiasWarning: MANUAL_SELECTION_BIAS_WARNING,
         };
         init = { ...init, body: JSON.stringify(payload) };
@@ -404,8 +463,37 @@ function installOptimizerPrepareMetadataPatch() {
         // Leave malformed requests unchanged; the API returns its normal validation error.
       }
     }
-    return nativeFetch(input, init);
+
+    const response = await nativeFetch(input, init);
+    if (!url.includes("/api/optimizer/prepare") || response.ok) return response;
+    try {
+      const payload = await response.clone().json();
+      if (String(payload?.error || "").includes("共同期間起訖與比較基準相差超過 5 個交易日")) {
+        payload.error += (
+          "。通常代表最終 20 檔候選中至少一檔上市較晚、期初或期末缺價；"
+          + "請移除該檔，或在手動短名單多選幾檔備援後讓訓練期重新取前 20 檔。"
+        );
+        return new Response(JSON.stringify(payload), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+    } catch {
+      // Preserve the original response when the error body is not JSON.
+    }
+    return response;
   };
+}
+
+function parseTickersForMetadata(value) {
+  return [...new Set(
+    String(value || "")
+      .toUpperCase()
+      .split(/[\s,;]+/u)
+      .map((ticker) => ticker.trim())
+      .filter(Boolean),
+  )];
 }
 
 function enhanceOptimizerMode() {
@@ -423,7 +511,7 @@ function enhanceOptimizerMode() {
   const manual = readJson(localStorage, MANUAL_SELECTION_STORAGE_KEY);
   const manualTickers = manual?.sourceJobId === sourceJob?.id
     && Array.isArray(manual?.tickers)
-    ? [...new Set(manual.tickers)].slice(0, MANUAL_CANDIDATE_COUNT)
+    ? [...new Set(manual.tickers)].slice(0, MANUAL_SELECTION_MAX)
     : [];
 
   const box = document.createElement("div");
@@ -435,7 +523,7 @@ function enhanceOptimizerMode() {
   select.id = "optimizer-candidate-mode";
   select.innerHTML = `
     <option value="auto">自動嚴格模式：來源池於訓練期重排前 20</option>
-    <option value="manual">手動模式：固定績效列表所選 20 檔</option>
+    <option value="manual">手動短名單：選 20～30 檔，訓練期重排前 20</option>
   `;
   label.append(labelText, select);
   const note = document.createElement("p");
@@ -444,11 +532,19 @@ function enhanceOptimizerMode() {
   box.append(label, note);
   sourcePanel.insertBefore(box, sourceTickers.closest("label"));
 
+  function validManualShortlist() {
+    return manualTickers.length >= MANUAL_SELECTION_MIN
+      && manualTickers.length <= MANUAL_SELECTION_MAX;
+  }
+
   function applyMode(requestedMode) {
     let mode = requestedMode;
-    if (mode === "manual" && manualTickers.length !== MANUAL_CANDIDATE_COUNT) {
+    if (mode === "manual" && !validManualShortlist()) {
       mode = "auto";
-      note.textContent = `手動模式需要從個股績效列表選滿 ${MANUAL_CANDIDATE_COUNT} 檔；目前沒有有效選取。`;
+      note.textContent = (
+        `手動模式需要從個股績效列表選擇 ${MANUAL_SELECTION_MIN}～`
+        + `${MANUAL_SELECTION_MAX} 檔；目前沒有有效選取。`
+      );
       note.classList.add("warning");
     }
     select.value = mode;
@@ -456,9 +552,16 @@ function enhanceOptimizerMode() {
     if (mode === "manual") {
       sourceTickers.value = manualTickers.join(", ");
       sourceTickers.readOnly = true;
-      rankingField.disabled = true;
-      sourceStatus.textContent = `已載入手動候選池 ${manualTickers.length} 檔；將逐檔重算訓練期並執行嚴格覆蓋驗證。`;
-      note.textContent = MANUAL_SELECTION_BIAS_WARNING;
+      rankingField.disabled = false;
+      sourceStatus.textContent = (
+        `已載入手動候選短名單 ${manualTickers.length} 檔；`
+        + `將逐檔重算訓練期、排除不合格股票，再取前 ${OPTIMIZER_CANDIDATE_COUNT} 檔。`
+      );
+      note.textContent = (
+        `${MANUAL_SELECTION_BIAS_WARNING}`
+        + ` 若短名單超過 ${OPTIMIZER_CANDIDATE_COUNT} 檔，`
+        + `會依「候選池排序」只使用訓練期資料取前 ${OPTIMIZER_CANDIDATE_COUNT} 檔。`
+      );
       note.classList.add("warning");
     } else {
       sourceTickers.value = automaticTickers.join(", ");
