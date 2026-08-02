@@ -59,8 +59,10 @@ test("optimizer preserves an explicitly custom range", async ({ page }) => {
 
 test("optimizer exposes balanced search and sortable verification contract", async ({ page }) => {
   await page.goto("/optimizer.html", { waitUntil: "domcontentloaded" });
-  await expect(page.getByDisplayValue("五目標平衡搜尋（無單一主要目標）")).toBeVisible();
-  await expect(page.getByDisplayValue("300 組（5×48 + 60）")).toBeVisible();
+  await expect(page.locator(".optimizer-balanced-search-control input"))
+    .toHaveValue("五目標平衡搜尋（無單一主要目標）");
+  await expect(page.locator('label:has-text("精確複驗") input'))
+    .toHaveValue("300 組（5×48 + 60）");
   await expect(page.locator("#optimizer-primary-objective")).toBeHidden();
   await expect(page.locator("#optimizer-search-budget")).toHaveAttribute("min", "6000");
 });
