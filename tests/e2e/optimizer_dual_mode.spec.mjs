@@ -67,23 +67,22 @@ test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({
 
   await expect(page.locator("#scan-table th[data-composite-metric='sortino_growth_beta_squared_mdd_score']"))
     .toContainText("優化分數");
-  const checkboxes = page.locator("#scan-table input[data-optimizer-ticker]");
-  await expect(checkboxes).toHaveCount(32);
+  await expect(page.locator("#scan-table input[data-optimizer-ticker]")).toHaveCount(32);
 
-  for (let index = 0; index < 20; index += 1) {
-    await checkboxes.nth(index).check();
+  for (const ticker of eligibleTickers.slice(0, 20)) {
+    await page.locator(`input[data-optimizer-ticker='${ticker}']`).check();
   }
   await expect(page.locator("#optimizer-manual-selection-status"))
     .toContainText("20 / 30");
   await expect(page.locator("#open-manual-optimizer")).not.toHaveClass(/disabled/);
   await expect(page.locator("#open-manual-optimizer")).toContainText("使用已選 20 檔");
 
-  for (let index = 20; index < 30; index += 1) {
-    await checkboxes.nth(index).check();
+  for (const ticker of eligibleTickers.slice(20, 30)) {
+    await page.locator(`input[data-optimizer-ticker='${ticker}']`).check();
   }
   await expect(page.locator("#optimizer-manual-selection-status"))
     .toContainText("30 / 30");
-  await expect(checkboxes.nth(30)).toBeDisabled();
+  await expect(page.locator("input[data-optimizer-ticker='T30']")).toBeDisabled();
   await expect(page.locator("#open-manual-optimizer")).toContainText("使用已選 30 檔");
 
   const late = page.locator("input[data-optimizer-ticker='LATE']");
