@@ -1,0 +1,54 @@
+name: Verify exhaustive optimizer production
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-exhaustive-production.yml
+      - scripts/verify_exhaustive_production_prepare.py
+      - scripts/verify_exhaustive_production_run.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ORIGIN: https://backteststock.chired.workers.dev
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install request dependency
+        run: python -m pip install requests
+      - name: Verify public page and assets
+        run: |
+          mkdir -p diagnostics
+          curl -fsSL --retry 3 "$ORIGIN/optimizer.html" -o diagnostics/optimizer.html
+          curl -fsSL --retry 3 "$ORIGIN/exhaustive-optimizer.js?v=20260802.1" -o diagnostics/exhaustive-optimizer.js
+          curl -fsSL --retry 3 "$ORIGIN/exhaustive-optimizer-core.js" -o diagnostics/exhaustive-optimizer-core.js
+          curl -fsSL --retry 3 "$ORIGIN/exhaustive-optimizer-worker.js?v=20260802.1" -o diagnostics/exhaustive-optimizer-worker.js
+          curl -fsSL --retry 3 "$ORIGIN/exhaustive-optimizer-storage.js" -o diagnostics/exhaustive-optimizer-storage.js
+          curl -fsSL --retry 3 "$ORIGIN/exhaustive-sort-worker.js?v=20260802.1" -o diagnostics/exhaustive-sort-worker.js
+          grep -F "固定來源池全量精確回測" diagnostics/optimizer.html
+          grep -F "完整枚舉 C(N,K)" diagnostics/optimizer.html
+          grep -F "MAX_EXHAUSTIVE_COMBINATIONS = 5_000_000" diagnostics/exhaustive-optimizer-core.js
+          grep -F "backteststock-exhaustive-optimizer-v1" diagnostics/exhaustive-optimizer-storage.js
+      - name: Prepare one signed real-market snapshot
+        run: python scripts/verify_exhaustive_production_prepare.py
+      - name: Run all C(10,5) exact portfolios and deterministic replay
+        run: node scripts/verify_exhaustive_production_run.mjs
+      - uses: actions/upload-artifact@v6
+        if: ${{ always() }}
+        with:
+          name: exhaustive-production-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 3
