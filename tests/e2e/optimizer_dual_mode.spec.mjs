@@ -16,7 +16,7 @@ async function fulfillJson(route, body) {
   });
 }
 
-test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({ page }) => {
+test("scan shortlist is carried into the fixed exhaustive source pool", async ({ page }) => {
   await page.addInitScript(({ savedTickers }) => {
     localStorage.setItem("backteststock-scan-job-v2", JSON.stringify({
       version: 2,
@@ -65,67 +65,32 @@ test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "個股掃描" }).click();
 
-  await expect(page.locator("#scan-table th[data-composite-metric='sortino_growth_beta_squared_mdd_score']"))
-    .toContainText("優化分數");
-  await expect(page.locator("#scan-table input[data-optimizer-ticker]")).toHaveCount(32);
-
-  for (const ticker of eligibleTickers.slice(0, 20)) {
+  for (const ticker of eligibleTickers.slice(0, 30)) {
     await page.locator(`input[data-optimizer-ticker='${ticker}']`).check();
   }
-  await expect(page.locator("#optimizer-manual-selection-status"))
-    .toContainText("20 / 30");
-  await expect(page.locator("#open-manual-optimizer")).not.toHaveClass(/disabled/);
-  await expect(page.locator("#open-manual-optimizer")).toContainText("使用已選 20 檔");
-
-  for (const ticker of eligibleTickers.slice(20, 30)) {
-    await page.locator(`input[data-optimizer-ticker='${ticker}']`).check();
-  }
-  await expect(page.locator("#optimizer-manual-selection-status"))
-    .toContainText("30 / 30");
+  await expect(page.locator("#optimizer-manual-selection-status")).toContainText("30 / 30");
   await expect(page.locator("input[data-optimizer-ticker='T30']")).toBeDisabled();
-  await expect(page.locator("#open-manual-optimizer")).toContainText("使用已選 30 檔");
-
-  const late = page.locator("input[data-optimizer-ticker='LATE']");
-  await expect(late).toBeDisabled();
-  await expect(late).toHaveAttribute("title", /期初行情晚於回測起日/);
+  await expect(page.locator("input[data-optimizer-ticker='LATE']")).toBeDisabled();
 
   const saved = await page.evaluate(() => JSON.parse(
     localStorage.getItem("backteststock-optimizer-manual-selection-v1"),
   ));
   expect(saved.tickers).toHaveLength(30);
   expect(saved.sourceJobId).toBe("manual-source-job");
-  expect(saved.minimumTickers).toBe(20);
-  expect(saved.maximumTickers).toBe(30);
-  expect(saved.finalCandidateCount).toBe(20);
 
   await page.goto("/optimizer.html?mode=manual", { waitUntil: "domcontentloaded" });
-  await expect(page.locator("#optimizer-candidate-mode")).toHaveValue("manual");
-  await expect(page.locator("#optimizer-source-tickers")).toHaveAttribute("readonly", "");
-  await expect(page.locator("#optimizer-ranking-field")).toBeEnabled();
-  await expect(page.locator("#optimizer-source-status")).toContainText("手動候選短名單 30 檔");
-  await expect(page.locator("#optimizer-source-status")).toContainText("取前 20 檔");
-  await expect(page.locator("#optimizer-candidate-mode-note"))
-    .toContainText("可能已參考原定樣本外期間");
-  await expect(page.locator("#optimizer-candidate-mode-note"))
-    .toContainText("訓練期資料取前 20 檔");
-  await expect(page.locator("#optimizer-ranking-field option")).toContainText([
-    "Sortino",
-    "CAGR",
-    "最低 |MDD|",
-    "最低 |Beta|",
-    "Alpha",
-    "穩健分數",
-    "成長分數",
-    "回撤控制分數",
-    "優化分數",
-  ]);
+  await expect(page.getByRole("heading", { name: "固定來源池全量精確回測" })).toBeVisible();
+  const source = page.locator("#optimizer-source");
+  await expect(source).toHaveValue(/T00/);
+  await expect(source).toHaveValue(/T29/);
+  await expect(source).not.toHaveAttribute("readonly", "");
+  await expect(page.locator("#optimizer-combination-count")).toHaveText("30,045,015");
+  await expect(page.locator("#optimizer-ranking-field")).toHaveCount(0);
+  await expect(page.locator("body")).toContainText("不自動換股或預先排名");
 });
 
-test("desktop layout uses the wider maximum width", async ({ page }) => {
+test("desktop exhaustive layout uses the wider maximum width", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
-  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
-  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/optimizer.html", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".site-header")).toHaveCSS("max-width", "1480px");
 });

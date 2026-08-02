@@ -26,3 +26,18 @@ The final implementation rejects silent out-of-sample truncation, treats null me
 - The original three composite scores remain available, with an additional optimized score: `Sortino × sqrt((1 + CAGR) / ((1 + Beta)^2 × (1 + |MDD|)))`.
 - Automatic date defaults roll forward daily from the same local calendar date ten years ago through yesterday, while explicitly customized ranges remain unchanged.
 - Desktop content width is increased to 1480px.
+
+## Exhaustive full-period refactor (2026-08-02)
+
+The production page is reworked around the user's original fixed-universe research contract. The preceding MVP sections remain as implementation history; they no longer describe the primary page after this refactor.
+
+- The source universe is fixed exactly as supplied; no training-period ranking or silent ticker substitution occurs.
+- `N` source tickers and configurable `K` holdings produce all `C(N,K)` combinations.
+- Every combination receives the same path-dependent exact simulation across the complete selected period.
+- Equal target weights are dynamic at `1/K`.
+- Rebalancing supports relative bands, monthly, quarterly, annually, or never, with configurable common-trading-day execution delay and transaction cost.
+- Preflight validates strict full-period coverage and corporate actions, measures the current device, estimates runtime and storage, and requires explicit confirmation.
+- Web Workers process deterministic chunks; IndexedDB preserves completed chunks for stop/resume.
+- Full results support arbitrary metric sorting, filters, paging, CSV export, and on-demand event-detail reruns.
+- The original four composite formulas remain available as exact-result columns.
+- No persistent server-side daily-price database is introduced.

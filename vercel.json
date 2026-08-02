@@ -4,10 +4,12 @@
     { "src": "api/index_v2.py", "use": "@vercel/python" },
     { "src": "api/scan_v2.py", "use": "@vercel/python" },
     { "src": "api/screener.py", "use": "@vercel/python" },
+    { "src": "api/exhaustive_optimizer.py", "use": "@vercel/python" },
     { "src": "api/optimizer.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/scan", "dest": "api/scan_v2.py" },
+    { "src": "/api/optimizer/exhaustive/(.*)", "dest": "api/exhaustive_optimizer.py" },
     { "src": "/api/optimizer/(.*)", "dest": "api/optimizer.py" },
     { "src": "/api/v2/screener", "dest": "api/screener.py" },
     { "src": "/api/screener", "dest": "api/screener.py" },
