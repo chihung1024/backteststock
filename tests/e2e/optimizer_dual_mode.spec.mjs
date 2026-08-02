@@ -56,7 +56,7 @@ test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "個股掃描" }).click();
 
   await expect(page.locator("#scan-table th[data-composite-metric='sortino_growth_beta_squared_mdd_score']"))
@@ -89,7 +89,7 @@ test("scan results allow a persistent manual 20-to-30-stock shortlist", async ({
   expect(saved.maximumTickers).toBe(30);
   expect(saved.finalCandidateCount).toBe(20);
 
-  await page.goto("/optimizer.html?mode=manual");
+  await page.goto("/optimizer.html?mode=manual", { waitUntil: "domcontentloaded" });
   await expect(page.locator("#optimizer-candidate-mode")).toHaveValue("manual");
   await expect(page.locator("#optimizer-source-tickers")).toHaveAttribute("readonly", "");
   await expect(page.locator("#optimizer-ranking-field")).toBeEnabled();
@@ -153,7 +153,7 @@ test("manual selection excludes rows with materially short endpoint coverage", a
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "個股掃描" }).click();
 
   const late = page.locator("input[data-optimizer-ticker='LATE']");
@@ -166,6 +166,6 @@ test("desktop layout uses the wider maximum width", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".site-header")).toHaveCSS("max-width", "1480px");
 });
