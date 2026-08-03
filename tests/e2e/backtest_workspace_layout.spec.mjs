@@ -114,8 +114,9 @@ test("portfolio lab ports the original functional design and result dashboard", 
   await expect(lab.getByLabel("金額／比例")).toBeVisible();
   await lab.getByLabel("金額／比例").fill("5000");
   await lab.getByLabel("槓桿方式").selectOption("fixed_ratio");
-  await expect(lab.getByLabel("槓桿倍數")).toBeVisible();
-  await lab.getByLabel("槓桿倍數").fill("1.5");
+  const leverageRatio = lab.getByRole("spinbutton", { name: "槓桿倍數", exact: true });
+  await expect(leverageRatio).toBeVisible();
+  await leverageRatio.fill("1.5");
   await lab.getByText("報酬式風格分析", { exact: true }).click();
   await lab.getByText("Fama–French 因子回歸", { exact: true }).click();
   await lab.getByLabel("市場環境分析").selectOption("market");
