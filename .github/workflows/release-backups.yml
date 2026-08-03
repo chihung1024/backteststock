@@ -66,18 +66,47 @@ jobs:
           POST_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
-          pre_sha="$(git rev-parse "${POST_SHA}^1")"
-          pre_tag="backup-pre-pr${PR_NUMBER}-${pre_sha:0:12}"
-          post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
+          mapfile -t pre_tags < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[].tag_name' \
+              | grep -E "^backup-pre-pr${PR_NUMBER}-[0-9a-f]{12}$" \
+              || true
+          )
 
+          pre_tag=""
+          pre_sha=""
+          best_distance=""
+          for candidate_tag in "${pre_tags[@]}"; do
+            git fetch --force origin "refs/tags/${candidate_tag}:refs/tags/${candidate_tag}"
+            candidate_sha="$(git rev-list -n 1 "$candidate_tag")"
+            if ! git merge-base --is-ancestor "$candidate_sha" "$POST_SHA"; then
+              continue
+            fi
+            distance="$(git rev-list --count "${candidate_sha}..${POST_SHA}")"
+            if [ -z "$best_distance" ] || [ "$distance" -lt "$best_distance" ]; then
+              pre_tag="$candidate_tag"
+              pre_sha="$candidate_sha"
+              best_distance="$distance"
+            fi
+          done
+
+          if [ -z "$pre_tag" ]; then
+            echo "No verified pre-merge backup release is an ancestor of $POST_SHA." >&2
+            exit 1
+          fi
+          expected_pre_tag="backup-pre-pr${PR_NUMBER}-${pre_sha:0:12}"
+          if [ "$pre_tag" != "$expected_pre_tag" ]; then
+            echo "Pre-merge backup tag $pre_tag does not match target $pre_sha." >&2
+            exit 1
+          fi
           gh release view "$pre_tag" >/dev/null
-          git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
           resolved_pre_sha="$(git rev-list -n 1 "$pre_tag")"
           if [ "$resolved_pre_sha" != "$pre_sha" ]; then
             echo "Pre-merge backup tag points to $resolved_pre_sha instead of $pre_sha." >&2
             exit 1
           fi
 
+          post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
           if ! gh release view "$post_tag" >/dev/null 2>&1; then
             gh release create "$post_tag" \
               --target "$POST_SHA" \
