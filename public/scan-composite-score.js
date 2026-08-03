@@ -3,7 +3,7 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.2";
+} from "./scan-score-formulas.js?v=20260803.3";
 import {
   DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   buildScanCoverageStats,

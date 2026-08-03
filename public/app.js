@@ -1,4 +1,7 @@
-import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
+import {
+  METRIC_CACHE_MIGRATION_RELOAD_PENDING,
+  METRIC_DEFINITION_VERSION,
+} from "./scan-score-formulas.js?v=20260803.3";
 import {
   DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   buildScanCoverageStats,
@@ -1838,10 +1841,12 @@ function bindEvents() {
   window.addEventListener("resize", () => latestBacktest && renderBacktestResults(latestBacktest));
 }
 
-initializeControls();
-renderPortfolios();
-bindEvents();
-checkHealth();
-loadTickerUniverse();
-loadUniverses();
-restorePersistedScan();
+if (!METRIC_CACHE_MIGRATION_RELOAD_PENDING) {
+  initializeControls();
+  renderPortfolios();
+  bindEvents();
+  checkHealth();
+  loadTickerUniverse();
+  loadUniverses();
+  restorePersistedScan();
+}

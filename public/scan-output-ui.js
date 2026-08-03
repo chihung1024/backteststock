@@ -3,7 +3,7 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.2";
+} from "./scan-score-formulas.js?v=20260803.3";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const TABLE_SELECTOR = "#scan-table";
