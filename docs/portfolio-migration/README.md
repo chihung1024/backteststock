@@ -19,7 +19,8 @@
 | PR 0 | 已完成 | 凍結來源 commit、核心 blob SHA、35 項能力矩陣、完整 request／response contract、合成行情與 parity scenarios |
 | PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
 | PR 2 | 已完成 | 自有 Portfolio Ledger、現金流、配息策略、成本、定期／門檻再平衡、fixed-ratio／fixed-debt 槓桿、margin liquidation、完整指標與部分成功服務 |
-| PR 3～PR 7 | 未開始 | 依本文件順序執行 |
+| PR 3 | 已完成 | 自有 FastAPI Portfolio v3、Preflight、嚴格 schema、Edge proxy、因子／FX 分離、受約束風格、環境分析與 FRED 降級 |
+| PR 4～PR 7 | 未開始 | 依本文件順序執行 |
 
 目前版本化契約：
 
@@ -28,6 +29,9 @@
 - `PORTFOLIO_LEDGER_CONTRACT_VERSION = portfolio-ledger-twd-2026-08-04.1`
 - `PORTFOLIO_METRIC_CONTEXT_VERSION = portfolio-metrics-twd-2026-08-04.1`
 - `PORTFOLIO_SERVICE_CONTRACT_VERSION = portfolio-service-twd-2026-08-04.1`
+- `PORTFOLIO_API_CONTRACT_VERSION = portfolio-v3`
+- `PORTFOLIO_API_SCHEMA_VERSION = portfolio-v3-2026-08-04.1`
+- `PORTFOLIO_ANALYTICS_CONTRACT_VERSION = portfolio-analytics-twd-2026-08-04.1`
 
 ## 凍結來源
 
@@ -85,7 +89,15 @@ TWD Price Return = TWD Total Return - TWD Distribution Return
 
 - `docs/portfolio-migration/PR2_LEDGER_METRICS.md`
 
-PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前的 Portfolio Lab 介面。PR 3 將以此核心建立自有 Portfolio v3 API。
+PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前的 Portfolio Lab 介面。
+
+## PR 3 Portfolio v3 API 契約
+
+新 API、Preflight、Edge allowlist、回應版本、因子／FX 分離、受約束風格、環境分類及 FRED 降級規則見：
+
+- `docs/portfolio-migration/PR3_PORTFOLIO_V3_API.md`
+
+PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。現有舊 Portfolio Lab 路徑仍保留到 PR 6，避免在新全頁式介面完成前破壞正式功能。
 
 ## 差異治理
 
