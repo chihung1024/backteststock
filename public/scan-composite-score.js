@@ -3,7 +3,12 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.2";
+} from "./scan-score-formulas.js?v=20260803.3";
+import {
+  DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
+  buildScanCoverageStats,
+  normalizeScanMinCoveragePercent,
+} from "./scan-coverage.js?v=20260803.1";
 
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
@@ -231,7 +236,7 @@ function ensureFormulaComparisonNote() {
     list.append(item);
   });
   const note = document.createElement("p");
-  note.textContent = "每格顯示「名次 · 分數」；排名以全部已完成且可計算標的為母體，掃描進行中會動態更新。";
+  note.textContent = "每格顯示「名次 · 分數」；排名以目前符合資料覆蓋率門檻且可計算的標的為母體，掃描進行中或門檻調整時會動態更新。";
   details.append(summary, list, note);
   tableWrap.insertAdjacentElement("beforebegin", details);
 }
@@ -240,6 +245,16 @@ function ensureFormulaComparisonNote() {
 function removeInjectedColumns(table, headerRow) {
   [...headerRow.querySelectorAll("th[data-composite-metric]")].forEach((cell) => cell.remove());
   [...table.querySelectorAll("td[data-composite-metric]")].forEach((cell) => cell.remove());
+}
+
+function currentCoverageFilteredRows(table) {
+  const threshold = normalizeScanMinCoveragePercent(
+    table?.dataset?.minCoveragePercent,
+    DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
+  );
+  const saved = readSavedJob()?.results;
+  const rows = Array.isArray(saved) && saved.length ? saved : [...rawResults.values()];
+  return buildScanCoverageStats(rows, threshold).shown;
 }
 
 function updateScoreColumns() {
@@ -254,7 +269,7 @@ function updateScoreColumns() {
   );
   if (!headerIndexes.has("Beta")) return;
 
-  const matrixResult = ensureScoreMatrix();
+  const matrixResult = buildScoreMatrix(currentCoverageFilteredRows(table));
   const betaIndex = headerIndexes.get("Beta");
   let headerAnchor = originalHeaders[betaIndex];
   SCORE_FORMULAS.forEach((formula) => {
@@ -267,7 +282,7 @@ function updateScoreColumns() {
       ? (activeSortDirection === "asc" ? " ▲" : " ▼")
       : "";
     header.textContent = `${formula.label}${sortIndicator}`;
-    header.title = `${formula.description}；每格顯示名次與分數。有效樣本 ${matrixResult.validCounts[formula.key] || 0} 檔，點擊可依全部掃描結果排序。`;
+    header.title = `${formula.description}；每格顯示名次與分數。符合目前覆蓋率門檻的有效樣本 ${matrixResult.validCounts[formula.key] || 0} 檔，點擊可排序目前顯示結果。`;
     header.setAttribute(
       "aria-sort",
       activeSortKey === formula.key
@@ -294,17 +309,11 @@ function updateScoreColumns() {
   ensureFormulaComparisonNote();
 }
 
-function handleTableSortClick(event) {
-  const header = event.target.closest("th[data-sort-key]");
-  if (!header) return;
-
-  const key = header.dataset.sortKey;
-  if (activeSortKey === key) {
-    activeSortDirection = activeSortDirection === "asc" ? "desc" : "asc";
-  } else {
-    activeSortKey = key;
-    activeSortDirection = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
-  }
+function handleScanSortChange(event) {
+  const key = String(event.detail?.key || "");
+  if (!key) return;
+  activeSortKey = key;
+  activeSortDirection = event.detail?.direction === "asc" ? "asc" : "desc";
   scheduleScoreColumnUpdate();
 }
 
@@ -399,7 +408,7 @@ function initializeScoreComparison() {
   installScoreSortGetters();
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
-  table.addEventListener("click", handleTableSortClick, true);
+  document.addEventListener("backteststock:scan-sort-change", handleScanSortChange);
   document.querySelector("#export-scan")?.addEventListener("click", handleExportClick, true);
   updateMethodologyText();
   restoreSavedRawResults();

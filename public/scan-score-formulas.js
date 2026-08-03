@@ -4,7 +4,7 @@ const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const CACHE_INVALIDATION_SESSION_KEY = "backteststock-metric-cache-invalidated";
 
 function migrateStaleSavedScanJob() {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") return false;
 
   try {
     const job = JSON.parse(window.localStorage.getItem(SCAN_JOB_STORAGE_KEY));
@@ -12,11 +12,11 @@ function migrateStaleSavedScanJob() {
     const stale = results.some((item) => (
       item?.metric_definition_version !== METRIC_DEFINITION_VERSION
     ));
-    if (!stale) return;
+    if (!stale) return false;
 
     if (!Array.isArray(job?.payload?.tickers) || !job.payload.tickers.length) {
       window.localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
-      return;
+      return false;
     }
 
     const reusableResults = results.filter((item) => (
@@ -39,13 +39,15 @@ function migrateStaleSavedScanJob() {
       METRIC_DEFINITION_VERSION,
     );
     window.location.reload();
+    return true;
   } catch (error) {
     console.warn("Unable to migrate saved scan metric version", error);
     window.localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
+    return false;
   }
 }
 
-migrateStaleSavedScanJob();
+export const METRIC_CACHE_MIGRATION_RELOAD_PENDING = migrateStaleSavedScanJob();
 
 export const SCORE_FORMULAS = Object.freeze([
   Object.freeze({

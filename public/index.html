@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="多市場 TWD 投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
-  <link rel="stylesheet" href="/styles.css?v=20260803.3">
-  <script type="module" src="/app.js?v=20260803.3"></script>
-  <script type="module" src="/scan-output-ui.js?v=20260803.2"></script>
-  <script type="module" src="/scan-composite-score.js?v=20260803.2"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260803.5">
+  <script type="module" src="/app.js?v=20260803.6"></script>
+  <script type="module" src="/scan-output-ui.js?v=20260803.4"></script>
+  <script type="module" src="/scan-composite-score.js?v=20260803.4"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -227,6 +227,15 @@
             <h3>個股績效列表</h3>
           </div>
           <div class="toolbar">
+            <label class="inline-control scan-coverage-filter" for="scan-min-coverage">
+              <span>最低資料覆蓋率</span>
+              <input id="scan-min-coverage" type="number" min="0" max="100" step="0.1" value="90" inputmode="decimal" aria-describedby="scan-coverage-filter-status">
+              <span aria-hidden="true">%</span>
+            </label>
+            <span id="scan-coverage-filter-status" class="scan-coverage-filter-status" aria-live="polite"></span>
+            <span id="optimizer-manual-selection-status" class="optimizer-manual-selection-status" aria-live="polite"></span>
+            <button id="clear-optimizer-selection" class="button ghost compact" type="button">清除已選</button>
+            <a id="open-manual-optimizer" class="button secondary" href="/optimizer.html?mode=manual" target="_blank" rel="noopener" aria-disabled="true">使用已選 0 檔開啟最佳化器</a>
             <a id="open-optimizer" class="button secondary" href="/optimizer.html" target="_blank" rel="noopener">開啟投資組合最佳化器</a>
             <button id="export-scan" class="button ghost" type="button">匯出精簡 CSV</button>
             <button id="export-scan-audit" class="button ghost" type="button">匯出稽核 CSV</button>

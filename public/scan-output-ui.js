@@ -3,7 +3,7 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.2";
+} from "./scan-score-formulas.js?v=20260803.3";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const TABLE_SELECTOR = "#scan-table";
@@ -278,6 +278,7 @@ function decorateTable() {
 
   restoreRowsFromSavedJobWithoutScheduling();
   [...table.tBodies[0].rows].forEach((row) => {
+    if (row.dataset.scanEmpty === "true") return;
     const cell = row.cells[0];
     if (!cell) return;
     const ticker = normalizeScoreTicker(row.dataset.ticker || cell.dataset.ticker || cell.textContent);
@@ -335,7 +336,7 @@ function decorateFormulaDetails() {
     list.append(item);
   });
   const note = document.createElement("p");
-  note.textContent = "每格顯示「名次 · 分數」；排名以全部已完成且可計算標的為母體。";
+  note.textContent = "每格顯示「名次 · 分數」；畫面排名以目前符合資料覆蓋率門檻且可計算的標的為母體。";
   details.append(summary, list, note);
   existing.replaceWith(details);
 }
