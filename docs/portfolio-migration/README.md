@@ -17,7 +17,7 @@
 | 階段 | 狀態 | 已完成內容 |
 |---|---|---|
 | PR 0 | 已完成 | 凍結來源 commit、核心 blob SHA、35 項能力矩陣、完整 request／response contract、合成行情與 parity scenarios |
-| PR 1 | 實作中 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合及相容性測試 |
+| PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
 | PR 2～PR 7 | 未開始 | 依本文件順序執行 |
 
 PR 1 使用的版本化資料契約：
