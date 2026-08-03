@@ -49,7 +49,7 @@ function buildAppBar(dialog) {
   });
   close.classList.add("backtest-close-button");
   close.textContent = "關閉";
-  close.setAttribute("aria-label", "關閉投資組合回測並返回績效列表");
+  close.setAttribute("aria-label", "關閉並返回績效列表");
   if (!existingClose) close.addEventListener("click", () => dialog.close());
   actions.append(close);
 
