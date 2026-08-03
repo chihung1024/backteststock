@@ -1,4 +1,4 @@
-const PORTFOLIO_LAB_VERSION = "20260803.1";
+const PORTFOLIO_LAB_VERSION = "20260803.2";
 const PORTFOLIO_LAB_FILES = [
   "portfolio-lab-core.js",
   "portfolio-lab-settings.js",
@@ -22,6 +22,23 @@ function normalizeTicker(value) {
     .toUpperCase()
     .replace(/[^A-Z0-9.^=_-]/g, "")
     .slice(0, 32);
+}
+
+function detachLegacyBacktestPanel() {
+  const panel = document.querySelector("#backtest-panel");
+  if (!panel || !panel.childNodes.length) return null;
+  const wrapper = document.createElement("div");
+  wrapper.id = "legacy-backtest-compat";
+  wrapper.hidden = true;
+  wrapper.setAttribute("aria-hidden", "true");
+  while (panel.firstChild) wrapper.append(panel.firstChild);
+  panel.append(wrapper);
+  return { panel, wrapper };
+}
+
+function restoreLegacyBacktestPanel(legacy) {
+  if (!legacy?.panel || !legacy?.wrapper) return;
+  if (!legacy.wrapper.isConnected) legacy.panel.append(legacy.wrapper);
 }
 
 function loadPortfolioLabStyles() {
@@ -54,6 +71,17 @@ function loadPortfolioLabScript(file) {
   });
 }
 
+function coverageQualifiedTickers(job, thresholdPercent) {
+  const rows = Array.isArray(job?.results) ? job.results : [];
+  const successful = rows.filter((row) => row?.status === "ok" && Number(row.trading_days) > 0);
+  const maximumTradingDays = Math.max(0, ...successful.map((row) => Number(row.trading_days)));
+  if (!maximumTradingDays) return new Set();
+  return new Set(successful
+    .filter((row) => (Number(row.trading_days) / maximumTradingDays) * 100 >= thresholdPercent)
+    .map((row) => normalizeTicker(row.ticker))
+    .filter(Boolean));
+}
+
 function selectedPortfolioLabTickers() {
   const job = readJsonStorage(SCAN_JOB_STORAGE_KEY);
   const selection = readJsonStorage(MANUAL_SELECTION_STORAGE_KEY);
@@ -64,23 +92,10 @@ function selectedPortfolioLabTickers() {
   ) return [];
 
   const benchmark = normalizeTicker(job.payload?.benchmark);
-  const selected = new Set(
-    selection.tickers
-      .map(normalizeTicker)
-      .filter((ticker) => ticker && ticker !== benchmark),
-  );
-
-  const visibleQualified = new Set(
-    [...document.querySelectorAll('#scan-table input[data-optimizer-ticker]')]
-      .filter((checkbox) => !checkbox.disabled)
-      .map((checkbox) => normalizeTicker(checkbox.dataset.optimizerTicker))
-      .filter(Boolean),
-  );
-
-  if (visibleQualified.size) {
-    return [...selected].filter((ticker) => visibleQualified.has(ticker));
-  }
-  return [...selected];
+  const threshold = Math.min(100, Math.max(0, Number(selection.coverageThresholdPercent) || 90));
+  const qualified = coverageQualifiedTickers(job, threshold);
+  return [...new Set(selection.tickers.map(normalizeTicker))]
+    .filter((ticker) => ticker && ticker !== benchmark && qualified.has(ticker));
 }
 
 function installScanSelectionBridge() {
@@ -99,7 +114,7 @@ function installScanSelectionBridge() {
   }, true);
 }
 
-function showLoadFailure(error) {
+function showLoadFailure(error, legacy) {
   console.error("Portfolio lab initialization failed", error);
   const panel = document.querySelector("#backtest-panel");
   if (!panel) return;
@@ -109,17 +124,20 @@ function showLoadFailure(error) {
   message.setAttribute("role", "alert");
   message.textContent = "完整投資組合回測介面載入失敗，請重新整理後再試。";
   panel.append(message);
+  restoreLegacyBacktestPanel(legacy);
 }
 
 async function initializePortfolioLab() {
+  const legacy = detachLegacyBacktestPanel();
   loadPortfolioLabStyles();
   try {
     for (const file of PORTFOLIO_LAB_FILES) {
       await loadPortfolioLabScript(file);
     }
+    restoreLegacyBacktestPanel(legacy);
     installScanSelectionBridge();
   } catch (error) {
-    showLoadFailure(error);
+    showLoadFailure(error, legacy);
   }
 }
 
