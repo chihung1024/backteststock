@@ -70,3 +70,23 @@ test("defaults to 90% coverage and lets the user adjust the visible scan list", 
     "顯示 3 / 4 檔 · 門檻 ≥ 0% · 隱藏 1 檔",
   );
 });
+
+test("preserves the empty-state message when every result is below the threshold", async ({ page }) => {
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+  await page.route("**/api/scan", (route) => fulfillJson(route, [scanRow("LOW", 0.5)]));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "個股掃描" }).click();
+  await page.locator("#scan-tickers").fill("LOW");
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
+  await page.getByRole("button", { name: "開始集體回測" }).click();
+
+  const emptyState = page.locator('#scan-table tr[data-scan-empty="true"] td');
+  await expect(emptyState).toHaveText(
+    "目前沒有符合資料覆蓋率 ≥ 90% 的已完成回測結果。",
+  );
+  await expect(emptyState.locator(".scan-ticker-symbol")).toHaveCount(0);
+});

@@ -278,6 +278,7 @@ function decorateTable() {
 
   restoreRowsFromSavedJobWithoutScheduling();
   [...table.tBodies[0].rows].forEach((row) => {
+    if (row.dataset.scanEmpty === "true") return;
     const cell = row.cells[0];
     if (!cell) return;
     const ticker = normalizeScoreTicker(row.dataset.ticker || cell.dataset.ticker || cell.textContent);
