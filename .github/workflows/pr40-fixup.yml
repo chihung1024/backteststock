@@ -3,6 +3,8 @@ name: PR 40 Review Fixup
 on:
   push:
     branches: [feat/unified-performance-list-coverage]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
