@@ -1813,6 +1813,9 @@ function bindEvents() {
       scanSort.key = key;
       scanSort.direction = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
     }
+    document.dispatchEvent(new CustomEvent("backteststock:scan-sort-change", {
+      detail: { key: scanSort.key, direction: scanSort.direction },
+    }));
     scanPage = 1;
     renderScanTable();
   });

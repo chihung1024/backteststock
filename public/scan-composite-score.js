@@ -309,17 +309,11 @@ function updateScoreColumns() {
   ensureFormulaComparisonNote();
 }
 
-function handleTableSortClick(event) {
-  const header = event.target.closest("th[data-sort-key]");
-  if (!header) return;
-
-  const key = header.dataset.sortKey;
-  if (activeSortKey === key) {
-    activeSortDirection = activeSortDirection === "asc" ? "desc" : "asc";
-  } else {
-    activeSortKey = key;
-    activeSortDirection = ["mdd", "volatility"].includes(key) ? "asc" : "desc";
-  }
+function handleScanSortChange(event) {
+  const key = String(event.detail?.key || "");
+  if (!key) return;
+  activeSortKey = key;
+  activeSortDirection = event.detail?.direction === "asc" ? "asc" : "desc";
   scheduleScoreColumnUpdate();
 }
 
@@ -414,7 +408,7 @@ function initializeScoreComparison() {
   installScoreSortGetters();
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
-  table.addEventListener("click", handleTableSortClick);
+  document.addEventListener("backteststock:scan-sort-change", handleScanSortChange);
   document.querySelector("#export-scan")?.addEventListener("click", handleExportClick, true);
   updateMethodologyText();
   restoreSavedRawResults();
