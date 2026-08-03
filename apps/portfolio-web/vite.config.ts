@@ -1,13 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  root: resolve(__dirname),
+  root,
   base: "/portfolio/",
   plugins: [react()],
   build: {
-    outDir: resolve(__dirname, "../../public/portfolio"),
+    outDir: resolve(root, "../../public/portfolio"),
     emptyOutDir: true,
     sourcemap: true,
     target: "es2022",
