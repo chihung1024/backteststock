@@ -1,8 +1,8 @@
 """Auditable price, distribution, and total-return components in TWD.
 
-The unified product values every asset in TWD.  A portfolio ledger needs more
+The unified product values every asset in TWD. A portfolio ledger needs more
 than a total-return adjusted-close series because users may retain cash
-distributions instead of reinvesting them.  This module decomposes the exact
+distributions instead of reinvesting them. This module decomposes the exact
 adjusted-close total return into a price component and a non-negative cash
 component, then converts both through the same no-look-ahead TWD valuation
 calendar used by the scanner, backtest, and exhaustive optimizer.
@@ -64,11 +64,11 @@ def native_components_from_adjusted_close(
     """Build an exact additive decomposition from an audited adjusted series.
 
     ``api.market_data`` records cleaned raw Close, dividends, and capital-gain
-    distributions in the adjusted series attrs.  Reported cash distributions
-    are converted to returns using the previous raw close.  The price component
+    distributions in the adjusted series attrs. Reported cash distributions
+    are converted to returns using the previous raw close. The price component
     is then defined as ``total - distribution`` so the additive identity is
     exact even when Yahoo rounds its adjustment factor or a split changes the
-    raw-price scale.  If that price component would imply a loss of 100% or
+    raw-price scale. If that price component would imply a loss of 100% or
     worse, the function falls back to the raw price return and derives the cash
     residual conservatively.
     """
@@ -76,7 +76,9 @@ def native_components_from_adjusted_close(
     adjusted = _clean_positive_series(adjusted_close, label="adjusted close")
     attrs = dict(getattr(adjusted_close, "attrs", {}) or {})
     raw = _clean_optional_positive_series(attrs.get("raw_close"), adjusted.index)
-    dividends = _clean_optional_nonnegative_series(attrs.get("dividends"), adjusted.index)
+    dividends = _clean_optional_nonnegative_series(
+        attrs.get("dividends"), adjusted.index
+    )
     capital_gains = _clean_optional_nonnegative_series(
         attrs.get("capital_gains"), adjusted.index
     )
@@ -112,7 +114,9 @@ def native_components_from_adjusted_close(
         distributions.loc[valid_cash] / previous_raw.loc[valid_cash]
     )
     reported_cash = reported_cash.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    reported_cash = reported_cash.clip(lower=0.0).rename("reported_distribution_return")
+    reported_cash = reported_cash.clip(lower=0.0).rename(
+        "reported_distribution_return"
+    )
 
     raw_price = raw.pct_change(fill_method=None).fillna(0.0).rename("raw_price_return")
     cash = reported_cash.copy()
@@ -171,8 +175,8 @@ def value_components_in_twd(
     """Convert native components to TWD without backward-filling future data.
 
     The valuation calendar is the union of the native adjusted-close calendar
-    and the FX calendar.  Native and FX levels are forward-filled only after
-    their own first observations.  Missing asset-market returns on FX-only days
+    and the FX calendar. Native and FX levels are forward-filled only after
+    their own first observations. Missing asset-market returns on FX-only days
     are zero; the FX return still changes both the price and total TWD value.
     Cash distributions are converted at the contemporaneous FX movement using
     ``native_distribution * (1 + fx_return)``.
@@ -183,18 +187,18 @@ def value_components_in_twd(
     if currency == VALUATION_CURRENCY:
         calendar = adjusted.index
         fx = pd.Series(1.0, index=calendar, dtype=float, name="fx_to_twd")
-        usable = pd.Series(True, index=calendar)
     else:
         if fx_to_twd is None:
             raise TWDValuationError(
-                f"{currency} return components require a verified {currency}/TWD FX series"
+                f"{currency} return components require a verified "
+                f"{currency}/TWD FX series"
             )
         source_fx = _clean_positive_series(fx_to_twd, label="FX to TWD")
         calendar = adjusted.index.union(source_fx.index).sort_values().unique()
         native_level = adjusted.reindex(calendar).ffill()
         fx = source_fx.reindex(calendar).ffill().rename("fx_to_twd")
         usable = native_level.notna() & fx.notna()
-        calendar = calendar[usable]
+        calendar = calendar[usable.to_numpy()]
         fx = fx.loc[calendar]
         if len(calendar) < 1:
             raise TWDValuationError(
@@ -208,8 +212,12 @@ def value_components_in_twd(
     fx_return = fx.pct_change(fill_method=None).fillna(0.0)
     fx_return.iloc[0] = 0.0
 
-    total = ((1.0 + native_total) * (1.0 + fx_return) - 1.0).rename("total_return")
-    cash = (native_distribution * (1.0 + fx_return)).rename("distribution_return")
+    total = ((1.0 + native_total) * (1.0 + fx_return) - 1.0).rename(
+        "total_return"
+    )
+    cash = (native_distribution * (1.0 + fx_return)).rename(
+        "distribution_return"
+    )
     price = (total - cash).rename("price_return")
 
     invalid_price = (~np.isfinite(price)) | price.le(-1.0 + _EPSILON)
@@ -236,7 +244,9 @@ def value_components_in_twd(
             "contract_version": RETURN_COMPONENTS_CONTRACT_VERSION,
             "valuation_currency": VALUATION_CURRENCY,
             "source_currency": currency,
-            "calendar_policy": "union_native_fx_forward_fill_after_observation_no_backward_fill",
+            "calendar_policy": (
+                "union_native_fx_forward_fill_after_observation_no_backward_fill"
+            ),
             "observations": int(len(calendar)),
             "distribution_events": int(cash.gt(0.0).sum()),
         },
@@ -254,8 +264,9 @@ def total_only_components(
     total = adjusted.pct_change(fill_method=None).fillna(0.0).rename("total_return")
     cash = pd.Series(0.0, index=adjusted.index, name="distribution_return")
     price = total.copy().rename("price_return")
+    currency = _normalize_currency(source_currency)
     return TWDReturnComponents(
-        source_currency=_normalize_currency(source_currency),
+        source_currency=currency,
         fx_to_twd=pd.Series(1.0, index=adjusted.index, name="fx_to_twd"),
         total_returns=total,
         price_returns=price,
@@ -266,7 +277,7 @@ def total_only_components(
             "contract_version": RETURN_COMPONENTS_CONTRACT_VERSION,
             "status": "total_return_only",
             "valuation_currency": VALUATION_CURRENCY,
-            "source_currency": _normalize_currency(source_currency),
+            "source_currency": currency,
             "calendar_policy": "existing_twd_history",
             "observations": int(len(adjusted)),
             "distribution_events": 0,
@@ -288,7 +299,10 @@ def _clean_positive_series(values: pd.Series, *, label: str) -> pd.Series:
     return result.astype(float)
 
 
-def _clean_optional_positive_series(values: Any, index: pd.DatetimeIndex) -> pd.Series:
+def _clean_optional_positive_series(
+    values: Any,
+    index: pd.DatetimeIndex,
+) -> pd.Series:
     if not isinstance(values, pd.Series):
         return pd.Series(dtype=float, name="raw_close")
     try:
@@ -298,7 +312,10 @@ def _clean_optional_positive_series(values: Any, index: pd.DatetimeIndex) -> pd.
     return cleaned.reindex(index).rename("raw_close")
 
 
-def _clean_optional_nonnegative_series(values: Any, index: pd.DatetimeIndex) -> pd.Series:
+def _clean_optional_nonnegative_series(
+    values: Any,
+    index: pd.DatetimeIndex,
+) -> pd.Series:
     if not isinstance(values, pd.Series):
         return pd.Series(0.0, index=index, dtype=float)
     source_index = _datetime_index(values.index, label="distribution")
