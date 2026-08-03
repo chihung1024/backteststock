@@ -31,7 +31,7 @@
 - `PORTFOLIO_SERVICE_CONTRACT_VERSION = portfolio-service-twd-2026-08-04.1`
 - `PORTFOLIO_API_CONTRACT_VERSION = portfolio-v3`
 - `PORTFOLIO_API_SCHEMA_VERSION = portfolio-v3-2026-08-04.1`
-- `PORTFOLIO_ANALYTICS_CONTRACT_VERSION = portfolio-analytics-twd-2026-08-04.1`
+- `PORTFOLIO_ANALYTICS_CONTRACT_VERSION = portfolio-analytics-twd-2026-08-04.2`
 
 ## 凍結來源
 
@@ -97,7 +97,7 @@ PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前
 
 - `docs/portfolio-migration/PR3_PORTFOLIO_V3_API.md`
 
-PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。現有舊 Portfolio Lab 路徑仍保留到 PR 6，避免在新全頁式介面完成前破壞正式功能。
+PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。現有舊 Portfolio Lab 路徑仍保留到 PR 6，避免在新全頁式介面完成前破壞正式功能。Macro regime 在缺少必要 rolling 或 YoY 證據的月份保持未分類，不以預設分支虛構環境標籤。
 
 ## 差異治理
 
