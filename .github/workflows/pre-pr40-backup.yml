@@ -1,0 +1,34 @@
+name: Temporary PR 40 Pre-Merge Backup
+
+on:
+  push:
+    branches: [feat/unified-performance-list-coverage]
+
+permissions:
+  contents: write
+
+jobs:
+  create-pre-merge-backup:
+    if: contains(github.event.head_commit.message, '[pre-backup:pr40]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create and verify pre-merge Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRE_SHA: a6ddfdde3cab9f6dbab1129eec71dec8c0291dab
+        run: |
+          set -euo pipefail
+          pre_tag="backup-pre-pr40-${PRE_SHA:0:12}"
+          if ! gh release view "$pre_tag" >/dev/null 2>&1; then
+            gh release create "$pre_tag" \
+              --target "$PRE_SHA" \
+              --title "Backup before PR #40" \
+              --notes "Backup of main before PR #40. Target: $PRE_SHA"
+          fi
+          git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
+          resolved_sha="$(git rev-list -n 1 "$pre_tag")"
+          test "$resolved_sha" = "$PRE_SHA"
+          gh release view "$pre_tag" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"
