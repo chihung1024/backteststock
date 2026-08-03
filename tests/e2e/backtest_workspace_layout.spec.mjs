@@ -150,9 +150,9 @@ test("portfolio lab ports the original functional design and result dashboard", 
   await lab.getByRole("tab", { name: "月報酬熱圖" }).click();
   await expect(lab.locator(".pl-heatmap")).toBeVisible();
   await expect(lab.locator('.pl-heatmap td[data-heat="0.04"]')).toHaveCSS("background-color", /rgba?\(/);
-  await lab.getByRole("tab", { name: "配置" }).click();
+  await lab.getByRole("tab", { name: "配置", exact: true }).click();
   await expect(lab.locator(".pl-allocation-card")).toHaveCount(2);
-  await lab.getByRole("tab", { name: "分析" }).click();
+  await lab.getByRole("tab", { name: "分析", exact: true }).click();
   await expect(lab.getByText("Fama–French", { exact: true }).first()).toBeVisible();
 
   await dialog.getByRole("button", { name: "關閉並返回績效列表" }).click();
