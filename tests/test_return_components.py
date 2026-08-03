@@ -169,9 +169,9 @@ def test_market_data_retains_clean_component_inputs_in_series_attrs() -> None:
     attrs = extracted["AAA"].attrs
 
     assert attrs["return_component_source_version"] == RETURN_COMPONENT_SOURCE_VERSION
-    assert attrs["raw_close"].tolist() == [100.0, 101.0]
-    assert attrs["dividends"].tolist() == [0.0, 1.0]
-    assert attrs["capital_gains"].tolist() == [0.0, 0.0]
+    np.testing.assert_allclose(attrs["raw_close"], [100.0, 101.0])
+    np.testing.assert_allclose(attrs["dividends"], [0.0, 1.0])
+    np.testing.assert_allclose(attrs["capital_gains"], [0.0, 0.0])
     assert "components" in MARKET_DATA_CONTRACT_VERSION
 
 
@@ -186,11 +186,11 @@ def test_minor_unit_scaling_applies_to_prices_and_cash_but_not_split_ratios() ->
     }
     scaled = _scale_native_prices(adjusted, 0.01)
 
-    assert scaled.tolist() == [10.0, 10.2]
-    assert scaled.attrs["raw_close"].tolist() == [10.0, 10.1]
-    assert scaled.attrs["dividends"].tolist() == [0.0, 0.1]
-    assert scaled.attrs["capital_gains"].tolist() == [0.0, 0.05]
-    assert scaled.attrs["stock_splits"].tolist() == [0.0, 2.0]
+    np.testing.assert_allclose(scaled, [10.0, 10.2])
+    np.testing.assert_allclose(scaled.attrs["raw_close"], [10.0, 10.1])
+    np.testing.assert_allclose(scaled.attrs["dividends"], [0.0, 0.1])
+    np.testing.assert_allclose(scaled.attrs["capital_gains"], [0.0, 0.05])
+    np.testing.assert_allclose(scaled.attrs["stock_splits"], [0.0, 2.0])
 
 
 def test_twd_asset_history_exposes_components_without_changing_daily_returns() -> None:
