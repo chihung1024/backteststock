@@ -1,0 +1,70 @@
+# Portfolio Lab 完全移植計畫
+
+本目錄是 `chihung1024/backtest` 完全移植至 `chihung1024/backteststock` 的不可省略驗收契約。最終產品必須是 `backteststock` 內的單一獨立 `/portfolio/` 專頁，並移除舊 repository、舊 GitHub Pages、舊 Vercel project 與跨專案 API 代理。
+
+## 不可變更的目標
+
+1. 唯一正式 repository：`chihung1024/backteststock`。
+2. 唯一正式前端：`/portfolio/` 全頁式應用，不使用 `<dialog>` 或 iframe 承載主功能。
+3. 唯一後端：`backteststock` 自有 API；正式 runtime 不得呼叫 `portfolio-backtest-api.vercel.app`。
+4. 唯一資料核心：現有 TWD History、FX、公司行為稽核、指紋與 metric-version 架構。
+5. 原專案較完整的現金流、股息、再平衡、交易成本、槓桿、XIRR、完整指標及分析功能，必須在上述核心上重新實作。
+6. Scanner、一般投組回測與 Exhaustive Optimizer 必須共享同一 TWD 資料契約，不另建第二套 Yahoo／FX 下載邏輯。
+7. 每個遷移 PR 必須完成測試、合併 `main`、正式部署驗證與 post-merge Release 後，才進入下一階段。
+
+## 凍結來源
+
+原專案行為基準固定於 commit：
+
+`36eab9a380b69f0f3bd86c3906066f4f56e715bc`
+
+詳細檔案 blob SHA、功能清單及契約 fixture 見：
+
+- `tests/fixtures/portfolio_migration/source_manifest.json`
+- `tests/fixtures/portfolio_migration/capability_matrix.json`
+- `tests/fixtures/portfolio_migration/legacy_request.json`
+- `tests/fixtures/portfolio_migration/legacy_response_shape.json`
+- `tests/fixtures/portfolio_migration/synthetic_market_data.csv`
+- `tests/fixtures/portfolio_migration/scenarios.json`
+
+## 分階段執行
+
+| 階段 | 交付內容 | 正式功能影響 |
+|---|---|---|
+| PR 0 | 凍結來源、能力矩陣、請求／回應 fixture、合成行情與測試契約 | 無 |
+| PR 1 | TWD 報酬組成資料層：價格、配發、公司行為與 FX 可稽核分解 | 資料模型擴充，既有流程保持相容 |
+| PR 2 | Portfolio Ledger、現金流、配息策略、成本、再平衡、槓桿與完整指標 | 新自有回測核心 |
+| PR 3 | FastAPI Portfolio v3、Preflight、進階分析及型別契約 | 新自有 API |
+| PR 4 | React + TypeScript `/portfolio/` 單一獨立專頁 | 新正式介面 |
+| PR 5 | Scanner → Portfolio 正常頁面導覽與狀態保留 | 移除主要 Dialog 流程 |
+| PR 6 | 切換正式 API、刪除舊代理與舊網域 runtime 依賴 | 完成技術斬斷 |
+| PR 7 | 遷移通知、觀察期、停用並刪除原專案與舊 Vercel project | 完成下線 |
+
+## 差異治理
+
+「移植」不是要求複製原專案的缺陷。下列改良允許產生與舊版不同的結果，但必須：
+
+1. 在 capability matrix 標記 `improved`。
+2. 建立固定 fixture 或合成行情證明差異原因。
+3. 在 PR 說明列出舊行為、新行為與財務意義。
+4. 變更 metric／valuation contract version。
+
+預先核准的改良方向包括：
+
+- XIRR 無解或多重解明確回報，不假裝存在唯一答案。
+- 第一個不完整年度／月份明確標記 partial。
+- VaR／CVaR 明示為歷史模擬每日風險值。
+- 風格分析採真正的非負、合計 100% 受約束回歸。
+- 因子分析區分資產因子與 TWD 投資人的 FX 曝險。
+- 主回測、Benchmark 與進階分析採分級失敗，不因附加分析失敗抹除有效主結果。
+
+## 完成定義
+
+原專案只能在以下條件全部成立後刪除：
+
+- capability matrix 所有 `required` 項目均為 `implemented` 或經核准的 `improved`。
+- 正式 runtime code 不含舊 API、舊 Pages 路徑、`/api/portfolio-lab/` 或 `integrated-backtest-dialog`。
+- `/portfolio/` 可直接開啟、重新整理、分享與從 Scanner 導入。
+- 新 API production smoke 涵蓋混合市場、現金流、股息、再平衡、成本及槓桿。
+- 新舊平行對照完成，差異均有書面解釋。
+- 至少兩次正式發布或 30 天觀察期內無舊 API 依賴。
