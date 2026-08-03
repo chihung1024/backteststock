@@ -106,6 +106,9 @@ function requestPayload(portfolios) {
     output_frequency: state.outputFrequency,
   };
 }
+function publishPortfolioLabResult(payload) {
+  window.dispatchEvent(new CustomEvent("portfolio-lab:result", { detail: payload }));
+}
 async function runBacktest() {
   const { errors, portfolios } = validate();
   if (errors.length) { state.activeConfigTab = "assets"; render(); requestAnimationFrame(() => announce(errors.join("\n"), "error")); return; }
@@ -119,6 +122,7 @@ async function runBacktest() {
       throw new Error(detail);
     }
     response = payload; activeResultTab = "overview"; selectedResult = 0; render();
+    publishPortfolioLabResult(payload);
     requestAnimationFrame(() => mount.querySelector("#pl-results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   } catch (error) { if (error.name !== "AbortError") announce(error.message, "error"); }
   finally { const next = mount.querySelector("#pl-run"); if (next) { next.disabled = false; next.textContent = t("run"); } }
