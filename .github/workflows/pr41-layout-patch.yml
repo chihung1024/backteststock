@@ -1,0 +1,39 @@
+name: PR 41 Layout Patch
+
+on:
+  push:
+    branches: [feat/restore-original-backtest-layout]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr41-layout-patch
+  cancel-in-progress: true
+
+jobs:
+  apply-layout-references:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/restore-original-backtest-layout
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Patch index asset references
+        run: |
+          python scripts/pr41_layout_patch.py
+          git diff --check
+      - name: Commit generated index update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: load original-inspired backtest workspace"
+            git push origin HEAD:feat/restore-original-backtest-layout
+          fi
