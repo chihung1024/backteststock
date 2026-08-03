@@ -1,6 +1,7 @@
 import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
 
 const STORAGE_KEY = "backteststock-state-v2";
+const BACKTEST_DATE_MODE_STORAGE_KEY = "backteststock-backtest-date-mode-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
@@ -77,6 +78,27 @@ function normalizeSavedDate(value, boundary) {
     return migrated > defaultRange.endDate ? defaultRange.endDate : migrated;
   }
   return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
+}
+
+function savedRangeUsesRollingDefaults(settings) {
+  const endDate = String(settings?.endPeriod || "").trim();
+  if (!isValidLocalIsoDate(endDate)) return false;
+  const [year, month, day] = endDate.split("-").map(Number);
+  const anchor = new Date(year, month - 1, day);
+  anchor.setDate(anchor.getDate() + 1);
+  const expected = rollingDefaultRange(anchor);
+  return String(settings?.startPeriod || "").trim() === expected.startDate
+    && endDate === expected.endDate;
+}
+
+function resolveSavedBacktestDateMode(settings) {
+  const stored = localStorage.getItem(BACKTEST_DATE_MODE_STORAGE_KEY);
+  if (stored === "rolling" || stored === "custom") return stored;
+  return savedRangeUsesRollingDefaults(settings) ? "rolling" : "custom";
+}
+
+function saveBacktestDateMode(mode) {
+  localStorage.setItem(BACKTEST_DATE_MODE_STORAGE_KEY, mode);
 }
 
 function scanPayloadDate(payload, boundary) {
@@ -212,6 +234,13 @@ function loadState() {
         parsed.settings.endPeriod,
         "end",
       );
+      const dateMode = resolveSavedBacktestDateMode(parsed.settings);
+      if (dateMode === "rolling") {
+        parsed.settings.startPeriod = defaultRange.startDate;
+        parsed.settings.endPeriod = defaultRange.endDate;
+      }
+      saveBacktestDateMode(dateMode);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
       return parsed;
     }
   } catch (error) {
@@ -577,6 +606,10 @@ function syncSettings() {
   };
   document.querySelector("#benchmark").value = state.settings.benchmark;
   saveState();
+}
+
+function markBacktestDatesCustom() {
+  saveBacktestDateMode("custom");
 }
 
 function buildBacktestPayload() {
@@ -1464,6 +1497,8 @@ function bindEvents() {
   dom.portfolioList.addEventListener("input", handlePortfolioInput);
   dom.portfolioList.addEventListener("click", handlePortfolioClick);
   dom.backtestForm.addEventListener("submit", runBacktest);
+  document.querySelector("#start-period").addEventListener("input", markBacktestDatesCustom);
+  document.querySelector("#end-period").addEventListener("input", markBacktestDatesCustom);
   dom.scanForm.addEventListener("submit", runScan);
   document.querySelector("#run-screener").addEventListener("click", runScreener);
   document.querySelector("#add-portfolio").addEventListener("click", () => {
