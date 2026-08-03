@@ -35,7 +35,7 @@ test("backtest opens as an original-inspired research workspace", async ({ page 
   await expect(dialog.locator(".backtest-run-bar #run-backtest")).toBeVisible();
   await expect(page.locator("body")).toHaveClass(/backtest-workspace-open/);
 
-  await dialog.getByRole("button", { name: "關閉投資組合回測並返回績效列表" }).click();
+  await dialog.getByRole("button", { name: "關閉並返回績效列表" }).click();
   await expect(dialog).toHaveJSProperty("open", false);
   await expect(page.locator("body")).not.toHaveClass(/backtest-workspace-open/);
 });
