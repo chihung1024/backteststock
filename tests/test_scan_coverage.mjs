@@ -95,3 +95,37 @@ test("relative coverage rejects invalid denominators", () => {
   assert.equal(relativeScanCoverage({ ...row, trading_days: 0 }, 100), null);
   assert.equal(relativeScanCoverage(row, 100), 1);
 });
+
+
+test("coverage derivation exposes sortable score fields", () => {
+  const rows = [
+    {
+      ticker: "HIGH",
+      status: "ok",
+      trading_days: 1000,
+      sortino_ratio: 2,
+      cagr: 0.25,
+      beta: 0.8,
+      mdd: -0.15,
+    },
+    {
+      ticker: "LOW",
+      status: "ok",
+      trading_days: 950,
+      sortino_ratio: 1,
+      cagr: 0.10,
+      beta: 1.1,
+      mdd: -0.25,
+    },
+  ];
+
+  const derived = deriveScanCoverage(rows);
+  const high = derived.settled.find((item) => item.ticker === "HIGH");
+  const low = derived.settled.find((item) => item.ticker === "LOW");
+  assert.ok(Number.isFinite(high.sortino_growth_beta_score));
+  assert.ok(Number.isFinite(high.sortino_growth_beta_quarter_score));
+  assert.ok(Number.isFinite(high.sortino_growth_beta_mdd_score));
+  assert.ok(high.sortino_growth_beta_score > low.sortino_growth_beta_score);
+  assert.equal(high.sortino_growth_beta_rank, 1);
+  assert.equal(low.sortino_growth_beta_rank, 2);
+});

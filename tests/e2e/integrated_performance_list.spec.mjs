@@ -147,3 +147,87 @@ test("integrates selected stocks and portfolio results into one performance work
   await expect(portfolioRow).toContainText("95.00%");
   await expect(portfolioRow).toContainText("950");
 });
+
+
+test("integrated backtest ignores a stale optimizer selection from another scan job", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "current-scan",
+      status: "completed",
+      payload: {
+        tickers: ["AAA"],
+        benchmark: "SPY",
+        startDate: "2022-01-01",
+        endDate: "2025-12-31",
+      },
+      pending: [],
+      results: [{
+        ticker: "AAA",
+        status: "ok",
+        retryable: false,
+        trading_days: 1000,
+        metric_definition_version: "2026-08-01.2",
+      }],
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "old-scan",
+      coverageThresholdPercent: 90,
+      tickers: ["AAA"],
+    }));
+  });
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+
+  await page.goto("/");
+  await expect(page.locator("#scanner-panel")).toBeVisible();
+  await expect(page.locator("#open-integrated-backtest")).toBeDisabled();
+});
+
+test("integrated backtest rejects a saved ticker below the current coverage threshold", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "current-scan",
+      status: "completed",
+      payload: {
+        tickers: ["AAA", "LOW"],
+        benchmark: "SPY",
+        startDate: "2022-01-01",
+        endDate: "2025-12-31",
+      },
+      pending: [],
+      results: [
+        {
+          ticker: "AAA",
+          status: "ok",
+          retryable: false,
+          trading_days: 1000,
+          metric_definition_version: "2026-08-01.2",
+        },
+        {
+          ticker: "LOW",
+          status: "ok",
+          retryable: false,
+          trading_days: 800,
+          metric_definition_version: "2026-08-01.2",
+        },
+      ],
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "current-scan",
+      coverageThresholdPercent: 90,
+      tickers: ["LOW"],
+    }));
+  });
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+
+  await page.goto("/");
+  await expect(page.locator("#scanner-panel")).toBeVisible();
+  await expect(page.locator("#open-integrated-backtest")).toBeDisabled();
+});

@@ -1,3 +1,9 @@
+import {
+  SCORE_FORMULAS,
+  buildScoreMatrix,
+  scoreRecordFor,
+} from "./scan-score-core.js?v=20260803.1";
+
 export const DEFAULT_SCAN_MIN_COVERAGE_PERCENT = 90;
 export const SCAN_COVERAGE_DEFINITION_VERSION = "relative-max-trading-days-v1";
 
@@ -43,13 +49,25 @@ export function deriveScanCoverage(items) {
     Math.max(maximum, validTradingDays(item) || 0)
   ), 0);
 
-  const settled = settledSource.map((item) => ({
+  const prepared = settledSource.map((item) => ({
     ...item,
     benchmark_calendar_coverage: item?.benchmark_calendar_coverage ?? item?.data_coverage ?? null,
     data_coverage: relativeScanCoverage(item, maximumTradingDays),
     coverage_reference_trading_days: maximumTradingDays || null,
     coverage_definition_version: SCAN_COVERAGE_DEFINITION_VERSION,
   }));
+
+  const scoreMatrix = buildScoreMatrix(prepared);
+  const settled = prepared.map((item) => {
+    const scored = { ...item };
+    for (const formula of SCORE_FORMULAS) {
+      const record = scoreRecordFor(scoreMatrix, item.ticker, formula.key);
+      scored[formula.key] = Number.isFinite(record?.score) ? record.score : null;
+      scored[formula.rankKey] = Number.isInteger(record?.rank) ? record.rank : null;
+      scored[formula.statusKey] = record?.status || "missing";
+    }
+    return scored;
+  });
 
   return {
     settled,

@@ -68,11 +68,28 @@ function currentCoverageStats() {
   return buildScanCoverageStats(readScanJob()?.results || [], currentThreshold());
 }
 
-function selectedTickers() {
+function selectedTickers(stats = currentCoverageStats()) {
+  const job = readScanJob();
   const selection = readJson(localStorage, MANUAL_SELECTION_KEY, null);
-  return Array.isArray(selection?.tickers)
-    ? selection.tickers.map(normalizeScoreTicker).filter(Boolean)
-    : [];
+  if (
+    !job?.id
+    || selection?.sourceJobId !== job.id
+    || !Array.isArray(selection?.tickers)
+  ) {
+    return [];
+  }
+
+  const benchmark = normalizeScoreTicker(job.payload?.benchmark);
+  const selectable = new Set(
+    stats.shown
+      .map((item) => normalizeScoreTicker(item?.ticker))
+      .filter((ticker) => ticker && ticker !== benchmark),
+  );
+  return [...new Set(
+    selection.tickers
+      .map(normalizeScoreTicker)
+      .filter((ticker) => selectable.has(ticker)),
+  )];
 }
 
 function savedPortfolioRows() {
