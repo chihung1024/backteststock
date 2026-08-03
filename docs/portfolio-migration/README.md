@@ -12,6 +12,19 @@
 6. Scanner、一般投組回測與 Exhaustive Optimizer 必須共享同一 TWD 資料契約，不另建第二套 Yahoo／FX 下載邏輯。
 7. 每個遷移 PR 必須完成測試、合併 `main`、正式部署驗證與 post-merge Release 後，才進入下一階段。
 
+## 執行進度
+
+| 階段 | 狀態 | 已完成內容 |
+|---|---|---|
+| PR 0 | 已完成 | 凍結來源 commit、核心 blob SHA、35 項能力矩陣、完整 request／response contract、合成行情與 parity scenarios |
+| PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
+| PR 2～PR 7 | 未開始 | 依本文件順序執行 |
+
+PR 1 使用的版本化資料契約：
+
+- `RETURN_COMPONENT_SOURCE_VERSION = yahoo-close-events-2026-08-04.1`
+- `RETURN_COMPONENTS_CONTRACT_VERSION = twd-return-components-2026-08-04.1`
+
 ## 凍結來源
 
 原專案行為基準固定於 commit：
@@ -39,6 +52,28 @@
 | PR 5 | Scanner → Portfolio 正常頁面導覽與狀態保留 | 移除主要 Dialog 流程 |
 | PR 6 | 切換正式 API、刪除舊代理與舊網域 runtime 依賴 | 完成技術斬斷 |
 | PR 7 | 遷移通知、觀察期、停用並刪除原專案與舊 Vercel project | 完成下線 |
+
+## PR 1 報酬組成契約
+
+原有 Adjusted Close 總報酬仍是 Scanner、一般回測與 Optimizer 的既有真值；新增組成層不改寫其歷史結果。
+
+在原生報價幣別中：
+
+```text
+Total Return = Price Return + Distribution Return
+```
+
+其中 Distribution Return 由 Yahoo 報告的現金股利與資本利得配發，以前一有效 Raw Close 換算。Price Return 定義為總報酬扣除配發報酬，確保加法恆等式精確成立，並避免將拆股造成的 Raw Close 尺度跳變誤認為投資損益。
+
+換算 TWD 時：
+
+```text
+TWD Total Return = (1 + Native Total Return) × (1 + FX Return) - 1
+TWD Distribution Return = Native Distribution Return × (1 + FX Return)
+TWD Price Return = TWD Total Return - TWD Distribution Return
+```
+
+資產與 FX 使用聯集日曆，只在各自已有真實觀察後向前填補，禁止 backward fill。這使下一階段的 Portfolio Ledger 能正確比較「股息再投入」與「配息保留 TWD 現金」，而不重複計入 Adjusted Close 已內含的總報酬。
 
 ## 差異治理
 

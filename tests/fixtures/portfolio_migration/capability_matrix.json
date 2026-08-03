@@ -11,7 +11,7 @@
     {"id":"market.twd_daily","area":"data","required":true,"phase":1,"status":"implemented","acceptance":"all portfolio values use the existing daily TWD valuation contract"},
     {"id":"market.union_calendar","area":"data","required":true,"phase":1,"status":"implemented","acceptance":"asset and FX calendars use union valuation with forward fill only after observation and no look-ahead"},
     {"id":"market.partial_success","area":"data","required":true,"phase":1,"status":"implemented","acceptance":"one symbol or portfolio failure does not erase unrelated successful histories or portfolios"},
-    {"id":"market.return_components","area":"data","required":true,"phase":1,"status":"planned","acceptance":"TWD price return, cash distribution return and total return are separately auditable"},
+    {"id":"market.return_components","area":"data","required":true,"phase":1,"status":"implemented","acceptance":"TWD price return, cash distribution return and total return are separately auditable"},
     {"id":"market.corporate_actions","area":"data","required":true,"phase":1,"status":"implemented","acceptance":"split, reverse split, distributions and repair metadata remain auditable"},
     {"id":"simulation.cashflow_fixed","area":"simulation","required":true,"phase":2,"status":"planned","acceptance":"fixed periodic contributions and withdrawals support beginning or end timing and annual growth"},
     {"id":"simulation.cashflow_percent","area":"simulation","required":true,"phase":2,"status":"planned","acceptance":"portfolio-value percentage contributions and withdrawals are path dependent and capped safely"},

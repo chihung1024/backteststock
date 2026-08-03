@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Iterable
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 from cachetools import TTLCache
@@ -20,7 +21,11 @@ from api.metrics import DATA_SOURCE_SETTINGS
 
 logger = logging.getLogger(__name__)
 
-MARKET_DATA_CONTRACT_VERSION = f"adjusted-close-actions-{CORPORATE_ACTION_POLICY_VERSION}"
+RETURN_COMPONENT_SOURCE_VERSION = "yahoo-close-events-2026-08-04.1"
+MARKET_DATA_CONTRACT_VERSION = (
+    f"adjusted-close-actions-components-{CORPORATE_ACTION_POLICY_VERSION}-"
+    f"{RETURN_COMPONENT_SOURCE_VERSION}"
+)
 DEFAULT_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = (0.0, 1.5, 5.0)
 DEFAULT_TIMEOUT_SECONDS = 12
@@ -68,6 +73,121 @@ def _cache_key(ticker: str, start_date, end_date):
     return MARKET_DATA_CONTRACT_VERSION, ticker, str(start_date), str(end_date)
 
 
+def _field_table(downloaded: pd.DataFrame, field: str):
+    if not isinstance(downloaded, pd.DataFrame) or downloaded.empty:
+        return None
+    if isinstance(downloaded.columns, pd.MultiIndex):
+        for level in range(downloaded.columns.nlevels):
+            if field in set(downloaded.columns.get_level_values(level)):
+                return downloaded.xs(field, axis=1, level=level, drop_level=True)
+        return None
+    if field in downloaded.columns:
+        return downloaded[field]
+    return None
+
+
+def _ticker_series(table, ticker: str, ticker_count: int):
+    if table is None:
+        return None
+    if isinstance(table, pd.Series):
+        return table if ticker_count == 1 else None
+    if not isinstance(table, pd.DataFrame):
+        return None
+    if ticker in table.columns:
+        return table[ticker]
+    if isinstance(table.columns, pd.MultiIndex):
+        matches = [column for column in table.columns if ticker in column]
+        if len(matches) == 1:
+            return table[matches[0]]
+    if ticker_count == 1 and len(table.columns) == 1:
+        return table.iloc[:, 0]
+    return None
+
+
+def _normalise_component(raw, *, name: str, event: bool = False) -> pd.Series:
+    if raw is None:
+        return pd.Series(dtype=float, name=name)
+    values = pd.to_numeric(raw, errors="coerce").astype(float)
+    values = values.replace([np.inf, -np.inf], np.nan)
+    values = values.fillna(0.0) if event else values.dropna()
+    if event:
+        values = values.clip(lower=0.0)
+    else:
+        values = values[values > 0.0]
+    if values.empty:
+        return pd.Series(dtype=float, name=name)
+    index = pd.DatetimeIndex(pd.to_datetime(values.index))
+    if index.tz is not None:
+        index = index.tz_convert(None)
+    values = values.copy()
+    values.index = index.normalize()
+    values = values.loc[~values.index.duplicated(keep="last")].sort_index()
+    values.name = name
+    return values.astype(float)
+
+
+def _normalise_repaired(raw) -> pd.Series:
+    if raw is None:
+        return pd.Series(dtype=bool, name="Repaired?")
+    values = pd.Series(raw).fillna(False).astype(bool)
+    if values.empty:
+        return pd.Series(dtype=bool, name="Repaired?")
+    index = pd.DatetimeIndex(pd.to_datetime(values.index))
+    if index.tz is not None:
+        index = index.tz_convert(None)
+    values.index = index.normalize()
+    values = values.loc[~values.index.duplicated(keep="last")].sort_index()
+    values.name = "Repaired?"
+    return values
+
+
+def _attach_return_component_attrs(
+    downloaded: pd.DataFrame,
+    requested: list[str],
+    extracted: dict[str, pd.Series],
+) -> None:
+    """Attach cleaned component inputs without changing the public return type."""
+
+    tables = {
+        "raw_close": _field_table(downloaded, "Close"),
+        "dividends": _field_table(downloaded, "Dividends"),
+        "capital_gains": _field_table(downloaded, "Capital Gains"),
+        "stock_splits": _field_table(downloaded, "Stock Splits"),
+        "repaired": _field_table(downloaded, "Repaired?"),
+    }
+    ticker_count = len(requested)
+    for ticker, adjusted in extracted.items():
+        attrs = dict(getattr(adjusted, "attrs", {}) or {})
+        attrs.update(
+            {
+                "return_component_source_version": RETURN_COMPONENT_SOURCE_VERSION,
+                "raw_close": _normalise_component(
+                    _ticker_series(tables["raw_close"], ticker, ticker_count),
+                    name="raw_close",
+                ),
+                "dividends": _normalise_component(
+                    _ticker_series(tables["dividends"], ticker, ticker_count),
+                    name="dividends",
+                    event=True,
+                ),
+                "capital_gains": _normalise_component(
+                    _ticker_series(tables["capital_gains"], ticker, ticker_count),
+                    name="capital_gains",
+                    event=True,
+                ),
+                "stock_splits": _normalise_component(
+                    _ticker_series(tables["stock_splits"], ticker, ticker_count),
+                    name="stock_splits",
+                    event=True,
+                ),
+                "repaired": _normalise_repaired(
+                    _ticker_series(tables["repaired"], ticker, ticker_count)
+                ),
+            }
+        )
+        adjusted.attrs = attrs
+
+
 def download_prices_finitely(
     tickers,
     start_date,
@@ -113,6 +233,7 @@ def download_prices_finitely(
                     download_threads=download_threads,
                 )
                 extracted = extract_adjusted_close_prices(downloaded, batch)
+                _attach_return_component_attrs(downloaded, batch, extracted)
             except Exception as exc:  # noqa: BLE001 - upstream boundary
                 logger.warning(
                     "Corporate-action market-data request failed",
@@ -182,6 +303,17 @@ def download_data_reliably(
     frame.attrs["market_data_contract_version"] = MARKET_DATA_CONTRACT_VERSION
     frame.attrs["corporate_action_audits"] = {
         ticker: audit_from_series(series) for ticker, series in resolved.items()
+    }
+    frame.attrs["return_component_source_version"] = RETURN_COMPONENT_SOURCE_VERSION
+    frame.attrs["return_component_inputs"] = {
+        ticker: {
+            "raw_close": resolved[ticker].attrs.get("raw_close"),
+            "dividends": resolved[ticker].attrs.get("dividends"),
+            "capital_gains": resolved[ticker].attrs.get("capital_gains"),
+            "stock_splits": resolved[ticker].attrs.get("stock_splits"),
+            "repaired": resolved[ticker].attrs.get("repaired"),
+        }
+        for ticker in resolved
     }
     return frame, failures
 
