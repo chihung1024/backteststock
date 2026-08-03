@@ -128,8 +128,14 @@ test("integrates selected stocks and portfolio results into one performance work
 
   const dialog = page.locator("#integrated-backtest-dialog");
   await expect(dialog).toHaveJSProperty("open", true);
-  await expect(dialog.locator('#portfolio-list input[data-action="asset-ticker"]')).toHaveValues(["AAA", "BBB"]);
-  await expect(dialog.locator('#portfolio-list input[data-action="asset-weight"]')).toHaveValues(["50", "50"]);
+  const tickerInputs = dialog.locator('#portfolio-list input[data-action="asset-ticker"]');
+  const weightInputs = dialog.locator('#portfolio-list input[data-action="asset-weight"]');
+  await expect(tickerInputs).toHaveCount(2);
+  await expect(tickerInputs.nth(0)).toHaveValue("AAA");
+  await expect(tickerInputs.nth(1)).toHaveValue("BBB");
+  await expect(weightInputs).toHaveCount(2);
+  await expect(weightInputs.nth(0)).toHaveValue("50");
+  await expect(weightInputs.nth(1)).toHaveValue("50");
   await dialog.getByRole("button", { name: "執行回測" }).click();
   await expect(dialog.locator("#metrics-table")).toContainText("績效列表已選標的等權組合");
   await dialog.getByRole("button", { name: "關閉並返回績效列表" }).click();
