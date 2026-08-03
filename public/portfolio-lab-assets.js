@@ -76,30 +76,73 @@ function renderWeightStatus() {
   });
 }
 
+function portfolioDraft(index) {
+  const weighted = state.assets
+    .map((asset) => ({
+      symbol: asset.symbol.trim().toUpperCase(),
+      weight: number(asset.weights[index]),
+    }))
+    .filter((asset) => asset.weight > 0);
+  return {
+    name: state.portfolioNames[index]?.trim() || `${t("portfolio")} ${index + 1}`,
+    assets: weighted,
+    total: weighted.reduce((sum, asset) => sum + asset.weight, 0),
+  };
+}
+
 function validate() {
   const errors = [];
-  if (!state.startDate || !state.endDate || state.startDate >= state.endDate) errors.push(state.locale === "en" ? "Start date must be before end date." : "起始日期必須早於結束日期。");
-  const portfolios = buildPortfolios();
-  if (!portfolios.length) errors.push(state.locale === "en" ? "At least one complete portfolio is required." : "至少需要一組權重合計 100% 的投資組合。");
-  return { errors, portfolios };
-}
-function buildPortfolios() {
-  const result = [];
-  for (let index = 0; index < state.portfolioCount; index += 1) {
-    const assets = state.assets.map((asset) => ({ symbol: asset.symbol.trim().toUpperCase(), weight: number(asset.weights[index]) })).filter((asset) => asset.symbol && asset.weight > 0);
-    if (!assets.length) continue;
-    const total = assets.reduce((sum, asset) => sum + asset.weight, 0);
-    if (Math.abs(total - 100) > 0.05) continue;
-    result.push({ name: state.portfolioNames[index] || `${t("portfolio")} ${index + 1}`, assets });
+  const portfolios = [];
+  if (!state.startDate || !state.endDate || state.startDate >= state.endDate) {
+    errors.push(state.locale === "en" ? "Start date must be before end date." : "起始日期必須早於結束日期。");
   }
-  return result;
+  if (number(state.initialAmount) <= 0) {
+    errors.push(state.locale === "en" ? "Initial amount must be greater than zero." : "初始金額必須大於零。");
+  }
+
+  for (let index = 0; index < state.portfolioCount; index += 1) {
+    const draft = portfolioDraft(index);
+    if (draft.total <= 0.05) continue;
+    let valid = true;
+    if (Math.abs(draft.total - 100) > 0.05) {
+      errors.push(state.locale === "en"
+        ? `Portfolio ${index + 1} totals ${draft.total.toFixed(2)}%; it must equal 100%.`
+        : `投資組合 ${index + 1} 權重目前為 ${draft.total.toFixed(2)}%，必須等於 100%。`);
+      valid = false;
+    }
+    if (draft.assets.some((asset) => !asset.symbol)) {
+      errors.push(state.locale === "en"
+        ? `Portfolio ${index + 1} has a weighted row without a ticker.`
+        : `投資組合 ${index + 1} 有權重但尚未填寫資產代碼。`);
+      valid = false;
+    }
+    const symbols = draft.assets.map((asset) => asset.symbol).filter(Boolean);
+    if (new Set(symbols).size !== symbols.length) {
+      errors.push(state.locale === "en"
+        ? `Portfolio ${index + 1} contains duplicate tickers.`
+        : `投資組合 ${index + 1} 有重複股票代碼。`);
+      valid = false;
+    }
+    if (valid) portfolios.push({ name: draft.name, assets: draft.assets });
+  }
+
+  if (!portfolios.length) {
+    errors.push(state.locale === "en" ? "At least one complete portfolio is required." : "至少需要一組權重合計 100% 的投資組合。");
+  }
+  if (state.cashflowType !== "none" && state.cashflowFrequency === "none") {
+    errors.push(state.locale === "en" ? "Enabled cash flows require a frequency." : "啟用現金流時必須選擇頻率。");
+  }
+  if (state.leverageType === "fixed_ratio" && number(state.leverageRatio) <= 1) {
+    errors.push(state.locale === "en" ? "Fixed leverage ratio must be greater than 1." : "固定槓桿倍數必須大於 1。");
+  }
+  return { errors, portfolios };
 }
 function requestPayload(portfolios) {
   return {
     portfolios, benchmark: state.benchmark.trim().toUpperCase() || null, start_date: state.startDate, end_date: state.endDate,
     initial_amount: state.initialAmount, base_currency: "TWD", include_ytd: state.includeYtd,
     reinvest_dividends: state.reinvestDividends, display_income: state.displayIncome, transaction_cost_bps: state.transactionCostBps,
-    cashflow: { type: state.cashflowType, amount: state.cashflowAmount, frequency: state.cashflowFrequency, timing: state.cashflowTiming, annual_growth_rate: state.cashflowGrowthRate },
+    cashflow: { type: state.cashflowType, amount: state.cashflowAmount, frequency: state.cashflowType === "none" ? "none" : state.cashflowFrequency, timing: state.cashflowTiming, annual_growth_rate: state.cashflowGrowthRate },
     rebalancing: { frequency: state.rebalanceFrequency, threshold_percent: state.rebalanceThreshold },
     leverage: { type: state.leverageType, ratio: state.leverageRatio, debt_amount: state.debtAmount, annual_interest_rate: state.interestRate, maintenance_margin: state.maintenanceMargin },
     analytics: { style_analysis: state.styleAnalysis, factor_regression: state.factorRegression, regime: state.regime, risk_free_rate: state.riskFreeRate, inflation_adjusted: state.inflationAdjusted },
