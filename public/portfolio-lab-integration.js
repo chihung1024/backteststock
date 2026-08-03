@@ -4,6 +4,7 @@ let lastIntegratedPortfolioRequestId = "";
 function integratedPortfolioValue(headerText, result) {
   const label = headerText.trim();
   const metrics = result.metrics || {};
+  const series = Array.isArray(result.series) ? result.series : [];
   if (label.includes("股票代碼")) return `投組｜${result.display_name || result.name}`;
   if (label.includes("候選")) return "投組";
   if (label.includes("區間總報酬")) return formatPercent(metrics.total_return);
@@ -15,10 +16,10 @@ function integratedPortfolioValue(headerText, result) {
   if (label === "Beta") return formatNumber(metrics.beta);
   if (label === "Alpha") return formatPercent(metrics.alpha);
   if (label.includes("資料覆蓋率")) return "100.00%";
-  if (label.includes("交易日")) return String(result.series?.length || 0);
+  if (label.includes("交易日")) return String(series.length);
   if (label.includes("資料區間")) {
-    const first = result.series?.[0]?.date;
-    const last = result.series?.at?.(-1)?.date || result.series?.[result.series.length - 1]?.date;
+    const first = series[0]?.date;
+    const last = series.at(-1)?.date;
     return first && last ? `${first} ～ ${last}` : "—";
   }
   return "—";
@@ -33,6 +34,20 @@ function openIntegratedPortfolioResult() {
   const dialog = document.querySelector("#integrated-backtest-dialog");
   if (dialog && !dialog.open) dialog.showModal();
   document.querySelector("#pl-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function stylePortfolioLabHeatmap() {
+  document.querySelectorAll(".pl-heatmap td[data-heat]").forEach((cell) => {
+    const value = Number(cell.dataset.heat);
+    if (!Number.isFinite(value)) {
+      cell.style.removeProperty("background");
+      return;
+    }
+    const alpha = Math.min(0.62, 0.12 + Math.abs(value) * 3.2);
+    cell.style.background = value >= 0
+      ? `rgba(15, 118, 110, ${alpha})`
+      : `rgba(190, 24, 93, ${alpha})`;
+  });
 }
 
 function synchronizeIntegratedPortfolioRows() {
@@ -71,11 +86,15 @@ function synchronizeIntegratedPortfolioRows() {
 function installPortfolioLabResultIntegration() {
   const root = document.querySelector("#portfolio-lab");
   if (!root) return;
-  const observer = new MutationObserver(() => synchronizeIntegratedPortfolioRows());
+  const observer = new MutationObserver(() => {
+    stylePortfolioLabHeatmap();
+    synchronizeIntegratedPortfolioRows();
+  });
   observer.observe(root, { childList: true, subtree: true });
   document.addEventListener("submit", (event) => {
     if (event.target?.id === "scan-form") removeIntegratedPortfolioRows();
   }, true);
+  stylePortfolioLabHeatmap();
   synchronizeIntegratedPortfolioRows();
 }
 
