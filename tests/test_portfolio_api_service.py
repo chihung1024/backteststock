@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from apps.api.app.data.history_service import HistoryFailure
 from apps.api.app.portfolio.api_models import PortfolioRequest
