@@ -1,196 +1,145 @@
-const DIALOG_SELECTOR = "#integrated-backtest-dialog";
-const ENHANCED_FLAG = "originalLayoutEnhanced";
+const PORTFOLIO_LAB_VERSION = "20260803.3";
+const PORTFOLIO_LAB_FILES = [
+  "portfolio-lab-core.js",
+  "portfolio-lab-settings.js",
+  "portfolio-lab-assets.js",
+  "portfolio-lab-results.js",
+  "portfolio-lab-integration.js",
+];
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
+const MANUAL_SELECTION_STORAGE_KEY = "backteststock-optimizer-manual-selection-v2";
 
-function element(tag, options = {}, children = []) {
-  const node = document.createElement(tag);
-  if (options.className) node.className = options.className;
-  if (options.text) node.textContent = options.text;
-  if (options.id) node.id = options.id;
-  for (const [name, value] of Object.entries(options.attributes || {})) {
-    node.setAttribute(name, value);
+function readJsonStorage(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key));
+  } catch {
+    return null;
   }
-  children.forEach((child) => child && node.append(child));
-  return node;
 }
 
-function fact(value, label) {
-  return element("div", { className: "backtest-workspace-fact" }, [
-    element("strong", { text: value }),
-    element("span", { text: label }),
-  ]);
+function normalizeTicker(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9.^=_-]/g, "")
+    .slice(0, 32);
 }
 
-function buildAppBar(dialog) {
-  const brand = element("div", { className: "backtest-workspace-brand" }, [
-    element("span", {
-      className: "backtest-workspace-brand-mark",
-      text: "B",
-      attributes: { "aria-hidden": "true" },
-    }),
-    element("div", { className: "backtest-workspace-brand-copy" }, [
-      element("strong", { text: "Portfolio Backtest" }),
-      element("span", { text: "多市場每日 TWD 投資組合研究" }),
-    ]),
-  ]);
+function detachLegacyBacktestPanel() {
+  const panel = document.querySelector("#backtest-panel");
+  if (!panel || !panel.childNodes.length) return null;
+  const wrapper = document.createElement("div");
+  wrapper.id = "legacy-backtest-compat";
+  wrapper.hidden = true;
+  wrapper.setAttribute("aria-hidden", "true");
+  while (panel.firstChild) wrapper.append(panel.firstChild);
+  panel.append(wrapper);
+  return { panel, wrapper };
+}
 
-  const actions = element("div", { className: "backtest-workspace-appbar-actions" });
-  for (const id of ["save-config", "export-config"]) {
-    const button = document.querySelector(`#${id}`);
-    if (!button) continue;
-    button.classList.add("backtest-appbar-action");
-    actions.append(button);
-  }
+function restoreLegacyBacktestPanel(legacy) {
+  if (!legacy?.panel || !legacy?.wrapper) return;
+  if (!legacy.wrapper.isConnected) legacy.panel.append(legacy.wrapper);
+}
 
-  const existingClose = dialog.querySelector(".integrated-backtest-dialog-toolbar button");
-  const close = existingClose || element("button", {
-    className: "button ghost",
-    text: "關閉",
-    attributes: { type: "button" },
+function loadPortfolioLabStyles() {
+  if (document.querySelector('link[data-portfolio-lab="true"]')) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = `/portfolio-lab.css?v=${PORTFOLIO_LAB_VERSION}`;
+  link.dataset.portfolioLab = "true";
+  document.head.append(link);
+}
+
+function loadPortfolioLabScript(file) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-portfolio-lab="${file}"]`);
+    if (existing?.dataset.loaded === "true") {
+      resolve();
+      return;
+    }
+    const script = existing || document.createElement("script");
+    script.src = `/${file}?v=${PORTFOLIO_LAB_VERSION}`;
+    script.dataset.portfolioLab = file;
+    script.addEventListener("load", () => {
+      script.dataset.loaded = "true";
+      resolve();
+    }, { once: true });
+    script.addEventListener("error", () => {
+      reject(new Error(`Unable to load ${file}`));
+    }, { once: true });
+    if (!existing) document.head.append(script);
   });
-  close.classList.add("backtest-close-button");
-  close.textContent = "關閉";
-  close.setAttribute("aria-label", "關閉並返回績效列表");
-  if (!existingClose) close.addEventListener("click", () => dialog.close());
-  actions.append(close);
-
-  return element("header", { className: "backtest-workspace-appbar" }, [brand, actions]);
 }
 
-function buildHero() {
-  const copy = element("div", { className: "backtest-workspace-hero-copy" }, [
-    element("span", { className: "backtest-section-kicker", text: "Portfolio Performance" }),
-    element("h2", { id: "backtest-workspace-title", text: "投資組合回測與風險比較" }),
-    element("p", {
-      text: "沿用原版回測介面的資訊層級，集中設定期間、基準、再平衡與多組資產配置，再於同一工作區檢視績效曲線及風險指標。",
-    }),
-  ]);
-  const facts = element("div", {
-    className: "backtest-workspace-facts",
-    attributes: { "aria-label": "投資組合回測能力" },
-  }, [
-    fact("5", "Portfolios"),
-    fact("Custom", "Asset weights"),
-    fact("TWD · Daily", "Global valuation"),
-  ]);
-  return element("section", { className: "backtest-workspace-hero" }, [copy, facts]);
+function coverageQualifiedTickers(job, thresholdPercent) {
+  const rows = Array.isArray(job?.results) ? job.results : [];
+  const successful = rows.filter((row) => row?.status === "ok" && Number(row.trading_days) > 0);
+  const maximumTradingDays = Math.max(0, ...successful.map((row) => Number(row.trading_days)));
+  if (!maximumTradingDays) return new Set();
+  return new Set(successful
+    .filter((row) => (Number(row.trading_days) / maximumTradingDays) * 100 >= thresholdPercent)
+    .map((row) => normalizeTicker(row.ticker))
+    .filter(Boolean));
 }
 
-function sectionHeading(step, title, description) {
-  return element("div", { className: "backtest-settings-heading-copy" }, [
-    element("span", { className: "backtest-step-number", text: step }),
-    element("div", {}, [
-      element("h3", { text: title }),
-      element("p", { text: description }),
-    ]),
-  ]);
+function selectedPortfolioLabTickers() {
+  const job = readJsonStorage(SCAN_JOB_STORAGE_KEY);
+  const selection = readJsonStorage(MANUAL_SELECTION_STORAGE_KEY);
+  if (
+    !job?.id
+    || selection?.sourceJobId !== job.id
+    || !Array.isArray(selection?.tickers)
+  ) return [];
+
+  const benchmark = normalizeTicker(job.payload?.benchmark);
+  const threshold = Math.min(100, Math.max(0, Number(selection.coverageThresholdPercent) || 90));
+  const qualified = coverageQualifiedTickers(job, threshold);
+  return [...new Set(selection.tickers.map(normalizeTicker))]
+    .filter((ticker) => ticker && ticker !== benchmark && qualified.has(ticker));
 }
 
-function enhanceConfiguration(panel) {
-  const nativeHeading = panel.querySelector(":scope > .section-heading");
-  if (nativeHeading) {
-    nativeHeading.querySelector(".eyebrow")?.replaceChildren(document.createTextNode("MODEL CONFIGURATION"));
-    nativeHeading.querySelector("h2")?.replaceChildren(document.createTextNode("投資組合模型設定"));
-    if (!nativeHeading.querySelector(".backtest-research-badge")) {
-      nativeHeading.append(element("span", {
-        className: "backtest-research-badge",
-        text: "✓ 個人研究工具",
-      }));
-    }
-  }
-
-  const form = panel.querySelector("#backtest-form");
-  const controls = form?.querySelector(":scope > .control-grid");
-  if (controls && !controls.querySelector(".backtest-settings-heading")) {
-    controls.classList.add("backtest-settings-card");
-    controls.prepend(element("div", { className: "backtest-settings-heading" }, [
-      sectionHeading("01", "回測基本設定", "設定投資金額、資料期間、再平衡方式與比較基準。"),
-    ]));
-  }
-
-  const list = form?.querySelector("#portfolio-list");
-  if (list && !list.closest(".backtest-assets-section")) {
-    const section = element("section", { className: "backtest-assets-section" });
-    const headingCopy = sectionHeading("02", "投資組合與資產配置", "可同時比較多組投資組合；每組有效權重須合計為 100%。");
-    headingCopy.classList.remove("backtest-settings-heading-copy");
-    headingCopy.classList.add("backtest-assets-heading-copy");
-
-    const actions = element("div", { className: "backtest-assets-actions" });
-    const addPortfolio = document.querySelector("#add-portfolio");
-    if (addPortfolio) {
-      addPortfolio.classList.add("backtest-add-portfolio");
-      addPortfolio.textContent = "＋ 新增投資組合";
-      actions.append(addPortfolio);
-    }
-    const heading = element("div", { className: "backtest-assets-heading" }, [headingCopy, actions]);
-    list.before(section);
-    section.append(heading, list);
-  }
-
-  const runBar = form?.querySelector(":scope > .submit-row");
-  runBar?.classList.add("backtest-run-bar");
-}
-
-function enhanceResults(panel) {
-  const results = panel.querySelector("#backtest-results");
-  if (!results) return;
-  results.classList.add("backtest-results-shell");
-  if (!results.querySelector(".backtest-methodology-note")) {
-    const note = element("p", {
-      className: "backtest-methodology-note",
-      text: "所有金額以 TWD 逐日估值；圖表尺度只影響顯示，不改變底層報酬、波動率、回撤與風險指標計算。",
+function installScanSelectionBridge() {
+  if (document.documentElement.dataset.portfolioLabSelectionBridge === "true") return;
+  document.documentElement.dataset.portfolioLabSelectionBridge = "true";
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#open-integrated-backtest")) return;
+    const tickers = selectedPortfolioLabTickers();
+    if (!tickers.length || !window.PortfolioLab?.prepareEqualWeightPortfolio) return;
+    const job = readJsonStorage(SCAN_JOB_STORAGE_KEY);
+    window.PortfolioLab.prepareEqualWeightPortfolio(tickers, {
+      startDate: job?.payload?.startDate,
+      endDate: job?.payload?.endDate,
+      benchmark: job?.payload?.benchmark,
     });
-    results.querySelector(".result-header")?.insertAdjacentElement("afterend", note);
+  }, true);
+}
+
+function showLoadFailure(error, legacy) {
+  console.error("Portfolio lab initialization failed", error);
+  const panel = document.querySelector("#backtest-panel");
+  if (!panel) return;
+  panel.replaceChildren();
+  const message = document.createElement("p");
+  message.className = "message error";
+  message.setAttribute("role", "alert");
+  message.textContent = "完整投資組合回測介面載入失敗，請重新整理後再試。";
+  panel.append(message);
+  restoreLegacyBacktestPanel(legacy);
+}
+
+async function initializePortfolioLab() {
+  const legacy = detachLegacyBacktestPanel();
+  loadPortfolioLabStyles();
+  try {
+    for (const file of PORTFOLIO_LAB_FILES) {
+      await loadPortfolioLabScript(file);
+    }
+    restoreLegacyBacktestPanel(legacy);
+    installScanSelectionBridge();
+  } catch (error) {
+    showLoadFailure(error, legacy);
   }
 }
 
-function synchronizeOpenState(dialog) {
-  document.body.classList.toggle("backtest-workspace-open", dialog.open);
-}
-
-function enhanceDialog(dialog) {
-  if (!dialog || dialog.dataset[ENHANCED_FLAG] === "true") return;
-  const shell = dialog.querySelector(".integrated-backtest-shell");
-  const panel = dialog.querySelector("#backtest-panel");
-  if (!shell || !panel) return;
-
-  dialog.dataset[ENHANCED_FLAG] = "true";
-  dialog.classList.add("backtest-workspace-dialog");
-  dialog.setAttribute("aria-labelledby", "backtest-workspace-title");
-
-  const appBar = buildAppBar(dialog);
-  const hero = buildHero();
-  shell.insertBefore(appBar, shell.firstChild);
-  panel.before(hero);
-
-  enhanceConfiguration(panel);
-  enhanceResults(panel);
-  synchronizeOpenState(dialog);
-
-  const openObserver = new MutationObserver(() => synchronizeOpenState(dialog));
-  openObserver.observe(dialog, { attributes: true, attributeFilter: ["open"] });
-  dialog.addEventListener("close", () => synchronizeOpenState(dialog));
-  dialog.addEventListener("cancel", () => synchronizeOpenState(dialog));
-}
-
-function initialize() {
-  const run = () => {
-    const dialog = document.querySelector(DIALOG_SELECTOR);
-    if (dialog) {
-      enhanceDialog(dialog);
-      return true;
-    }
-    return false;
-  };
-
-  if (run()) return;
-  const observer = new MutationObserver(() => {
-    if (run()) observer.disconnect();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-}
-
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialize, { once: true });
-} else {
-  initialize();
-}
+void initializePortfolioLab();
