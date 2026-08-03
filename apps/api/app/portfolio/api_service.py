@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import asdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -16,7 +16,6 @@ import yfinance as yf
 from api.metrics import METRIC_DEFINITION_VERSION, series_fingerprint
 from apps.api.app.data.history_service import (
     PartialTWDHistories,
-    TWDAssetHistory,
     TWDHistoryService,
     normalize_symbol,
 )
@@ -122,6 +121,7 @@ class PortfolioAPIService:
     def preflight(self, request: PortfolioRequest) -> PreflightResponse:
         request_id = str(uuid4())
         effective_end = request.effective_end_date()
+        portfolio_symbols = _portfolio_symbols(request)
         requested = list(request.requested_symbols)
         analysis_symbols = (
             list(STYLE_PROXIES.values()) if request.analytics.style_analysis else []
@@ -132,13 +132,6 @@ class PortfolioAPIService:
             request.start_date,
             effective_end,
         )
-        user_assets = [
-            self._asset_preflight(symbol, batch) for symbol in requested if symbol != request.benchmark
-        ]
-        benchmark = (
-            self._asset_preflight(request.benchmark, batch) if request.benchmark else None
-        )
-        dependencies = [self._asset_preflight(symbol, batch) for symbol in analysis_symbols]
         portfolios = [
             self._portfolio_preflight(portfolio.to_spec(), batch)
             for portfolio in request.portfolios
@@ -161,10 +154,16 @@ class PortfolioAPIService:
             requested_start=request.start_date.isoformat(),
             requested_end=request.end_date.isoformat(),
             effective_end=effective_end.isoformat(),
-            assets=user_assets,
+            assets=[self._asset_preflight(symbol, batch) for symbol in portfolio_symbols],
             portfolios=portfolios,
-            benchmark=benchmark,
-            analysis_dependencies=dependencies,
+            benchmark=(
+                self._asset_preflight(request.benchmark, batch)
+                if request.benchmark
+                else None
+            ),
+            analysis_dependencies=[
+                self._asset_preflight(symbol, batch) for symbol in analysis_symbols
+            ],
             warnings=list(dict.fromkeys(warnings)),
         )
 
@@ -172,6 +171,7 @@ class PortfolioAPIService:
         started = time.perf_counter()
         request_id = str(uuid4())
         effective_end = request.effective_end_date()
+        portfolio_symbols = _portfolio_symbols(request)
         requested = list(request.requested_symbols)
         analysis_symbols = (
             list(STYLE_PROXIES.values()) if request.analytics.style_analysis else []
@@ -195,38 +195,16 @@ class PortfolioAPIService:
             benchmark=request.benchmark,
             history_failures=histories.failures,
         )
-        factors: pd.DataFrame | None = None
-        cpi: pd.Series | None = None
-        real_gdp: pd.Series | None = None
-        analytics_global_warnings: list[str] = []
+        factors, cpi, real_gdp, global_warnings = self._load_analysis_data(
+            request,
+            effective_end,
+        )
+        benchmark_returns = (
+            histories.histories[request.benchmark].daily_returns
+            if request.benchmark and request.benchmark in histories.histories
+            else None
+        )
 
-        if request.analytics.factor_analysis:
-            try:
-                factors = self.factor_provider.monthly_factors()
-            except Exception as exc:  # noqa: BLE001 - optional external analysis
-                analytics_global_warnings.append(f"factor analysis unavailable: {exc}")
-        if self._needs_fred(request):
-            if not self.fred_provider.available:
-                analytics_global_warnings.append(
-                    "FRED-dependent analytics unavailable: FRED API key is not configured"
-                )
-            else:
-                macro_start = request.start_date - timedelta(days=500)
-                try:
-                    cpi = self.fred_provider.series("CPIAUCSL", macro_start, effective_end)
-                except Exception as exc:  # noqa: BLE001
-                    analytics_global_warnings.append(f"CPI analysis unavailable: {exc}")
-                if request.analytics.regime == RegimeType.BUSINESS_CYCLE:
-                    try:
-                        real_gdp = self.fred_provider.series("GDPC1", macro_start, effective_end)
-                    except Exception as exc:  # noqa: BLE001
-                        analytics_global_warnings.append(
-                            f"business-cycle analysis unavailable: {exc}"
-                        )
-
-        benchmark_returns = None
-        if request.benchmark and request.benchmark in histories.histories:
-            benchmark_returns = histories.histories[request.benchmark].daily_returns
         results: list[dict[str, Any]] = []
         for run in batch.results:
             analytics, analytics_warnings = self._analytics_for_result(
@@ -238,34 +216,26 @@ class PortfolioAPIService:
                 cpi=cpi,
                 real_gdp=real_gdp,
             )
-            serialized = self._serialize_run(
-                run.ledger,
-                run.metrics,
-                request,
-                analytics=analytics,
-                warnings=[
-                    *run.warnings,
-                    *analytics_global_warnings,
-                    *analytics_warnings,
-                ],
+            results.append(
+                self._serialize_run(
+                    run.ledger,
+                    run.metrics,
+                    request,
+                    analytics=analytics,
+                    warnings=[
+                        *run.warnings,
+                        *global_warnings,
+                        *analytics_warnings,
+                    ],
+                )
             )
-            results.append(serialized)
 
-        benchmark_payload = self._benchmark_payload(
-            request,
-            histories,
-            config,
-        )
+        benchmark_payload = self._benchmark_payload(request, histories, config)
         compute_ms = (time.perf_counter() - compute_started) * 1_000.0
-        asset_payloads = [
-            self._asset_preflight(symbol, histories)
-            for symbol in requested
-            if symbol != request.benchmark
-        ]
         warnings = [
             *self._request_warnings(request, effective_end),
             *batch.warnings,
-            *analytics_global_warnings,
+            *global_warnings,
         ]
         if not results:
             warnings.append("No requested portfolio completed successfully.")
@@ -281,7 +251,9 @@ class PortfolioAPIService:
             effective_end=effective_end.isoformat(),
             results=results,
             failures=[asdict(failure) for failure in batch.failures],
-            assets=asset_payloads,
+            assets=[
+                self._asset_preflight(symbol, histories) for symbol in portfolio_symbols
+            ],
             benchmark=benchmark_payload,
             warnings=list(dict.fromkeys(warnings)),
             timing={
@@ -303,6 +275,40 @@ class PortfolioAPIService:
                 "failed_symbols": list(histories.failures),
             },
         )
+
+    def _load_analysis_data(
+        self,
+        request: PortfolioRequest,
+        effective_end: date,
+    ) -> tuple[pd.DataFrame | None, pd.Series | None, pd.Series | None, list[str]]:
+        factors: pd.DataFrame | None = None
+        cpi: pd.Series | None = None
+        real_gdp: pd.Series | None = None
+        warnings: list[str] = []
+        if request.analytics.factor_analysis:
+            try:
+                factors = self.factor_provider.monthly_factors()
+            except Exception as exc:  # noqa: BLE001 - optional external analysis
+                warnings.append(f"factor analysis unavailable: {exc}")
+        if not self._needs_fred(request):
+            return factors, cpi, real_gdp, warnings
+        if not self.fred_provider.available:
+            warnings.append(
+                "FRED-dependent analytics unavailable: FRED API key is not configured"
+            )
+            return factors, cpi, real_gdp, warnings
+
+        macro_start = request.start_date - timedelta(days=500)
+        try:
+            cpi = self.fred_provider.series("CPIAUCSL", macro_start, effective_end)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"CPI analysis unavailable: {exc}")
+        if request.analytics.regime == RegimeType.BUSINESS_CYCLE:
+            try:
+                real_gdp = self.fred_provider.series("GDPC1", macro_start, effective_end)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"business-cycle analysis unavailable: {exc}")
+        return factors, cpi, real_gdp, warnings
 
     def _analytics_for_result(
         self,
@@ -370,7 +376,7 @@ class PortfolioAPIService:
     ) -> dict[str, Any] | None:
         if not request.benchmark or request.benchmark not in histories.histories:
             return None
-        benchmark_spec = PortfolioSpec.from_weights(
+        spec = PortfolioSpec.from_weights(
             f"Benchmark · {request.benchmark}",
             {request.benchmark: 1.0},
         )
@@ -379,11 +385,7 @@ class PortfolioAPIService:
             reinvest_distributions=True,
             risk_free_rate=config.risk_free_rate,
         )
-        ledger = simulate_portfolio_ledger(
-            benchmark_spec,
-            histories.histories,
-            benchmark_config,
-        )
+        ledger = simulate_portfolio_ledger(spec, histories.histories, benchmark_config)
         report = compute_metric_report(ledger, benchmark_config)
         return self._serialize_run(
             ledger,
@@ -418,16 +420,6 @@ class PortfolioAPIService:
             }
         )
         sampled = _sample_frame(frame, request.output_frequency.value)
-        series = [
-            {
-                "date": timestamp.date().isoformat(),
-                **{
-                    column: _finite_or_none(value)
-                    for column, value in row.items()
-                },
-            }
-            for timestamp, row in sampled.iterrows()
-        ]
         payload: dict[str, Any] = {
             "name": ledger.name,
             "display_name": (
@@ -443,7 +435,16 @@ class PortfolioAPIService:
             "monthly_returns": [asdict(item) for item in report.monthly_returns],
             "target_allocation": ledger.target_allocation,
             "final_allocation": ledger.final_allocation,
-            "series": series,
+            "series": [
+                {
+                    "date": timestamp.date().isoformat(),
+                    **{
+                        column: _finite_or_none(value)
+                        for column, value in row.items()
+                    },
+                }
+                for timestamp, row in sampled.iterrows()
+            ],
             "analytics": analytics,
             "warnings": list(dict.fromkeys(warnings)),
             "metadata": report.metadata,
@@ -455,8 +456,7 @@ class PortfolioAPIService:
                 {
                     "date": timestamp.date().isoformat(),
                     "allocations": {
-                        symbol: float(value)
-                        for symbol, value in row.items()
+                        symbol: float(value) for symbol, value in row.items()
                     },
                 }
                 for timestamp, row in ledger.allocation_history.iterrows()
@@ -531,17 +531,16 @@ class PortfolioAPIService:
             observations=int(len(aligned.total_returns)),
         )
 
+    @staticmethod
     def _request_warnings(
-        self,
         request: PortfolioRequest,
-        effective_end: Any,
+        effective_end: date,
     ) -> list[str]:
-        warnings: list[str] = []
-        if effective_end != request.end_date:
-            warnings.append(
-                f"Excluded incomplete year-to-date data; effective end moved to {effective_end.isoformat()}."
-            )
-        return warnings
+        if effective_end == request.end_date:
+            return []
+        return [
+            f"Excluded incomplete year-to-date data; effective end moved to {effective_end.isoformat()}."
+        ]
 
     @staticmethod
     def _needs_fred(request: PortfolioRequest) -> bool:
@@ -549,6 +548,12 @@ class PortfolioAPIService:
             RegimeType.INFLATION,
             RegimeType.BUSINESS_CYCLE,
         }
+
+
+def _portfolio_symbols(request: PortfolioRequest) -> list[str]:
+    return _deduplicate(
+        [asset.symbol for portfolio in request.portfolios for asset in portfolio.assets]
+    )
 
 
 def _deduplicate(values: list[str]) -> list[str]:
@@ -565,12 +570,10 @@ def _deduplicate(values: list[str]) -> list[str]:
 def _sample_frame(frame: pd.DataFrame, frequency: str) -> pd.DataFrame:
     if frequency == "daily":
         return frame
-    rule = "W-FRI" if frequency == "weekly" else "ME"
-    sampled = frame.resample(rule).last().dropna(how="all")
-    required = frame.iloc[[0, -1]]
-    return pd.concat([required, sampled]).sort_index().loc[
-        lambda value: ~value.index.duplicated(keep="last")
-    ]
+    sampled = frame.resample("W-FRI" if frequency == "weekly" else "ME").last()
+    sampled = sampled.dropna(how="all")
+    combined = pd.concat([frame.iloc[[0, -1]], sampled]).sort_index()
+    return combined.loc[~combined.index.duplicated(keep="last")]
 
 
 def _finite_or_none(value: Any) -> float | None:
