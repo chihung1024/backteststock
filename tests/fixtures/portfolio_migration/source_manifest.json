@@ -12,7 +12,7 @@
     "backend/app/service.py": "2c4675fa8bae8f52eed9bcdec0b97adb5f35941d",
     "backend/app/engine/backtest.py": "ae8dc22d9dd8cb9ce89383ebe0fd1a8ee840d4db",
     "backend/app/engine/metrics.py": "5e9286ed8434b6ea4b5549659c8455987e3687d4",
-    "backend/app/engine/analytics.py": "0d65bca63bcae8f52eed9bcdec0b97adb5f35941d"
+    "backend/app/engine/analytics.py": "0d65bca63bcae8d9fc15c4a0b78b8dd2da6cec40"
   },
   "notes": [
     "The source repository is frozen as a behavioral reference only.",
