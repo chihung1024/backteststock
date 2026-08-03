@@ -75,12 +75,12 @@ def test_drawdown_events_include_recovery_and_unrecovered_duration() -> None:
     events = top_drawdown_events(levels)
 
     assert len(events) == 2
-    assert events[0].depth == pytest.approx(0.90 / 1.01 - 1.0)
-    assert events[0].recovered is False
-    assert events[0].recovery is None
-    assert events[1].depth == pytest.approx(-0.20)
-    assert events[1].recovered is True
-    assert events[1].recovery == "2024-01-05"
+    assert events[0].depth == pytest.approx(-0.20)
+    assert events[0].recovered is True
+    assert events[0].recovery == "2024-01-05"
+    assert events[1].depth == pytest.approx(0.90 / 1.01 - 1.0)
+    assert events[1].recovered is False
+    assert events[1].recovery is None
 
 
 def test_period_returns_mark_incomplete_boundary_periods() -> None:
