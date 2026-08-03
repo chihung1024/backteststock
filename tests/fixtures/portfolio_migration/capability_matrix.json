@@ -30,7 +30,7 @@
     {"id":"analytics.factor","area":"analytics","required":true,"phase":3,"status":"improved","acceptance":"factor analysis states regression currency, sample, source and separates asset factors from FX exposure"},
     {"id":"analytics.style","area":"analytics","required":true,"phase":3,"status":"improved","acceptance":"style exposures use non-negative coefficients constrained to sum to one"},
     {"id":"analytics.regime","area":"analytics","required":true,"phase":3,"status":"improved","acceptance":"market, volatility, inflation and business-cycle regimes expose thresholds, sample sizes and limitations"},
-    {"id":"analytics.inflation","area":"analytics","required":true,"phase":3,"status":"planned","acceptance":"nominal and real results identify the CPI series and currency limitation"},
+    {"id":"analytics.inflation","area":"analytics","required":true,"phase":3,"status":"improved","acceptance":"nominal and real results identify the CPI series and currency limitation"},
     {"id":"results.complete_dashboard","area":"results","required":true,"phase":4,"status":"planned","acceptance":"overview, growth, drawdown, annual, monthly, income, allocation, analytics and audit views are available"},
     {"id":"results.data_audit","area":"results","required":true,"phase":4,"status":"planned","acceptance":"quote currencies, FX path, coverage, repairs, fingerprints and contract versions are visible"},
     {"id":"state.save_share_export","area":"state","required":true,"phase":4,"status":"planned","acceptance":"local save, secret-free share URL, JSON import/export and result CSV/JSON export are supported"},
