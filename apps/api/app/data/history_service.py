@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from api.market_data import download_prices_finitely
@@ -16,6 +17,12 @@ from apps.api.app.data.fx_provider import (
     QuoteConvention,
     YahooFXProvider,
     normalize_quote_convention,
+)
+from apps.api.app.data.return_components import (
+    TWDReturnComponents,
+    native_components_from_adjusted_close,
+    total_only_components,
+    value_components_in_twd,
 )
 from apps.api.app.data.twd_valuation import (
     TWDValuation,
@@ -26,6 +33,8 @@ from apps.api.app.data.twd_valuation import (
 logger = logging.getLogger(__name__)
 
 _MAX_CURRENCY_WORKERS = 4
+_COMPONENT_ALIGNMENT_TOLERANCE = 1e-10
+_SCALED_COMPONENT_ATTRS = ("raw_close", "dividends", "capital_gains")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +55,7 @@ class TWDAssetHistory:
     quote_currency: str
     valuation: TWDValuation
     corporate_action_audit: dict[str, Any] | None
+    return_components: TWDReturnComponents | None = None
     fx_audit: dict[str, Any] | None = None
     raw_quote_currency: str | None = None
     native_price_scale: float = 1.0
@@ -66,6 +76,34 @@ class TWDAssetHistory:
     def daily_returns(self) -> pd.Series:
         return self.valuation.daily_returns
 
+    @property
+    def price_returns(self) -> pd.Series:
+        return self._components().price_returns
+
+    @property
+    def distribution_returns(self) -> pd.Series:
+        return self._components().distribution_returns
+
+    @property
+    def total_return_index(self) -> pd.Series:
+        return self._components().total_return_index
+
+    @property
+    def price_return_index(self) -> pd.Series:
+        return self._components().price_return_index
+
+    @property
+    def return_component_audit(self) -> dict[str, Any]:
+        return dict(self._components().audit)
+
+    def _components(self) -> TWDReturnComponents:
+        if self.return_components is not None:
+            return self.return_components
+        return total_only_components(
+            self.adjusted_close_twd,
+            source_currency=self.quote_currency,
+        )
+
 
 @dataclass(slots=True)
 class PartialTWDHistories:
@@ -84,11 +122,11 @@ class TWDHistoryService:
     """Build individual TWD histories without allowing one symbol to erase a batch.
 
     The service reuses the existing, corporate-action-audited finite Yahoo
-    downloader during migration.  It adds the missing quote-currency lookup,
-    FX normalization, and daily TWD valuation in a framework-neutral layer.
-    The Flask compatibility routes for portfolio backtest, scanner, and
-    exhaustive-optimizer snapshot construction all use this service today;
-    the same layer remains reusable for a future FastAPI migration.
+    downloader during migration.  It adds quote-currency lookup, FX
+    normalization, daily TWD valuation, and an exact price/distribution/total
+    return decomposition in a framework-neutral layer.  Scanner, portfolio
+    backtest, and exhaustive-optimizer callers continue to consume the same
+    adjusted-close contract while the new ledger can opt into the components.
     """
 
     def __init__(self, *, fx_provider: YahooFXProvider | None = None) -> None:
@@ -102,9 +140,9 @@ class TWDHistoryService:
     ) -> PartialTWDHistories:
         """Fetch all possible symbols, retaining each successful TWD history.
 
-        A download, quote-currency, or FX failure is reported for that symbol
-        only.  The method never silently removes a ticker or changes the input
-        order, so the UI can ask the user how to proceed with the precheck.
+        A download, quote-currency, FX, or valuation failure is reported for
+        that symbol only.  The method never silently removes a ticker or changes
+        input order, so callers can present an explicit preflight result.
 
         ``end`` is inclusive.  The Yahoo equity downloader receives its required
         exclusive upper boundary internally, while the FX adapter returns no
@@ -185,15 +223,20 @@ class TWDHistoryService:
             for symbol in group:
                 raw_native = usable_native[symbol]
                 convention = quote_conventions[symbol]
-                native = _scale_native_prices(
-                    raw_native, convention.native_price_scale
-                )
+                native = _scale_native_prices(raw_native, convention.native_price_scale)
                 try:
                     valuation = value_adjusted_close_in_twd(
                         native,
                         source_currency=currency,
                         fx_to_twd=None if fx_levels is None else fx_levels.levels,
                     )
+                    native_components = native_components_from_adjusted_close(native)
+                    return_components = value_components_in_twd(
+                        native_components,
+                        source_currency=currency,
+                        fx_to_twd=None if fx_levels is None else fx_levels.levels,
+                    )
+                    _verify_component_alignment(valuation, return_components)
                 except TWDValuationError as exc:
                     failures[symbol] = HistoryFailure(
                         symbol=symbol,
@@ -207,6 +250,7 @@ class TWDHistoryService:
                     quote_currency=currency,
                     valuation=valuation,
                     corporate_action_audit=_audit_from_native_series(raw_native),
+                    return_components=return_components,
                     fx_audit=_fx_audit(currency, fx_levels, convention),
                     raw_quote_currency=convention.raw_currency,
                     native_price_scale=convention.native_price_scale,
@@ -293,10 +337,31 @@ def _audit_from_native_series(series: pd.Series) -> dict[str, Any] | None:
 def _scale_native_prices(series: pd.Series, scale: float) -> pd.Series:
     if not isinstance(scale, (int, float)) or scale <= 0:
         raise TWDValuationError("native quote-unit scale must be positive")
-    scaled = series.astype(float).copy() * float(scale)
-    scaled.attrs = dict(series.attrs)
-    scaled.attrs["raw_quote_unit_scale"] = float(scale)
+    scale = float(scale)
+    scaled = series.astype(float).copy() * scale
+    attrs = dict(series.attrs)
+    for key in _SCALED_COMPONENT_ATTRS:
+        component = attrs.get(key)
+        if isinstance(component, pd.Series):
+            attrs[key] = component.astype(float).copy() * scale
+    attrs["raw_quote_unit_scale"] = scale
+    scaled.attrs = attrs
     return scaled
+
+
+def _verify_component_alignment(
+    valuation: TWDValuation,
+    components: TWDReturnComponents,
+) -> None:
+    if not valuation.daily_returns.index.equals(components.total_returns.index):
+        raise TWDValuationError("TWD return components do not use the valuation calendar")
+    difference = (
+        valuation.daily_returns.astype(float) - components.total_returns.astype(float)
+    ).abs()
+    if not difference.empty and float(difference.max()) > _COMPONENT_ALIGNMENT_TOLERANCE:
+        raise TWDValuationError("TWD return components do not reproduce adjusted-close returns")
+    if not np.isfinite(components.price_returns.to_numpy(dtype=float)).all():
+        raise TWDValuationError("TWD price return components contain non-finite values")
 
 
 def _fx_audit(
