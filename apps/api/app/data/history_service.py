@@ -55,10 +55,11 @@ class TWDAssetHistory:
     quote_currency: str
     valuation: TWDValuation
     corporate_action_audit: dict[str, Any] | None
-    return_components: TWDReturnComponents | None = None
     fx_audit: dict[str, Any] | None = None
     raw_quote_currency: str | None = None
     native_price_scale: float = 1.0
+    # Appended after all legacy fields to preserve positional construction.
+    return_components: TWDReturnComponents | None = None
 
     @property
     def native_adjusted_close(self) -> pd.Series:
@@ -122,9 +123,9 @@ class TWDHistoryService:
     """Build individual TWD histories without allowing one symbol to erase a batch.
 
     The service reuses the existing, corporate-action-audited finite Yahoo
-    downloader during migration.  It adds quote-currency lookup, FX
+    downloader during migration. It adds quote-currency lookup, FX
     normalization, daily TWD valuation, and an exact price/distribution/total
-    return decomposition in a framework-neutral layer.  Scanner, portfolio
+    return decomposition in a framework-neutral layer. Scanner, portfolio
     backtest, and exhaustive-optimizer callers continue to consume the same
     adjusted-close contract while the new ledger can opt into the components.
     """
@@ -141,10 +142,10 @@ class TWDHistoryService:
         """Fetch all possible symbols, retaining each successful TWD history.
 
         A download, quote-currency, FX, or valuation failure is reported for
-        that symbol only.  The method never silently removes a ticker or changes
+        that symbol only. The method never silently removes a ticker or changes
         input order, so callers can present an explicit preflight result.
 
-        ``end`` is inclusive.  The Yahoo equity downloader receives its required
+        ``end`` is inclusive. The Yahoo equity downloader receives its required
         exclusive upper boundary internally, while the FX adapter returns no
         observations after this final requested valuation date.
         """
@@ -177,7 +178,10 @@ class TWDHistoryService:
             symbol: HistoryFailure(
                 symbol=symbol,
                 stage="download",
-                detail="Yahoo returned no usable audited adjusted-close history after finite retries",
+                detail=(
+                    "Yahoo returned no usable audited adjusted-close history "
+                    "after finite retries"
+                ),
                 retryable=True,
             )
             for symbol in unresolved
@@ -250,10 +254,10 @@ class TWDHistoryService:
                     quote_currency=currency,
                     valuation=valuation,
                     corporate_action_audit=_audit_from_native_series(raw_native),
-                    return_components=return_components,
                     fx_audit=_fx_audit(currency, fx_levels, convention),
                     raw_quote_currency=convention.raw_currency,
                     native_price_scale=convention.native_price_scale,
+                    return_components=return_components,
                 )
 
         return PartialTWDHistories(
