@@ -17,8 +17,9 @@ _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HOME", "/tmp")
 os.environ.setdefault("XDG_CACHE_HOME", str(_CACHE_ROOT))
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response, status  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 
 from apps.api.app.portfolio.analytics import (  # noqa: E402
     PORTFOLIO_ANALYTICS_CONTRACT_VERSION,
@@ -96,6 +97,21 @@ def get_service() -> PortfolioAPIService:
     return PortfolioAPIService()
 
 
+def _secure_response(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-Portfolio-API-Schema-Version"] = PORTFOLIO_API_SCHEMA_VERSION
+    return response
+
+
+def _error_response(status_code: int, detail: str) -> JSONResponse:
+    return _secure_response(
+        JSONResponse(status_code=status_code, content={"detail": detail})
+    )
+
+
 @app.middleware("http")
 async def request_guard(request: Request, call_next: Any) -> Response:
     path = request.url.path
@@ -104,28 +120,30 @@ async def request_guard(request: Request, call_next: Any) -> Response:
         fallback = request.client.host if request.client else "unknown"
         client_key = forwarded.split(",")[0].strip() or fallback
         if not _general_limiter.allow(client_key):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Portfolio API rate limit exceeded. Try again in one minute.",
+            return _error_response(
+                429,
+                "Portfolio API rate limit exceeded. Try again in one minute.",
             )
         if path.endswith("/backtests") and not _backtest_limiter.allow(client_key):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Portfolio backtest rate limit exceeded. Try again in one minute.",
+            return _error_response(
+                429,
+                "Portfolio backtest rate limit exceeded. Try again in one minute.",
             )
-        declared = int(request.headers.get("content-length") or "0")
-        if declared > MAX_REQUEST_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Portfolio request body is too large.",
-            )
-    response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    response.headers["X-Portfolio-API-Schema-Version"] = PORTFOLIO_API_SCHEMA_VERSION
-    return response
+        declared_header = request.headers.get("content-length")
+        if declared_header:
+            try:
+                declared = int(declared_header)
+            except ValueError:
+                return _error_response(400, "Content-Length must be an integer.")
+            if declared < 0:
+                return _error_response(400, "Content-Length cannot be negative.")
+            if declared > MAX_REQUEST_BYTES:
+                return _error_response(413, "Portfolio request body is too large.")
+        if request.method in {"POST", "PUT", "PATCH"}:
+            body = await request.body()
+            if len(body) > MAX_REQUEST_BYTES:
+                return _error_response(413, "Portfolio request body is too large.")
+    return _secure_response(await call_next(request))
 
 
 @app.get("/api/v3/portfolio/health")
@@ -182,11 +200,5 @@ async def backtests(payload: PortfolioRequest) -> BacktestResponse:
 
 @app.exception_handler(Exception)
 async def unexpected_error(_request: Request, exc: Exception) -> Response:
-    if isinstance(exc, HTTPException):
-        raise exc
     logger.exception("Unexpected Portfolio v3 API failure", exc_info=exc)
-    return Response(
-        content='{"detail":"Unexpected Portfolio v3 API failure."}',
-        status_code=500,
-        media_type="application/json",
-    )
+    return _error_response(500, "Unexpected Portfolio v3 API failure.")
