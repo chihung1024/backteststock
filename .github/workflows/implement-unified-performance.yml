@@ -1,0 +1,38 @@
+name: Implement Unified Performance Workspace
+
+on:
+  push:
+    branches: [feat/unified-performance-list-coverage]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: ${{ !contains(github.event.head_commit.message, '[generated-unified-performance]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply approved implementation
+        run: python scripts/implement_unified_performance.py
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Validate syntax and focused contracts
+        run: |
+          npm run check
+          npm run test:score
+      - name: Commit generated implementation
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: unify performance list and correct scan coverage [generated-unified-performance]"
+          git push origin HEAD:feat/unified-performance-list-coverage
