@@ -21,6 +21,7 @@ let activeSortDirection = "desc";
 let backtestDialog = null;
 let integratedBacktestButton = null;
 let integratedPortfolioRows = [];
+let integratedPortfolioSourceJobId = null;
 const baseFetch = window.fetch.bind(window);
 
 function readJson(storage, key, fallback = null) {
@@ -29,14 +30,6 @@ function readJson(storage, key, fallback = null) {
     return value == null ? fallback : value;
   } catch {
     return fallback;
-  }
-}
-
-function writeJson(storage, key, value) {
-  try {
-    storage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn(`Unable to persist ${key}`, error);
   }
 }
 
@@ -91,11 +84,17 @@ function selectedTickers(stats = currentCoverageStats()) {
 }
 
 function savedPortfolioRows() {
+  const currentJobId = readScanJob()?.id || null;
+  if (integratedPortfolioSourceJobId !== currentJobId) {
+    integratedPortfolioRows = [];
+    integratedPortfolioSourceJobId = null;
+  }
   return integratedPortfolioRows;
 }
 
 function savePortfolioRows(rows) {
   integratedPortfolioRows = Array.isArray(rows) ? rows : [];
+  integratedPortfolioSourceJobId = readScanJob()?.id || null;
 }
 
 function formatPercent(value) {

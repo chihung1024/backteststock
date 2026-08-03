@@ -146,6 +146,9 @@ test("integrates selected stocks and portfolio results into one performance work
   await expect(portfolioRow).toContainText("17.00%");
   await expect(portfolioRow).toContainText("95.00%");
   await expect(portfolioRow).toContainText("950");
+
+  await page.getByRole("button", { name: "開始集體回測" }).click();
+  await expect(portfolioRow).toHaveCount(0);
 });
 
 
