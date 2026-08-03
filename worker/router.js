@@ -1,6 +1,13 @@
 import worker from "./index.js";
 
 const EXHAUSTIVE_PREPARE_PATH = "/api/optimizer/exhaustive/prepare";
+const PORTFOLIO_V3_PREFIX = "/api/v3/portfolio/";
+const PORTFOLIO_V3_ROUTES = new Map([
+  ["health", { method: "GET" }],
+  ["assets/search", { method: "GET" }],
+  ["preflight", { method: "POST" }],
+  ["backtests", { method: "POST" }],
+]);
 const PORTFOLIO_LAB_PREFIX = "/api/portfolio-lab/";
 const PORTFOLIO_LAB_DEFAULT_ORIGIN = "https://portfolio-backtest-api.vercel.app";
 const PORTFOLIO_LAB_ORIGIN_HEADER = "https://chihung1024.github.io";
@@ -11,7 +18,7 @@ const PORTFOLIO_LAB_ROUTES = new Map([
   ["backtests", { method: "POST", target: "/api/v1/backtests" }],
 ]);
 const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
-const PORTFOLIO_LAB_MAX_REQUEST_BYTES = 512 * 1024;
+const PORTFOLIO_REQUEST_MAX_BYTES = 512 * 1024;
 const API_TIMEOUT_MS = 240_000;
 
 function jsonResponse(payload, status, requestId) {
@@ -82,6 +89,71 @@ function sanitizedProxyResponse(response, requestId) {
   });
 }
 
+async function readBoundedBody(request, maximumBytes, requestId, message) {
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (declaredLength > maximumBytes) {
+    return jsonResponse({ error: message }, 413, requestId);
+  }
+  const body = await request.arrayBuffer();
+  if (body.byteLength > maximumBytes) {
+    return jsonResponse({ error: message }, 413, requestId);
+  }
+  return body;
+}
+
+async function proxyPortfolioV3(request, env) {
+  const requestId = crypto.randomUUID();
+  const incomingUrl = new URL(request.url);
+  const routeName = incomingUrl.pathname.slice(PORTFOLIO_V3_PREFIX.length);
+  const route = PORTFOLIO_V3_ROUTES.get(routeName);
+  if (!route) return jsonResponse({ error: "找不到 Portfolio v3 API 路徑。" }, 404, requestId);
+  if (request.method !== route.method) {
+    return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+  }
+
+  let body;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    body = await readBoundedBody(
+      request,
+      PORTFOLIO_REQUEST_MAX_BYTES,
+      requestId,
+      "Portfolio v3 請求內容過大。",
+    );
+    if (body instanceof Response) return body;
+  }
+
+  const backendOrigin = validatedBackendOrigin(env, requestId);
+  if (backendOrigin instanceof Response) return backendOrigin;
+  const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
+  const headers = safeProxyHeaders(request, requestId, incomingUrl);
+  const clientIp = request.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("x-forwarded-for", clientIp);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    return sanitizedProxyResponse(response, requestId);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return jsonResponse({ error: "Portfolio v3 服務回應逾時，請稍後重試。" }, 504, requestId);
+    }
+    console.error("Portfolio v3 proxy failure", {
+      requestId,
+      message: String(error),
+    });
+    return jsonResponse({ error: "暫時無法連線至 Portfolio v3 服務。" }, 502, requestId);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function proxyPortfolioLab(request, env) {
   const requestId = crypto.randomUUID();
   const incomingUrl = new URL(request.url);
@@ -94,14 +166,13 @@ async function proxyPortfolioLab(request, env) {
 
   let body;
   if (request.method !== "GET" && request.method !== "HEAD") {
-    const declaredLength = Number(request.headers.get("content-length") || "0");
-    if (declaredLength > PORTFOLIO_LAB_MAX_REQUEST_BYTES) {
-      return jsonResponse({ error: "完整回測請求內容過大。" }, 413, requestId);
-    }
-    body = await request.arrayBuffer();
-    if (body.byteLength > PORTFOLIO_LAB_MAX_REQUEST_BYTES) {
-      return jsonResponse({ error: "完整回測請求內容過大。" }, 413, requestId);
-    }
+    body = await readBoundedBody(
+      request,
+      PORTFOLIO_REQUEST_MAX_BYTES,
+      requestId,
+      "完整回測請求內容過大。",
+    );
+    if (body instanceof Response) return body;
   }
 
   const origin = portfolioLabOrigin(env, requestId);
@@ -145,14 +216,13 @@ async function proxyExhaustivePrepare(request, env) {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
 
-  const declaredLength = Number(request.headers.get("content-length") || "0");
-  if (declaredLength > OPTIMIZER_MAX_REQUEST_BYTES) {
-    return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
-  }
-  const body = await request.arrayBuffer();
-  if (body.byteLength > OPTIMIZER_MAX_REQUEST_BYTES) {
-    return jsonResponse({ error: "請求內容過大。" }, 413, requestId);
-  }
+  const body = await readBoundedBody(
+    request,
+    OPTIMIZER_MAX_REQUEST_BYTES,
+    requestId,
+    "請求內容過大。",
+  );
+  if (body instanceof Response) return body;
 
   const backendOrigin = validatedBackendOrigin(env, requestId);
   if (backendOrigin instanceof Response) return backendOrigin;
@@ -189,11 +259,14 @@ async function proxyExhaustivePrepare(request, env) {
   }
 }
 
-export { proxyExhaustivePrepare, proxyPortfolioLab };
+export { proxyExhaustivePrepare, proxyPortfolioLab, proxyPortfolioV3 };
 
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(PORTFOLIO_V3_PREFIX)) {
+      return proxyPortfolioV3(request, env);
+    }
     if (url.pathname.startsWith(PORTFOLIO_LAB_PREFIX)) {
       return proxyPortfolioLab(request, env);
     }
