@@ -69,7 +69,7 @@ function buildHero() {
     attributes: { "aria-label": "投資組合回測能力" },
   }, [
     fact("5", "Portfolios"),
-    fact("20", "Assets each"),
+    fact("Custom", "Asset weights"),
     fact("TWD · Daily", "Global valuation"),
   ]);
   return element("section", { className: "backtest-workspace-hero" }, [copy, facts]);
