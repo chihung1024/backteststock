@@ -1,4 +1,6 @@
 (() => {
+  if (typeof window === "undefined" || typeof window.fetch !== "function") return;
+
   const CAPTURE_PATH = "/api/backtest";
   const CAPTURE_PARAMETER = "portfolio_lab_capture";
   const pendingPayloads = new Map();
