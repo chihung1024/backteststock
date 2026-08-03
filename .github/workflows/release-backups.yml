@@ -1,0 +1,94 @@
+name: Release Backup Gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-backup-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  create-pre-merge-backup:
+    if: >-
+      github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && contains(github.event.pull_request.labels.*.name, 'release-backup')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create and verify current-main backup release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PRE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          pre_tag="backup-pre-pr${PR_NUMBER}-${PRE_SHA:0:12}"
+
+          if ! gh release view "$pre_tag" >/dev/null 2>&1; then
+            gh release create "$pre_tag" \
+              --target "$PRE_SHA" \
+              --title "Backup before PR #${PR_NUMBER}" \
+              --notes "Backup of main before PR #${PR_NUMBER}. Target: $PRE_SHA"
+          fi
+
+          git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
+          resolved_sha="$(git rev-list -n 1 "$pre_tag")"
+          if [ "$resolved_sha" != "$PRE_SHA" ]; then
+            echo "Pre-merge backup tag points to $resolved_sha instead of $PRE_SHA." >&2
+            exit 1
+          fi
+          gh release view "$pre_tag" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"
+
+  create-post-merge-backup:
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && contains(github.event.pull_request.labels.*.name, 'release-backup')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+      - name: Verify pre-merge release and create post-merge backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PRE_SHA: ${{ github.event.pull_request.base.sha }}
+          POST_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          pre_tag="backup-pre-pr${PR_NUMBER}-${PRE_SHA:0:12}"
+          post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
+
+          gh release view "$pre_tag" >/dev/null
+          git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
+          resolved_pre_sha="$(git rev-list -n 1 "$pre_tag")"
+          if [ "$resolved_pre_sha" != "$PRE_SHA" ]; then
+            echo "Pre-merge backup tag points to $resolved_pre_sha instead of $PRE_SHA." >&2
+            exit 1
+          fi
+
+          if ! gh release view "$post_tag" >/dev/null 2>&1; then
+            gh release create "$post_tag" \
+              --target "$POST_SHA" \
+              --title "Backup after PR #${PR_NUMBER}" \
+              --notes "Backup of main after PR #${PR_NUMBER}. Target: $POST_SHA"
+          fi
+
+          git fetch --force origin "refs/tags/$post_tag:refs/tags/$post_tag"
+          resolved_post_sha="$(git rev-list -n 1 "$post_tag")"
+          if [ "$resolved_post_sha" != "$POST_SHA" ]; then
+            echo "Post-merge backup tag points to $resolved_post_sha instead of $POST_SHA." >&2
+            exit 1
+          fi
+          gh release view "$post_tag" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"
