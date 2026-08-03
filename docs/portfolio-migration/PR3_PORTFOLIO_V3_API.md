@@ -6,7 +6,7 @@
 
 - `PORTFOLIO_API_CONTRACT_VERSION = portfolio-v3`
 - `PORTFOLIO_API_SCHEMA_VERSION = portfolio-v3-2026-08-04.1`
-- `PORTFOLIO_ANALYTICS_CONTRACT_VERSION = portfolio-analytics-twd-2026-08-04.1`
+- `PORTFOLIO_ANALYTICS_CONTRACT_VERSION = portfolio-analytics-twd-2026-08-04.2`
 
 ## API
 
@@ -81,7 +81,7 @@ sum(weights) = 1
 - Inflation：CPI 年增率，以所選期間中位數及上升／下降方向分類。
 - Business cycle：實質 GDP 與 CPI 年增率，以所選期間中位數形成四象限。
 
-結果明示門檻、每個 regime 的月份數、報酬、波動、最佳／最差月份及樣本警告。所有 regime 都是回顧分類，不是預測。
+結果明示門檻、每個 regime 的月份數、報酬、波動、最佳／最差月份及樣本警告。所有 regime 都是回顧分類，不是預測。尚未具備滾動或年增率證據的月份保持未分類，不得由 `np.select` 預設值誤指派至低通膨或景氣放緩環境。
 
 ## 通膨調整
 
