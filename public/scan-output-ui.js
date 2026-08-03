@@ -335,7 +335,7 @@ function decorateFormulaDetails() {
     list.append(item);
   });
   const note = document.createElement("p");
-  note.textContent = "每格顯示「名次 · 分數」；排名以全部已完成且可計算標的為母體。";
+  note.textContent = "每格顯示「名次 · 分數」；畫面排名以目前符合資料覆蓋率門檻且可計算的標的為母體。";
   details.append(summary, list, note);
   existing.replaceWith(details);
 }

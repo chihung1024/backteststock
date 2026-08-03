@@ -1,9 +1,18 @@
 import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
+import {
+  DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
+  buildScanCoverageStats,
+  normalizeScanMinCoveragePercent,
+} from "./scan-coverage.js?v=20260803.1";
 
 const STORAGE_KEY = "backteststock-state-v2";
 const LEGACY_STORAGE_KEY = "backteststock-state-v1";
 const BACKTEST_DATE_MODE_STORAGE_KEY = "backteststock-backtest-date-mode-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
+const SCAN_MIN_COVERAGE_STORAGE_KEY = "backteststock-scan-min-coverage-v1";
+const MANUAL_OPTIMIZER_SELECTION_STORAGE_KEY = "backteststock-optimizer-manual-selection-v2";
+const MIN_MANUAL_OPTIMIZER_TICKERS = 2;
+const MAX_MANUAL_OPTIMIZER_TICKERS = 100;
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
   ["cagr", "年化報酬率", "percent", "positive"],
@@ -182,6 +191,8 @@ let activeScanJob = null;
 let scanExecutionRunning = false;
 let scanPage = 1;
 let scanPageSize = 100;
+let scanMinCoveragePercent = loadScanMinCoveragePercent();
+let manualOptimizerSelection = { sourceJobId: null, tickers: [] };
 let tickerUniverse = [];
 
 const dom = {
@@ -211,6 +222,11 @@ const dom = {
   scanPageNext: document.querySelector("#scan-page-next"),
   scanPageStatus: document.querySelector("#scan-page-status"),
   scanPageSize: document.querySelector("#scan-page-size"),
+  scanMinCoverage: document.querySelector("#scan-min-coverage"),
+  scanCoverageFilterStatus: document.querySelector("#scan-coverage-filter-status"),
+  optimizerManualSelectionStatus: document.querySelector("#optimizer-manual-selection-status"),
+  clearOptimizerSelection: document.querySelector("#clear-optimizer-selection"),
+  openManualOptimizer: document.querySelector("#open-manual-optimizer"),
   screenerIndex: document.querySelector("#screener-index"),
   screenerWarning: document.querySelector("#screener-warning"),
   screenerFunnel: document.querySelector("#screener-funnel"),
@@ -262,6 +278,46 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function readJson(storage, key) {
+  try {
+    return JSON.parse(storage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(storage, key, value) {
+  storage.setItem(key, JSON.stringify(value));
+}
+
+function formatScanCoveragePercent(value) {
+  return Number(value).toLocaleString("zh-TW", {
+    maximumFractionDigits: 1,
+  });
+}
+
+function loadScanMinCoveragePercent() {
+  try {
+    return normalizeScanMinCoveragePercent(
+      localStorage.getItem(SCAN_MIN_COVERAGE_STORAGE_KEY),
+    );
+  } catch (error) {
+    console.warn("Unable to restore scan coverage filter", error);
+    return DEFAULT_SCAN_MIN_COVERAGE_PERCENT;
+  }
+}
+
+function saveScanMinCoveragePercent() {
+  try {
+    localStorage.setItem(
+      SCAN_MIN_COVERAGE_STORAGE_KEY,
+      String(scanMinCoveragePercent),
+    );
+  } catch (error) {
+    console.warn("Unable to persist scan coverage filter", error);
+  }
 }
 
 function createElement(tag, options = {}, children = []) {
@@ -444,6 +500,7 @@ function initializeControls() {
   document.querySelector("#benchmark").value = state.settings.benchmark;
   document.querySelector("#scan-start-period").value = defaultRange.startDate;
   document.querySelector("#scan-end-period").value = defaultRange.endDate;
+  dom.scanMinCoverage.value = formatScanCoveragePercent(scanMinCoveragePercent);
 }
 
 function renderPortfolios() {
@@ -1203,10 +1260,122 @@ function restorePersistedScan() {
   }
 }
 
+function scanCoverageStats() {
+  return buildScanCoverageStats(latestScan, scanMinCoveragePercent);
+}
+
+function sameTickerList(left, right) {
+  return left.length === right.length && left.every((ticker, index) => ticker === right[index]);
+}
+
+function scanBenchmarkTicker() {
+  return sanitizeTicker(activeScanJob?.payload?.benchmark || "SPY");
+}
+
+function optimizerSelectableTickers(stats) {
+  const benchmark = scanBenchmarkTicker();
+  return new Set(
+    stats.shown
+      .map((item) => sanitizeTicker(item.ticker))
+      .filter((ticker) => ticker && ticker !== benchmark),
+  );
+}
+
+function loadManualOptimizerSelection() {
+  const sourceJobId = activeScanJob?.id || null;
+  if (manualOptimizerSelection.sourceJobId === sourceJobId) return;
+
+  const saved = readJson(localStorage, MANUAL_OPTIMIZER_SELECTION_STORAGE_KEY);
+  const tickers = saved?.sourceJobId === sourceJobId && Array.isArray(saved?.tickers)
+    ? [...new Set(saved.tickers.map(sanitizeTicker).filter(Boolean))]
+    : [];
+  manualOptimizerSelection = { sourceJobId, tickers };
+}
+
+function persistManualOptimizerSelection(tickers) {
+  const job = activeScanJob;
+  if (!job?.id) return;
+  if (!tickers.length) {
+    localStorage.removeItem(MANUAL_OPTIMIZER_SELECTION_STORAGE_KEY);
+    return;
+  }
+  const valuationContract = job.results.find((item) => item?.twd_valuation_contract_version)
+    ?.twd_valuation_contract_version || null;
+  writeJson(localStorage, MANUAL_OPTIMIZER_SELECTION_STORAGE_KEY, {
+    version: 2,
+    sourceJobId: job.id,
+    selectedAt: new Date().toISOString(),
+    tickers,
+    minimumTickers: MIN_MANUAL_OPTIMIZER_TICKERS,
+    maximumTickers: MAX_MANUAL_OPTIMIZER_TICKERS,
+    selectionMode: "manual_fixed_source_pool",
+    coverageThresholdPercent: scanMinCoveragePercent,
+    startDate: job.payload?.startDate || null,
+    endDate: job.payload?.endDate || null,
+    benchmark: scanBenchmarkTicker(),
+    valuationCurrency: "TWD",
+    twdValuationContractVersion: valuationContract,
+  });
+}
+
+function reconcileManualOptimizerSelection(stats = scanCoverageStats()) {
+  loadManualOptimizerSelection();
+  const selectable = optimizerSelectableTickers(stats);
+  const next = manualOptimizerSelection.tickers
+    .filter((ticker) => selectable.has(ticker))
+    .slice(0, MAX_MANUAL_OPTIMIZER_TICKERS);
+  if (!sameTickerList(next, manualOptimizerSelection.tickers)) {
+    manualOptimizerSelection = {
+      sourceJobId: activeScanJob?.id || null,
+      tickers: next,
+    };
+    persistManualOptimizerSelection(next);
+  }
+  return {
+    tickers: manualOptimizerSelection.tickers,
+    selectable,
+  };
+}
+
+function renderManualOptimizerSelectionControls(selection) {
+  const count = selection.tickers.length;
+  const ready = count >= MIN_MANUAL_OPTIMIZER_TICKERS;
+  dom.optimizerManualSelectionStatus.textContent = [
+    `手動候選 ${count.toLocaleString("zh-TW")} / ${MAX_MANUAL_OPTIMIZER_TICKERS}`,
+    ready ? "將作為固定來源池" : `至少選 ${MIN_MANUAL_OPTIMIZER_TICKERS} 檔`,
+  ].join(" · ");
+  dom.clearOptimizerSelection.disabled = count === 0;
+  dom.openManualOptimizer.textContent = `使用已選 ${count.toLocaleString("zh-TW")} 檔開啟最佳化器`;
+  dom.openManualOptimizer.setAttribute("aria-disabled", String(!ready));
+  dom.openManualOptimizer.tabIndex = ready ? 0 : -1;
+  dom.openManualOptimizer.classList.toggle("disabled", !ready);
+}
+
+function renderScanCoverageFilterStatus(stats = scanCoverageStats()) {
+  const threshold = `${formatScanCoveragePercent(scanMinCoveragePercent)}%`;
+  dom.scanCoverageFilterStatus.textContent = [
+    `顯示 ${stats.shown.length.toLocaleString("zh-TW")} / ${stats.settled.length.toLocaleString("zh-TW")} 檔`,
+    `門檻 ≥ ${threshold}`,
+    stats.hidden ? `隱藏 ${stats.hidden.toLocaleString("zh-TW")} 檔` : "沒有低覆蓋率標的",
+  ].join(" · ");
+}
+
+function updateScanMinCoverage(value, { normalizeInput = false } = {}) {
+  scanMinCoveragePercent = normalizeScanMinCoveragePercent(value, scanMinCoveragePercent);
+  if (normalizeInput) {
+    dom.scanMinCoverage.value = formatScanCoveragePercent(scanMinCoveragePercent);
+  }
+  saveScanMinCoveragePercent();
+  scanPage = 1;
+  renderScanTable();
+  renderScanSummary();
+}
+
 function renderScanTable() {
-  const sorted = [...latestScan].sort((left, right) => {
-    if (left.error) return 1;
-    if (right.error) return -1;
+  const coverage = scanCoverageStats();
+  const { shown, settled, hidden } = coverage;
+  const manualSelection = reconcileManualOptimizerSelection(coverage);
+  const sorted = [...shown].sort((left, right) => {
     const a = Number(left[scanSort.key]);
     const b = Number(right[scanSort.key]);
     return scanSort.direction === "asc" ? a - b : b - a;
@@ -1218,6 +1387,7 @@ function renderScanTable() {
 
   const columns = [
     ["ticker", "股票代碼", "text"],
+    ["optimizer_selection", "候選", "selection"],
     ...SCAN_METRICS.map(([key, label, type]) => [key, label, type]),
     ["data_range", "資料區間", "text"],
   ];
@@ -1225,35 +1395,69 @@ function renderScanTable() {
   const headerRow = createElement("tr");
   columns.forEach(([key, label]) => {
     const indicator = scanSort.key === key ? (scanSort.direction === "asc" ? " ▲" : " ▼") : "";
+    const sortable = !["ticker", "optimizer_selection", "data_range"].includes(key);
     headerRow.append(createElement("th", {
       text: `${label}${indicator}`,
       scope: "col",
-      className: ["ticker", "data_range"].includes(key) ? "" : "sortable",
-      dataset: ["ticker", "data_range"].includes(key) ? {} : { sortKey: key },
+      className: key === "optimizer_selection" ? "optimizer-select-column" : (sortable ? "sortable" : ""),
+      dataset: sortable ? { sortKey: key } : {},
     }));
   });
   thead.append(headerRow);
 
   const tbody = createElement("tbody");
-  visibleRows.forEach((item) => {
-    const row = createElement("tr");
-    row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));
-    SCAN_METRICS.forEach(([key, , type, className], index) => {
-      row.append(createElement("td", {
-        text: item.error ? (index === 0 ? item.error : "—") : formatMetric(item[key], type),
-        className: item.error ? "" : className,
-      }));
-    });
+  if (!visibleRows.length) {
+    const row = createElement("tr", { dataset: { scanEmpty: "true" } });
     row.append(createElement("td", {
-      text: item.error ? "—" : `${item.data_start || "—"} ～ ${item.data_end || "—"}`,
+      text: `目前沒有符合資料覆蓋率 ≥ ${formatScanCoveragePercent(scanMinCoveragePercent)}% 的已完成回測結果。`,
+      colSpan: columns.length,
+      className: "scan-empty-state",
     }));
     tbody.append(row);
-  });
+  } else {
+    visibleRows.forEach((item) => {
+      const ticker = sanitizeTicker(item.ticker);
+      const selected = manualSelection.tickers.includes(ticker);
+      const selectable = manualSelection.selectable.has(ticker);
+      const row = createElement("tr", {
+        dataset: { ticker },
+        className: selected ? "optimizer-manual-selected" : "",
+      });
+      row.append(createElement("th", { text: item.note ? `${item.ticker} ${item.note}` : item.ticker, scope: "row" }));
+      const selectionCell = createElement("td", { className: "optimizer-select-cell" });
+      if (selectable) {
+        selectionCell.append(createElement("input", {
+          type: "checkbox",
+          checked: selected,
+          disabled: !selected && manualSelection.tickers.length >= MAX_MANUAL_OPTIMIZER_TICKERS,
+          dataset: { optimizerTicker: ticker },
+          ariaLabel: `選擇 ${ticker} 為最佳化固定來源股票`,
+        }));
+      } else {
+        selectionCell.textContent = "—";
+        selectionCell.title = "比較基準不可同時列入最佳化來源股票池。";
+      }
+      row.append(selectionCell);
+      SCAN_METRICS.forEach(([key, , type, className]) => {
+        row.append(createElement("td", {
+          text: formatMetric(item[key], type),
+          className,
+        }));
+      });
+      row.append(createElement("td", {
+        text: `${item.data_start || "—"} ～ ${item.data_end || "—"}`,
+      }));
+      tbody.append(row);
+    });
+  }
   dom.scanTable.replaceChildren(thead, tbody);
+  dom.scanTable.dataset.minCoveragePercent = String(scanMinCoveragePercent);
   dom.scanPagination.classList.toggle("hidden", sorted.length <= scanPageSize);
   dom.scanPageStatus.textContent = `第 ${scanPage.toLocaleString("zh-TW")} / ${totalPages.toLocaleString("zh-TW")} 頁`;
   dom.scanPagePrev.disabled = scanPage <= 1;
   dom.scanPageNext.disabled = scanPage >= totalPages;
+  renderScanCoverageFilterStatus({ shown, settled, hidden });
+  renderManualOptimizerSelectionControls(manualSelection);
 }
 
 function median(values) {
@@ -1265,6 +1469,7 @@ function median(values) {
 
 function renderScanSummary() {
   const valid = latestScan.filter((item) => !item.error && item.retryable !== true);
+  const coverage = scanCoverageStats();
   const failed = latestScan.filter((item) => Boolean(item.error));
   const total = activeScanJob?.payload?.tickers?.length || latestScan.length;
   const unfinished = activeScanJob?.status === "completed"
@@ -1284,6 +1489,7 @@ function renderScanSummary() {
     ["平均最大回撤", formatMetric(average("mdd"), "percent")],
     ["平均 Sharpe", formatMetric(average("sharpe_ratio"), "number")],
     ["平均資料覆蓋", formatMetric(average("data_coverage"), "percent")],
+    ["符合覆蓋率門檻", `${coverage.shown.length} / ${coverage.settled.length}`],
   ];
   dom.scanSummary.replaceChildren(...cards.map(([label, value]) => createElement(
     "article",
@@ -1511,6 +1717,54 @@ function bindEvents() {
   document.querySelector("#start-period").addEventListener("input", markBacktestDatesCustom);
   document.querySelector("#end-period").addEventListener("input", markBacktestDatesCustom);
   dom.scanForm.addEventListener("submit", runScan);
+  dom.scanMinCoverage.addEventListener("input", () => {
+    const raw = dom.scanMinCoverage.value;
+    if (raw === "") return;
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) return;
+    updateScanMinCoverage(numeric);
+  });
+  dom.scanMinCoverage.addEventListener("change", () => {
+    updateScanMinCoverage(dom.scanMinCoverage.value, { normalizeInput: true });
+  });
+  dom.scanTable.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("input[data-optimizer-ticker]");
+    if (!checkbox) return;
+    const selection = reconcileManualOptimizerSelection();
+    const ticker = sanitizeTicker(checkbox.dataset.optimizerTicker);
+    let tickers = selection.tickers;
+    if (checkbox.checked) {
+      if (tickers.length >= MAX_MANUAL_OPTIMIZER_TICKERS) {
+        checkbox.checked = false;
+        return;
+      }
+      tickers = [...tickers, ticker];
+    } else {
+      tickers = tickers.filter((item) => item !== ticker);
+    }
+    manualOptimizerSelection = {
+      sourceJobId: activeScanJob?.id || null,
+      tickers: [...new Set(tickers)],
+    };
+    persistManualOptimizerSelection(manualOptimizerSelection.tickers);
+    renderScanTable();
+  });
+  dom.clearOptimizerSelection.addEventListener("click", () => {
+    manualOptimizerSelection = {
+      sourceJobId: activeScanJob?.id || null,
+      tickers: [],
+    };
+    persistManualOptimizerSelection([]);
+    renderScanTable();
+  });
+  dom.openManualOptimizer.addEventListener("click", (event) => {
+    const selection = reconcileManualOptimizerSelection();
+    if (selection.tickers.length < MIN_MANUAL_OPTIMIZER_TICKERS) {
+      event.preventDefault();
+      return;
+    }
+    persistManualOptimizerSelection(selection.tickers);
+  });
   document.querySelector("#run-screener").addEventListener("click", runScreener);
   document.querySelector("#add-portfolio").addEventListener("click", () => {
     if (state.portfolios.length >= 5) {

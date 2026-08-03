@@ -137,6 +137,9 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
+  await expect(page.locator("#scan-min-coverage")).toHaveValue("90");
+  await page.locator("#scan-min-coverage").fill("0");
+
   const stableHeader = formulaHeader(page, formulas.stable);
   const growthHeader = formulaHeader(page, formulas.growth);
   const drawdownHeader = formulaHeader(page, formulas.drawdown);

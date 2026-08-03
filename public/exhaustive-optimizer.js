@@ -72,7 +72,7 @@ const dom = Object.fromEntries([
   "sortDirection", "filterSortino", "filterCagr", "filterMdd", "applySort",
   "resultSummary", "resultBody", "previousPage", "nextPage", "pageLabel",
   "exportPage", "exportAll", "detailPanel", "detailTitle", "detailBody",
-  "closeDetail", "jobHistory", "resetDates",
+  "closeDetail", "jobHistory", "resetDates", "handoffContext",
 ].map((id) => [id, document.querySelector(`#optimizer-${id.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`)]));
 
 let prepared = null;
@@ -151,22 +151,106 @@ function initializeDates() {
   dom.end.addEventListener("change", record);
 }
 
+function validatedManualHandoff(manual, scanJob) {
+  if (
+    manual?.version !== 2
+    || manual?.selectionMode !== "manual_fixed_source_pool"
+    || manual?.sourceJobId !== scanJob?.id
+    || !Array.isArray(manual?.tickers)
+  ) {
+    return null;
+  }
+
+  const tickers = parseTickers(manual.tickers.join(","));
+  const scannedTickers = new Set(parseTickers(
+    Array.isArray(scanJob?.payload?.tickers)
+      ? scanJob.payload.tickers.join(",")
+      : "",
+  ));
+  const benchmark = parseTickers(manual?.benchmark || scanJob?.payload?.benchmark || "SPY")[0];
+  if (
+    tickers.length < 2
+    || tickers.length > MAX_SOURCE_TICKERS
+    || tickers.includes(benchmark)
+    || tickers.some((ticker) => !scannedTickers.has(ticker))
+  ) {
+    return null;
+  }
+  return { handoff: manual, tickers };
+}
+
 function initializeSource() {
   const scanJob = readJson(SCAN_JOB_KEY);
   const manual = readJson(MANUAL_SELECTION_KEY);
   const queryMode = new URLSearchParams(location.search).get("mode");
+  const manualRequested = queryMode === "manual";
   let tickers = [];
-  if (
-    queryMode === "manual"
-    && manual?.sourceJobId === scanJob?.id
-    && Array.isArray(manual?.tickers)
-  ) {
-    tickers = manual.tickers;
-  } else if (Array.isArray(scanJob?.payload?.tickers)) {
+  let handoff = null;
+  const validatedManual = manualRequested
+    ? validatedManualHandoff(manual, scanJob)
+    : null;
+  if (validatedManual) {
+    tickers = validatedManual.tickers;
+    handoff = validatedManual.handoff;
+  } else if (!manualRequested && Array.isArray(scanJob?.payload?.tickers)) {
     tickers = scanJob.payload.tickers;
   }
   dom.source.value = [...new Set(tickers)].join(", ");
-  dom.benchmark.value = scanJob?.payload?.benchmark || "SPY";
+  dom.benchmark.value = handoff?.benchmark || scanJob?.payload?.benchmark || "SPY";
+  return {
+    scanJob,
+    handoff,
+    tickers: parseTickers(dom.source.value),
+    manualRequested,
+  };
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(String(value || ""));
+}
+
+function applyManualHandoffContext(source) {
+  const handoff = source?.handoff;
+  if (!handoff) {
+    if (source?.manualRequested) {
+      dom.handoffContext.textContent = [
+        "找不到或無法驗證目前掃描工作對應的手動候選池，為避免誤用整份掃描清單，來源股票未帶入。",
+        "請返回個股績效列表重新勾選至少 2 檔後再開啟最佳化器。",
+      ].join(" ");
+      dom.handoffContext.classList.remove("hidden");
+    } else {
+      dom.handoffContext.classList.add("hidden");
+      dom.handoffContext.textContent = "";
+    }
+    return;
+  }
+
+  const startDate = isIsoDate(handoff.startDate)
+    ? handoff.startDate
+    : source?.scanJob?.payload?.startDate;
+  const endDate = isIsoDate(handoff.endDate)
+    ? handoff.endDate
+    : source?.scanJob?.payload?.endDate;
+  if (isIsoDate(startDate) && isIsoDate(endDate) && startDate <= endDate) {
+    dom.start.value = startDate;
+    dom.end.value = endDate;
+    localStorage.setItem(DATE_MODE_KEY, "custom");
+    localStorage.setItem(CUSTOM_RANGE_KEY, JSON.stringify({ startDate, endDate }));
+  }
+
+  if (source.tickers.length >= 2 && Number(dom.holdingCount.value) > source.tickers.length) {
+    dom.holdingCount.value = String(source.tickers.length);
+  }
+
+  const coverage = Number(handoff.coverageThresholdPercent);
+  const details = [
+    `已由個股績效列表手動帶入 ${source.tickers.length.toLocaleString("zh-TW")} 檔固定來源股票`,
+    Number.isFinite(coverage) ? `掃描時最低資料覆蓋率 ≥ ${coverage.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%` : "手動候選池",
+    isIsoDate(startDate) && isIsoDate(endDate) ? `沿用掃描期間 ${startDate} ～ ${endDate}` : null,
+    `比較基準 ${dom.benchmark.value}`,
+  ].filter(Boolean);
+  dom.handoffContext.textContent = details.join(" · ");
+  dom.handoffContext.classList.remove("hidden");
 }
 
 function defaultWorkers() {
@@ -1438,8 +1522,9 @@ function installEvents() {
 }
 
 async function initialize() {
-  initializeSource();
+  const source = initializeSource();
   initializeDates();
+  applyManualHandoffContext(source);
   dom.workerCount.value = String(defaultWorkers());
   installMetricOptions();
   installEvents();
