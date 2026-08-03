@@ -13,6 +13,7 @@ on:
       - "package-lock.json"
       - "scripts/render_wrangler_config.mjs"
       - "scripts/smoke_test_production.mjs"
+      - "scripts/smoke_test_portfolio_lab.mjs"
   workflow_dispatch:
 
 permissions:
@@ -94,6 +95,10 @@ jobs:
         env:
           WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
         run: node scripts/smoke_test_production.mjs "$WORKER_ORIGIN"
+      - name: Smoke test production Portfolio Lab flow
+        env:
+          WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
+        run: node scripts/smoke_test_portfolio_lab.mjs "$WORKER_ORIGIN"
       - name: Report final deployment status
         if: ${{ always() }}
         env:
