@@ -18,12 +18,16 @@
 |---|---|---|
 | PR 0 | 已完成 | 凍結來源 commit、核心 blob SHA、35 項能力矩陣、完整 request／response contract、合成行情與 parity scenarios |
 | PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
-| PR 2～PR 7 | 未開始 | 依本文件順序執行 |
+| PR 2 | 已完成 | 自有 Portfolio Ledger、現金流、配息策略、成本、定期／門檻再平衡、fixed-ratio／fixed-debt 槓桿、margin liquidation、完整指標與部分成功服務 |
+| PR 3～PR 7 | 未開始 | 依本文件順序執行 |
 
-PR 1 使用的版本化資料契約：
+目前版本化契約：
 
 - `RETURN_COMPONENT_SOURCE_VERSION = yahoo-close-events-2026-08-04.1`
 - `RETURN_COMPONENTS_CONTRACT_VERSION = twd-return-components-2026-08-04.1`
+- `PORTFOLIO_LEDGER_CONTRACT_VERSION = portfolio-ledger-twd-2026-08-04.1`
+- `PORTFOLIO_METRIC_CONTEXT_VERSION = portfolio-metrics-twd-2026-08-04.1`
+- `PORTFOLIO_SERVICE_CONTRACT_VERSION = portfolio-service-twd-2026-08-04.1`
 
 ## 凍結來源
 
@@ -73,7 +77,15 @@ TWD Distribution Return = Native Distribution Return × (1 + FX Return)
 TWD Price Return = TWD Total Return - TWD Distribution Return
 ```
 
-資產與 FX 使用聯集日曆，只在各自已有真實觀察後向前填補，禁止 backward fill。這使下一階段的 Portfolio Ledger 能正確比較「股息再投入」與「配息保留 TWD 現金」，而不重複計入 Adjusted Close 已內含的總報酬。
+資產與 FX 使用聯集日曆，只在各自已有真實觀察後向前填補，禁止 backward fill。這使 Portfolio Ledger 能正確比較「股息再投入」與「配息保留 TWD 現金」，而不重複計入 Adjusted Close 已內含的總報酬。
+
+## PR 2 Portfolio Ledger 契約
+
+完整事件順序、TWR 現金流處理、配息政策、再平衡、交易成本、槓桿、XIRR、VaR／CVaR、回撤事件與 partial-period 定義見：
+
+- `docs/portfolio-migration/PR2_LEDGER_METRICS.md`
+
+PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前的 Portfolio Lab 介面。PR 3 將以此核心建立自有 Portfolio v3 API。
 
 ## 差異治理
 
