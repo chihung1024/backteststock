@@ -24,16 +24,24 @@ test("coverage filtering includes the exact threshold and hides incomplete data"
     { ticker: "ROUNDING", status: "ok", data_coverage: 0.8999999999999 },
     { ticker: "LOW", status: "ok", data_coverage: 0.899 },
     { ticker: "MISSING", status: "ok", data_coverage: null },
+    { ticker: "OUT_OF_RANGE", status: "ok", data_coverage: 1.1 },
     { ticker: "FAILED", error: "unavailable", data_coverage: 1 },
     { ticker: "RETRY", retryable: true, data_coverage: 1 },
   ];
 
   const defaultStats = buildScanCoverageStats(rows, 90);
   assert.deepEqual(defaultStats.shown.map((item) => item.ticker), ["FULL", "AT90", "ROUNDING"]);
-  assert.equal(defaultStats.settled.length, 5);
-  assert.equal(defaultStats.hidden, 2);
+  assert.equal(defaultStats.settled.length, 6);
+  assert.equal(defaultStats.hidden, 3);
 
   const relaxed = buildScanCoverageStats(rows, 89.9);
   assert.deepEqual(relaxed.shown.map((item) => item.ticker), ["FULL", "AT90", "ROUNDING", "LOW"]);
-  assert.equal(relaxed.hidden, 1);
+  assert.equal(relaxed.hidden, 2);
+
+  const zeroThreshold = buildScanCoverageStats(rows, 0);
+  assert.deepEqual(
+    zeroThreshold.shown.map((item) => item.ticker),
+    ["FULL", "AT90", "ROUNDING", "LOW"],
+  );
+  assert.equal(zeroThreshold.hidden, 2);
 });

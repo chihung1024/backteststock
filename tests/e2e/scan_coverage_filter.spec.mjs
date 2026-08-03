@@ -62,4 +62,11 @@ test("defaults to 90% coverage and lets the user adjust the visible scan list", 
   await expect(page.locator("#scan-coverage-filter-status")).toHaveText(
     "顯示 3 / 4 檔 · 門檻 ≥ 89.9% · 隱藏 1 檔",
   );
+
+  await page.locator("#scan-min-coverage").fill("0");
+  await expect(rows).toHaveCount(3);
+  await expect(rows).toContainText(["FULL", "AT90", "LOW"]);
+  await expect(page.locator("#scan-coverage-filter-status")).toHaveText(
+    "顯示 3 / 4 檔 · 門檻 ≥ 0% · 隱藏 1 檔",
+  );
 });

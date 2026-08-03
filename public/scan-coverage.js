@@ -17,9 +17,19 @@ export function isSettledScanResult(item) {
 
 export function hasMinimumScanCoverage(item, minimumCoveragePercent) {
   if (!isSettledScanResult(item)) return false;
-  const coverage = Number(item.data_coverage);
+  const rawCoverage = item.data_coverage;
+  if (
+    rawCoverage == null
+    || typeof rawCoverage === "boolean"
+    || String(rawCoverage).trim() === ""
+  ) {
+    return false;
+  }
+  const coverage = Number(rawCoverage);
   const threshold = normalizeScanMinCoveragePercent(minimumCoveragePercent) / 100;
   return Number.isFinite(coverage)
+    && coverage >= 0
+    && coverage <= 1 + 1e-12
     && coverage + 1e-12 >= threshold;
 }
 
