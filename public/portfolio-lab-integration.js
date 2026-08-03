@@ -1,5 +1,6 @@
 const PORTFOLIO_LAB_INTEGRATED_ROW_CLASS = "integrated-portfolio-row";
 let lastIntegratedPortfolioRequestId = "";
+let latestPortfolioLabResponse = null;
 
 function integratedPortfolioValue(headerText, result) {
   const label = headerText.trim();
@@ -50,9 +51,9 @@ function stylePortfolioLabHeatmap() {
   });
 }
 
-function synchronizeIntegratedPortfolioRows() {
-  if (typeof response === "undefined" || !response?.results?.length) return;
-  const requestId = String(response.request_id || response.generated_at || "portfolio-result");
+function synchronizeIntegratedPortfolioRows(payload = latestPortfolioLabResponse) {
+  if (!payload?.results?.length) return;
+  const requestId = String(payload.request_id || payload.generated_at || "portfolio-result");
   if (requestId === lastIntegratedPortfolioRequestId) return;
   const table = document.querySelector("#scan-table");
   const body = table?.querySelector("tbody");
@@ -60,7 +61,7 @@ function synchronizeIntegratedPortfolioRows() {
   if (!body || !headers.length) return;
 
   removeIntegratedPortfolioRows();
-  for (const result of response.results) {
+  for (const result of payload.results) {
     const row = document.createElement("tr");
     row.className = PORTFOLIO_LAB_INTEGRATED_ROW_CLASS;
     row.tabIndex = 0;
@@ -91,11 +92,18 @@ function installPortfolioLabResultIntegration() {
     synchronizeIntegratedPortfolioRows();
   });
   observer.observe(root, { childList: true, subtree: true });
+  window.addEventListener("portfolio-lab:result", (event) => {
+    latestPortfolioLabResponse = event.detail && typeof event.detail === "object"
+      ? event.detail
+      : null;
+    synchronizeIntegratedPortfolioRows();
+  });
   document.addEventListener("submit", (event) => {
-    if (event.target?.id === "scan-form") removeIntegratedPortfolioRows();
+    if (event.target?.id !== "scan-form") return;
+    latestPortfolioLabResponse = null;
+    removeIntegratedPortfolioRows();
   }, true);
   stylePortfolioLabHeatmap();
-  synchronizeIntegratedPortfolioRows();
 }
 
 installPortfolioLabResultIntegration();
