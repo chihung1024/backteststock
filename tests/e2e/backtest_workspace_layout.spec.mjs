@@ -88,9 +88,10 @@ async function openPortfolioLab(page) {
   await page.goto("/");
   await page.getByRole("button", { name: "投資組合回測" }).click();
   const dialog = page.locator("#integrated-backtest-dialog");
+  const lab = dialog.locator("#portfolio-lab");
   await expect(dialog).toHaveJSProperty("open", true);
-  await expect(dialog.locator("#portfolio-lab")).toBeVisible();
-  return dialog;
+  await expect(lab).toBeVisible();
+  return { dialog, lab };
 }
 
 test("portfolio lab ports the original functional design and result dashboard", async ({ page }) => {
@@ -101,57 +102,57 @@ test("portfolio lab ports the original functional design and result dashboard", 
     await fulfillJson(route, backtestResponse());
   });
 
-  const dialog = await openPortfolioLab(page);
-  await expect(dialog).toContainText("投資組合回測實驗室");
-  await expect(dialog.getByRole("tab", { name: "回測設定" })).toBeVisible();
-  await expect(dialog.getByText("定期現金流", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("再平衡", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("槓桿與保證金", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("進階分析", { exact: true })).toBeVisible();
+  const { dialog, lab } = await openPortfolioLab(page);
+  await expect(lab).toContainText("投資組合回測實驗室");
+  await expect(lab.getByRole("tab", { name: "回測設定" })).toBeVisible();
+  await expect(lab.getByText("定期現金流", { exact: true })).toBeVisible();
+  await expect(lab.getByText("再平衡", { exact: true })).toBeVisible();
+  await expect(lab.getByText("槓桿與保證金", { exact: true })).toBeVisible();
+  await expect(lab.getByText("進階分析", { exact: true })).toBeVisible();
 
-  await dialog.getByLabel("現金流方式").selectOption("fixed");
-  await expect(dialog.getByLabel("金額／比例")).toBeVisible();
-  await dialog.getByLabel("金額／比例").fill("5000");
-  await dialog.getByLabel("現金流方式").selectOption("fixed");
-  await dialog.getByLabel("槓桿方式").selectOption("fixed_ratio");
-  await expect(dialog.getByLabel("槓桿倍數")).toBeVisible();
-  await dialog.getByLabel("槓桿倍數").fill("1.5");
-  await dialog.getByText("報酬式風格分析", { exact: true }).click();
-  await dialog.getByText("Fama–French 因子回歸", { exact: true }).click();
-  await dialog.getByLabel("市場環境分析").selectOption("market");
+  await lab.getByLabel("現金流方式").selectOption("fixed");
+  await expect(lab.getByLabel("金額／比例")).toBeVisible();
+  await lab.getByLabel("金額／比例").fill("5000");
+  await lab.getByLabel("槓桿方式").selectOption("fixed_ratio");
+  await expect(lab.getByLabel("槓桿倍數")).toBeVisible();
+  await lab.getByLabel("槓桿倍數").fill("1.5");
+  await lab.getByText("報酬式風格分析", { exact: true }).click();
+  await lab.getByText("Fama–French 因子回歸", { exact: true }).click();
+  await lab.getByLabel("市場環境分析").selectOption("market");
 
-  await dialog.getByRole("tab", { name: "資產配置" }).click();
-  await expect(dialog.locator(".pl-matrix tbody tr")).toHaveCount(7);
-  await expect(dialog.locator(".pl-matrix thead th")).toHaveCount(7);
-  await expect(dialog.locator(".pl-total-row td.complete")).toHaveCount(2);
-  await expect(dialog.getByRole("button", { name: /新增資產/ })).toBeVisible();
+  await lab.getByRole("tab", { name: "資產配置" }).click();
+  await expect(lab.locator(".pl-matrix tbody tr")).toHaveCount(7);
+  await expect(lab.locator(".pl-matrix thead th")).toHaveCount(7);
+  await expect(lab.locator(".pl-total-row td.complete")).toHaveCount(2);
+  await expect(lab.getByRole("button", { name: /新增資產/ })).toBeVisible();
 
-  await dialog.locator(".pl-ticker-search input").nth(2).fill("VT");
-  await expect(dialog.getByRole("button", { name: /VT Vanguard Total World Stock ETF/ })).toBeVisible();
+  await lab.locator(".pl-ticker-search input").nth(2).fill("VT");
+  await expect(lab.getByRole("button", { name: /VT Vanguard Total World Stock ETF/ })).toBeVisible();
 
-  await dialog.getByRole("button", { name: "執行完整回測" }).click();
+  await lab.getByRole("button", { name: "執行完整回測" }).click();
   await expect.poll(() => submittedPayload).toBeTruthy();
   expect(submittedPayload.cashflow).toMatchObject({ type: "fixed", amount: 5000, frequency: "monthly" });
   expect(submittedPayload.leverage).toMatchObject({ type: "fixed_ratio", ratio: 1.5 });
   expect(submittedPayload.analytics).toMatchObject({ style_analysis: true, factor_regression: true, regime: "market" });
   expect(submittedPayload.portfolios).toHaveLength(2);
 
-  await expect(dialog.locator("#pl-results")).toBeVisible();
-  await expect(dialog.getByText("完整回測結果", { exact: true })).toBeVisible();
-  await expect(dialog.locator(".pl-summary")).toHaveCount(3);
-  await expect(dialog.getByText("XIRR", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("CVaR 95%（日）", { exact: true })).toBeVisible();
+  await expect(lab.locator("#pl-results")).toBeVisible();
+  await expect(lab.getByText("完整回測結果", { exact: true })).toBeVisible();
+  await expect(lab.locator(".pl-summary")).toHaveCount(3);
+  await expect(lab.getByText("XIRR", { exact: true })).toBeVisible();
+  await expect(lab.getByText("CVaR 95%（日）", { exact: true })).toBeVisible();
 
-  await dialog.getByRole("tab", { name: "資產成長" }).click();
-  await expect(dialog.locator("canvas.pl-chart")).toBeVisible();
-  await dialog.getByRole("tab", { name: "年度報酬" }).click();
-  await expect(dialog.getByText("2023", { exact: true }).first()).toBeVisible();
-  await dialog.getByRole("tab", { name: "月報酬熱圖" }).click();
-  await expect(dialog.locator(".pl-heatmap")).toBeVisible();
-  await dialog.getByRole("tab", { name: "配置" }).click();
-  await expect(dialog.locator(".pl-allocation-card")).toHaveCount(2);
-  await dialog.getByRole("tab", { name: "分析" }).click();
-  await expect(dialog.getByText("Fama–French", { exact: true }).first()).toBeVisible();
+  await lab.getByRole("tab", { name: "資產成長" }).click();
+  await expect(lab.locator("canvas.pl-chart")).toBeVisible();
+  await lab.getByRole("tab", { name: "年度報酬" }).click();
+  await expect(lab.getByText("2023", { exact: true }).first()).toBeVisible();
+  await lab.getByRole("tab", { name: "月報酬熱圖" }).click();
+  await expect(lab.locator(".pl-heatmap")).toBeVisible();
+  await expect(lab.locator('.pl-heatmap td[data-heat="0.04"]')).toHaveCSS("background-color", /rgba?\(/);
+  await lab.getByRole("tab", { name: "配置" }).click();
+  await expect(lab.locator(".pl-allocation-card")).toHaveCount(2);
+  await lab.getByRole("tab", { name: "分析" }).click();
+  await expect(lab.getByText("Fama–French", { exact: true }).first()).toBeVisible();
 
   await dialog.getByRole("button", { name: "關閉並返回績效列表" }).click();
   await expect(dialog).toHaveJSProperty("open", false);
@@ -160,16 +161,16 @@ test("portfolio lab ports the original functional design and result dashboard", 
 test("portfolio lab remains usable at mobile width with two default portfolios", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockShellApis(page);
-  const dialog = await openPortfolioLab(page);
+  const { dialog, lab } = await openPortfolioLab(page);
 
   const dialogBox = await dialog.boundingBox();
   expect(dialogBox).not.toBeNull();
   expect(dialogBox.width).toBeLessThanOrEqual(390);
 
-  await dialog.getByRole("tab", { name: "資產配置" }).click();
-  await expect(dialog.locator(".pl-matrix thead th")).toHaveCount(4);
-  await expect(dialog.locator(".pl-total-row td.complete")).toHaveCount(2);
-  const runButton = dialog.getByRole("button", { name: "執行完整回測" });
+  await lab.getByRole("tab", { name: "資產配置" }).click();
+  await expect(lab.locator(".pl-matrix thead th")).toHaveCount(4);
+  await expect(lab.locator(".pl-total-row td.complete")).toHaveCount(2);
+  const runButton = lab.getByRole("button", { name: "執行完整回測" });
   await expect(runButton).toBeVisible();
   const buttonBox = await runButton.boundingBox();
   expect(buttonBox).not.toBeNull();
