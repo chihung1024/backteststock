@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,12 @@ from api.market_data import (
     RETURN_COMPONENT_SOURCE_VERSION,
     _attach_return_component_attrs,
 )
-from apps.api.app.data.history_service import TWDAssetHistory, _scale_native_prices
+from apps.api.app.data.fx_provider import FXLevels, normalize_quote_convention
+from apps.api.app.data.history_service import (
+    TWDAssetHistory,
+    TWDHistoryService,
+    _scale_native_prices,
+)
 from apps.api.app.data.return_components import (
     RETURN_COMPONENTS_CONTRACT_VERSION,
     native_components_from_adjusted_close,
@@ -28,7 +34,9 @@ FIXTURE = (
 )
 
 
-def _fixture_series(prefix: str = "AAA") -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+def _fixture_series(
+    prefix: str = "AAA",
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
     frame = pd.read_csv(FIXTURE, parse_dates=["date"]).set_index("date")
     adjusted = frame[f"{prefix}_adjusted_close"].rename(prefix)
     raw = frame[f"{prefix}_native_close"].rename("raw_close")
@@ -38,8 +46,29 @@ def _fixture_series(prefix: str = "AAA") -> tuple[pd.Series, pd.Series, pd.Serie
         "raw_close": raw,
         "dividends": distribution,
         "capital_gains": pd.Series(0.0, index=frame.index),
+        "corporate_action_audit": {"status": "verified_standard_actions"},
     }
     return adjusted, raw, distribution, fx
+
+
+class _FixtureFXProvider:
+    def __init__(self, fx: pd.Series) -> None:
+        self.fx = fx
+
+    def quote_convention(self, _symbol: str):
+        return normalize_quote_convention("USD")
+
+    def fx_to_twd(self, currency: str, _start: date, _end: date) -> FXLevels:
+        return FXLevels(
+            source_currency=currency,
+            target_currency="TWD",
+            levels=self.fx,
+            method="direct",
+            tickers=(f"{currency}TWD=X",),
+            correction_count=0,
+            unresolved_count=0,
+            material_transition_count=0,
+        )
 
 
 def test_native_components_preserve_identity_across_split_like_raw_jump() -> None:
@@ -108,8 +137,8 @@ def test_distribution_cash_and_reinvestment_are_equal_on_payment_date() -> None:
     reinvested = opening * (1.0 + twd.total_returns.iloc[1])
     retained_asset = opening * (1.0 + twd.price_returns.iloc[1])
     retained_cash = opening * twd.distribution_returns.iloc[1]
-    assert reinvested == retained_asset + retained_cash
-    assert reinvested == 102.0
+    assert np.isclose(reinvested, retained_asset + retained_cash)
+    assert np.isclose(reinvested, 102.0)
 
 
 def test_total_only_fallback_is_backward_compatible() -> None:
@@ -125,7 +154,10 @@ def test_total_only_fallback_is_backward_compatible() -> None:
 def test_market_data_retains_clean_component_inputs_in_series_attrs() -> None:
     index = pd.to_datetime(["2024-01-02", "2024-01-03"])
     columns = pd.MultiIndex.from_product(
-        [["Adj Close", "Close", "Dividends", "Capital Gains", "Stock Splits"], ["AAA"]]
+        [
+            ["Adj Close", "Close", "Dividends", "Capital Gains", "Stock Splits"],
+            ["AAA"],
+        ]
     )
     downloaded = pd.DataFrame(
         [[100.0, 100.0, 0.0, 0.0, 0.0], [102.0, 101.0, 1.0, 0.0, 0.0]],
@@ -191,3 +223,54 @@ def test_twd_asset_history_exposes_components_without_changing_daily_returns() -
     assert history.return_component_audit["contract_version"] == (
         RETURN_COMPONENTS_CONTRACT_VERSION
     )
+
+
+def test_history_service_builds_components_and_preserves_partial_success(
+    monkeypatch,
+) -> None:
+    adjusted, _, _, fx = _fixture_series()
+    monkeypatch.setattr(
+        "apps.api.app.data.history_service.download_prices_finitely",
+        lambda *_args: ({"AAA": adjusted}, ["BAD"]),
+    )
+    service = TWDHistoryService(fx_provider=_FixtureFXProvider(fx))
+
+    result = service.histories_partial(
+        ["AAA", "BAD"],
+        date(2024, 1, 2),
+        date(2024, 1, 11),
+    )
+
+    assert set(result.histories) == {"AAA"}
+    assert result.failures["BAD"].stage == "download"
+    history = result.histories["AAA"]
+    assert history.return_components is not None
+    assert history.return_component_audit["status"].startswith("verified")
+    assert history.distribution_returns.gt(0.0).sum() == 2
+    np.testing.assert_allclose(
+        history.daily_returns,
+        history.price_returns + history.distribution_returns,
+        atol=1e-12,
+    )
+
+
+def test_twd_asset_history_legacy_positional_construction_is_unchanged() -> None:
+    index = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    valuation = value_adjusted_close_in_twd(
+        pd.Series([100.0, 101.0], index=index),
+        source_currency="TWD",
+    )
+    history = TWDAssetHistory(
+        "AAA",
+        "TWD",
+        valuation,
+        None,
+        {"method": "identity"},
+        "TWD",
+        1.0,
+    )
+
+    assert history.fx_audit == {"method": "identity"}
+    assert history.raw_quote_currency == "TWD"
+    assert history.native_price_scale == 1.0
+    assert history.return_components is None
