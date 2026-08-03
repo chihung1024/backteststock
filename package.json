@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:portfolio": "vite build --config apps/portfolio-web/vite.config.ts",
+    "check:portfolio": "tsc -p apps/portfolio-web/tsconfig.json --noEmit && npm run build:portfolio",
     "check": "node --check public/app.js && node --check public/scan-output-ui.js && node --check public/scan-score-formulas.js && node --check public/scan-coverage.js && node --check public/scan-composite-score.js && node --check public/backtest-workspace.js && node --check public/portfolio-lab-capture-bridge.js && node --check public/portfolio-lab-core.js && node --check public/portfolio-lab-settings.js && node --check public/portfolio-lab-assets.js && node --check public/portfolio-lab-results.js && node --check public/portfolio-lab-integration.js && node --check public/exhaustive-optimizer-core.js && node --check public/exhaustive-retention.js && node --check public/exhaustive-optimizer-storage.js && node --check public/exhaustive-optimizer-worker.js && node --check public/exhaustive-sort-worker.js && node --check public/exhaustive-optimizer.js && node --check worker/index.js && node --check worker/router.js && node --check scripts/smoke_test_production.mjs",
     "test:e2e": "playwright test",
     "test:e2e:scan-output": "playwright test tests/e2e/scan_output_readability.spec.mjs",
@@ -12,9 +14,18 @@
     "test:optimizer": "node --test tests/test_exhaustive_optimizer_core.mjs tests/test_exhaustive_retention.mjs",
     "types": "wrangler types"
   },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260729.1",
     "@playwright/test": "1.62.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "typescript": "5.9.2",
+    "vite": "8.1.5",
     "wrangler": "4.115.0"
   }
 }

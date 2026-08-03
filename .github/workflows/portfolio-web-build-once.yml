@@ -1,0 +1,49 @@
+name: Portfolio web build once
+
+on:
+  push:
+    branches: [feat/portfolio-migration-pr4-full-page-app]
+    paths:
+      - ".github/workflows/portfolio-web-build-once.yml"
+      - "apps/portfolio-web/**"
+      - "package.json"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portfolio-web-build-once
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    if: ${{ !contains(github.event.head_commit.message, '[portfolio-build]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/portfolio-migration-pr4-full-page-app
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Resolve dependencies and build
+        run: |
+          npm install
+          npm run check:portfolio
+          node --test tests/test_portfolio_web_contract.mjs
+      - name: Commit deterministic lockfile and production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/portfolio-web-build-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json public/portfolio .github/workflows/portfolio-web-build-once.yml
+          if git diff --cached --quiet; then
+            echo "No generated changes were needed."
+            exit 0
+          fi
+          git commit -m "build: generate Portfolio web assets [portfolio-build]"
+          git push origin HEAD:feat/portfolio-migration-pr4-full-page-app
