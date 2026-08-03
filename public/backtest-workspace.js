@@ -1,9 +1,10 @@
-const PORTFOLIO_LAB_VERSION = "20260803.2";
+const PORTFOLIO_LAB_VERSION = "20260803.3";
 const PORTFOLIO_LAB_FILES = [
   "portfolio-lab-core.js",
   "portfolio-lab-settings.js",
   "portfolio-lab-assets.js",
   "portfolio-lab-results.js",
+  "portfolio-lab-integration.js",
 ];
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_STORAGE_KEY = "backteststock-optimizer-manual-selection-v2";
