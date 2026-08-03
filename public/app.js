@@ -1361,11 +1361,14 @@ function renderScanCoverageFilterStatus(stats = scanCoverageStats()) {
 }
 
 function updateScanMinCoverage(value, { normalizeInput = false } = {}) {
-  scanMinCoveragePercent = normalizeScanMinCoveragePercent(value, scanMinCoveragePercent);
+  const nextMinCoveragePercent = normalizeScanMinCoveragePercent(value, scanMinCoveragePercent);
+  const thresholdChanged = nextMinCoveragePercent !== scanMinCoveragePercent;
+  scanMinCoveragePercent = nextMinCoveragePercent;
   if (normalizeInput) {
     dom.scanMinCoverage.value = formatScanCoveragePercent(scanMinCoveragePercent);
   }
   saveScanMinCoveragePercent();
+  if (!thresholdChanged) return;
   scanPage = 1;
   renderScanTable();
   renderScanSummary();
