@@ -1,6 +1,6 @@
 # Unified TWD valuation contract
 
-Status: **production TWD valuation implemented; return-component extension is under PR 1 validation**.
+Status: **implemented and regression-tested; release identity is tracked by repository tags**.
 
 The unified `backteststock` product uses TWD as its only valuation currency.
 For every asset, benchmark, scanner result, portfolio path, and optimizer score:
