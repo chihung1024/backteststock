@@ -100,8 +100,9 @@ def test_market_and_macro_regimes_publish_thresholds_samples_and_limitations() -
     )
     portfolio = pd.Series(0.8 * benchmark + 0.002, index=index)
     ledger = SimpleNamespace(name="Regime", daily_returns=portfolio)
-    cpi = pd.Series(np.linspace(100.0, 125.0, len(index) + 18), index=pd.date_range("2016-07-31", periods=len(index) + 18, freq="ME"))
-    gdp = pd.Series(np.linspace(18_000.0, 24_000.0, len(index) + 18), index=cpi.index)
+    macro_index = pd.date_range("2016-07-31", periods=len(index) + 18, freq="ME")
+    cpi = pd.Series(np.linspace(100.0, 125.0, len(macro_index)), index=macro_index)
+    gdp = pd.Series(np.linspace(18_000.0, 24_000.0, len(macro_index)), index=macro_index)
 
     market = regime_analysis(ledger, benchmark, RegimeType.MARKET)
     inflation = regime_analysis(
@@ -125,6 +126,36 @@ def test_market_and_macro_regimes_publish_thresholds_samples_and_limitations() -
     assert cycle["regimes"]
     assert all("months" in row for row in cycle["regimes"])
     assert cycle["limitations"]
+
+
+def test_macro_regimes_do_not_assign_labels_before_yoy_evidence_exists() -> None:
+    index = pd.date_range("2020-01-31", periods=36, freq="ME")
+    benchmark = pd.Series(np.linspace(0.002, 0.012, len(index)), index=index)
+    portfolio = pd.Series(0.7 * benchmark + 0.001, index=index)
+    ledger = SimpleNamespace(name="Macro evidence", daily_returns=portfolio)
+    cpi = pd.Series(np.linspace(100.0, 115.0, len(index)), index=index)
+    gdp = pd.Series(np.linspace(20_000.0, 23_000.0, len(index)), index=index)
+
+    inflation = regime_analysis(
+        ledger,
+        benchmark,
+        RegimeType.INFLATION,
+        cpi=cpi,
+    )
+    cycle = regime_analysis(
+        ledger,
+        benchmark,
+        RegimeType.BUSINESS_CYCLE,
+        cpi=cpi,
+        real_gdp=gdp,
+    )
+
+    # YoY needs 12 prior months; inflation direction needs one additional month.
+    assert inflation["observations"] == 23
+    assert cycle["observations"] == 24
+    assert sum(row["months"] for row in inflation["regimes"]) == 23
+    assert sum(row["months"] for row in cycle["regimes"]) == 24
+    assert any("remain unclassified" in item for item in cycle["limitations"])
 
 
 def test_inflation_adjustment_has_explicit_twd_us_cpi_limitation() -> None:
