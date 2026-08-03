@@ -1,7 +1,17 @@
 import worker from "./index.js";
 
 const EXHAUSTIVE_PREPARE_PATH = "/api/optimizer/exhaustive/prepare";
+const PORTFOLIO_LAB_PREFIX = "/api/portfolio-lab/";
+const PORTFOLIO_LAB_DEFAULT_ORIGIN = "https://portfolio-backtest-api.vercel.app";
+const PORTFOLIO_LAB_ORIGIN_HEADER = "https://chihung1024.github.io";
+const PORTFOLIO_LAB_ROUTES = new Map([
+  ["health", { method: "GET", target: "/health" }],
+  ["auth/check", { method: "GET", target: "/api/v1/auth/check" }],
+  ["assets/search", { method: "GET", target: "/api/v1/assets/search" }],
+  ["backtests", { method: "POST", target: "/api/v1/backtests" }],
+]);
 const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
+const PORTFOLIO_LAB_MAX_REQUEST_BYTES = 512 * 1024;
 const API_TIMEOUT_MS = 240_000;
 
 function jsonResponse(payload, status, requestId) {
@@ -29,6 +39,106 @@ function validatedBackendOrigin(env, requestId) {
   }
 }
 
+function portfolioLabOrigin(env, requestId) {
+  try {
+    const origin = new URL(env.PORTFOLIO_LAB_API_ORIGIN || PORTFOLIO_LAB_DEFAULT_ORIGIN);
+    if (origin.protocol !== "https:") throw new Error("https required");
+    return origin;
+  } catch {
+    return jsonResponse({ error: "完整回測服務設定無效。" }, 503, requestId);
+  }
+}
+
+function safeProxyHeaders(request, requestId, incomingUrl) {
+  const headers = new Headers(request.headers);
+  for (const name of [
+    "host",
+    "content-length",
+    "cf-ipcountry",
+    "cf-ray",
+    "x-forwarded-for",
+    "authorization",
+    "cookie",
+  ]) headers.delete(name);
+  headers.set("x-request-id", requestId);
+  headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
+  return headers;
+}
+
+function sanitizedProxyResponse(response, requestId) {
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.delete("server");
+  responseHeaders.delete("x-powered-by");
+  responseHeaders.delete("set-cookie");
+  responseHeaders.set("cache-control", "no-store");
+  responseHeaders.set("x-content-type-options", "nosniff");
+  responseHeaders.set("x-request-id", requestId);
+  const backendTiming = response.headers.get("server-timing");
+  if (backendTiming) responseHeaders.set("x-backend-server-timing", backendTiming);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+  });
+}
+
+async function proxyPortfolioLab(request, env) {
+  const requestId = crypto.randomUUID();
+  const incomingUrl = new URL(request.url);
+  const routeName = incomingUrl.pathname.slice(PORTFOLIO_LAB_PREFIX.length);
+  const route = PORTFOLIO_LAB_ROUTES.get(routeName);
+  if (!route) return jsonResponse({ error: "找不到完整回測 API 路徑。" }, 404, requestId);
+  if (request.method !== route.method) {
+    return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+  }
+
+  let body;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const declaredLength = Number(request.headers.get("content-length") || "0");
+    if (declaredLength > PORTFOLIO_LAB_MAX_REQUEST_BYTES) {
+      return jsonResponse({ error: "完整回測請求內容過大。" }, 413, requestId);
+    }
+    body = await request.arrayBuffer();
+    if (body.byteLength > PORTFOLIO_LAB_MAX_REQUEST_BYTES) {
+      return jsonResponse({ error: "完整回測請求內容過大。" }, 413, requestId);
+    }
+  }
+
+  const origin = portfolioLabOrigin(env, requestId);
+  if (origin instanceof Response) return origin;
+  const target = new URL(route.target, origin);
+  target.search = incomingUrl.search;
+  const headers = safeProxyHeaders(request, requestId, incomingUrl);
+  headers.set("origin", PORTFOLIO_LAB_ORIGIN_HEADER);
+  headers.set("referer", `${PORTFOLIO_LAB_ORIGIN_HEADER}/backtest/`);
+  const clientIp = request.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("x-forwarded-for", clientIp);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    return sanitizedProxyResponse(response, requestId);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return jsonResponse({ error: "完整回測服務回應逾時，請稍後重試。" }, 504, requestId);
+    }
+    console.error("Portfolio lab proxy failure", {
+      requestId,
+      message: String(error),
+    });
+    return jsonResponse({ error: "暫時無法連線至完整回測服務。" }, 502, requestId);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function proxyExhaustivePrepare(request, env) {
   const requestId = crypto.randomUUID();
   if (request.method !== "POST") {
@@ -48,17 +158,7 @@ async function proxyExhaustivePrepare(request, env) {
   if (backendOrigin instanceof Response) return backendOrigin;
   const incomingUrl = new URL(request.url);
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = new Headers(request.headers);
-  for (const name of [
-    "host",
-    "content-length",
-    "cf-connecting-ip",
-    "cf-ipcountry",
-    "cf-ray",
-    "x-forwarded-for",
-  ]) headers.delete(name);
-  headers.set("x-request-id", requestId);
-  headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
+  const headers = safeProxyHeaders(request, requestId, incomingUrl);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
@@ -70,20 +170,7 @@ async function proxyExhaustivePrepare(request, env) {
       redirect: "manual",
       signal: controller.signal,
     });
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.delete("server");
-    responseHeaders.delete("x-powered-by");
-    responseHeaders.delete("set-cookie");
-    responseHeaders.set("cache-control", "no-store");
-    responseHeaders.set("x-content-type-options", "nosniff");
-    responseHeaders.set("x-request-id", requestId);
-    const backendTiming = response.headers.get("server-timing");
-    if (backendTiming) responseHeaders.set("x-backend-server-timing", backendTiming);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders,
-    });
+    return sanitizedProxyResponse(response, requestId);
   } catch (error) {
     if (controller.signal.aborted) {
       return jsonResponse(
@@ -102,11 +189,14 @@ async function proxyExhaustivePrepare(request, env) {
   }
 }
 
-export { proxyExhaustivePrepare };
+export { proxyExhaustivePrepare, proxyPortfolioLab };
 
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(PORTFOLIO_LAB_PREFIX)) {
+      return proxyPortfolioLab(request, env);
+    }
     if (url.pathname === EXHAUSTIVE_PREPARE_PATH) {
       return proxyExhaustivePrepare(request, env);
     }
