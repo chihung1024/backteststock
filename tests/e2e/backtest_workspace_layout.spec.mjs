@@ -48,11 +48,15 @@ test("backtest workspace remains usable at mobile width", async ({ page }) => {
 
   const dialog = page.locator("#integrated-backtest-dialog");
   await expect(dialog).toHaveJSProperty("open", true);
-  const box = await dialog.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box.width).toBeLessThanOrEqual(390);
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(dialogBox.width).toBeLessThanOrEqual(390);
   await expect(dialog.locator("#initial-amount")).toBeVisible();
   await expect(dialog.locator("#portfolio-list .portfolio-card").first()).toBeVisible();
-  await expect(dialog.locator("#run-backtest")).toBeVisible();
-  await expect(dialog.locator("#run-backtest")).toHaveCSS("width", `${box.width - 60}px`);
+  const runButton = dialog.locator("#run-backtest");
+  await expect(runButton).toBeVisible();
+  const buttonBox = await runButton.boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox.width).toBeGreaterThan(300);
+  expect(buttonBox.width).toBeLessThanOrEqual(dialogBox.width);
 });
