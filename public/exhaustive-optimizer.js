@@ -157,7 +157,8 @@ function initializeDates() {
 
 function validatedManualHandoff(manual, scanJob) {
   if (
-    manual?.version !== 2
+    scanJob?.version !== 3
+    || manual?.version !== 2
     || manual?.selectionMode !== "manual_fixed_source_pool"
     || manual?.sourceJobId !== scanJob?.id
     || !Array.isArray(manual?.tickers)
@@ -178,8 +179,10 @@ function validatedManualHandoff(manual, scanJob) {
       .map((item) => parseTickers(item?.ticker)[0])
       .filter(Boolean),
   );
-  const scanBenchmark = parseTickers(scanJob?.payload?.benchmark || "SPY")[0];
-  const handoffBenchmark = parseTickers(manual?.benchmark || "")[0];
+  const scanBenchmarks = parseTickers(scanJob?.payload?.benchmark || "SPY");
+  const handoffBenchmarks = parseTickers(manual?.benchmark || "");
+  const scanBenchmark = scanBenchmarks[0];
+  const handoffBenchmark = handoffBenchmarks[0];
   const scanStart = String(scanJob?.payload?.startDate || "");
   const scanEnd = String(scanJob?.payload?.endDate || "");
   if (
@@ -187,6 +190,8 @@ function validatedManualHandoff(manual, scanJob) {
     || tickers.length > MAX_SOURCE_TICKERS
     || !Number.isFinite(coverageValue)
     || coverageValue !== coverageThreshold
+    || scanBenchmarks.length !== 1
+    || handoffBenchmarks.length !== 1
     || handoffBenchmark !== scanBenchmark
     || manual?.startDate !== scanStart
     || manual?.endDate !== scanEnd
@@ -200,7 +205,10 @@ function validatedManualHandoff(manual, scanJob) {
   ) {
     return null;
   }
-  return { handoff: manual, tickers };
+  return {
+    handoff: { ...manual, benchmark: handoffBenchmark },
+    tickers,
+  };
 }
 
 function initializeSource() {
