@@ -414,7 +414,7 @@ function initializeScoreComparison() {
   installScoreSortGetters();
   observer = new MutationObserver(scheduleScoreColumnUpdate);
   observer.observe(table, { childList: true, subtree: true });
-  table.addEventListener("click", handleTableSortClick, true);
+  table.addEventListener("click", handleTableSortClick);
   document.querySelector("#export-scan")?.addEventListener("click", handleExportClick, true);
   updateMethodologyText();
   restoreSavedRawResults();

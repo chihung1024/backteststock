@@ -1375,11 +1375,13 @@ function renderScanTable() {
   const coverage = scanCoverageStats();
   const { shown, settled, hidden } = coverage;
   const manualSelection = reconcileManualOptimizerSelection(coverage);
-  const sorted = [...shown].sort((left, right) => {
+  const sortedSuccessful = [...shown].sort((left, right) => {
     const a = Number(left[scanSort.key]);
     const b = Number(right[scanSort.key]);
     return scanSort.direction === "asc" ? a - b : b - a;
   });
+  const failures = latestScan.filter((item) => Boolean(item?.error));
+  const sorted = [...sortedSuccessful, ...failures];
   const totalPages = Math.max(1, Math.ceil(sorted.length / scanPageSize));
   scanPage = Math.min(Math.max(scanPage, 1), totalPages);
   const pageStart = (scanPage - 1) * scanPageSize;
@@ -1417,8 +1419,9 @@ function renderScanTable() {
   } else {
     visibleRows.forEach((item) => {
       const ticker = sanitizeTicker(item.ticker);
+      const failed = Boolean(item.error);
       const selected = manualSelection.tickers.includes(ticker);
-      const selectable = manualSelection.selectable.has(ticker);
+      const selectable = !failed && manualSelection.selectable.has(ticker);
       const row = createElement("tr", {
         dataset: { ticker },
         className: selected ? "optimizer-manual-selected" : "",
@@ -1435,17 +1438,19 @@ function renderScanTable() {
         }));
       } else {
         selectionCell.textContent = "—";
-        selectionCell.title = "比較基準不可同時列入最佳化來源股票池。";
+        selectionCell.title = failed
+          ? "回測失敗的標的不可列入最佳化來源股票池。"
+          : "比較基準不可同時列入最佳化來源股票池。";
       }
       row.append(selectionCell);
-      SCAN_METRICS.forEach(([key, , type, className]) => {
+      SCAN_METRICS.forEach(([key, , type, className], index) => {
         row.append(createElement("td", {
-          text: formatMetric(item[key], type),
-          className,
+          text: failed ? (index === 0 ? item.error : "—") : formatMetric(item[key], type),
+          className: failed ? "" : className,
         }));
       });
       row.append(createElement("td", {
-        text: `${item.data_start || "—"} ～ ${item.data_end || "—"}`,
+        text: failed ? "—" : `${item.data_start || "—"} ～ ${item.data_end || "—"}`,
       }));
       tbody.append(row);
     });
