@@ -47,18 +47,20 @@ def _request(**overrides) -> PortfolioRequest:
 
 def _service() -> tuple[PortfolioAPIService, FakeHistoryService]:
     index = pd.date_range("2020-01-31", periods=36, freq="ME")
+    spy_returns = [0.0, *[0.006 + (position % 5) * 0.002 for position in range(35)]]
+    tw_returns = [0.0, *[0.008 + (position % 4) * 0.0025 for position in range(35)]]
     histories = {
         "SPY": make_history(
             "SPY",
             index,
-            [0.0, *([0.01] * 35)],
+            spy_returns,
             quote_currency="USD",
             fx_returns=[0.0, *([0.001] * 35)],
         ),
         "2330.TW": make_history(
             "2330.TW",
             index,
-            [0.0, *([0.012] * 35)],
+            tw_returns,
             quote_currency="TWD",
         ),
     }
