@@ -30,6 +30,10 @@ import {
   saveJob,
   saveRetainedChunk,
 } from "./exhaustive-optimizer-storage.js?v=20260803.3";
+import {
+  buildScanCoverageStats,
+  normalizeScanMinCoveragePercent,
+} from "./scan-coverage.js?v=20260803.1";
 
 const SCAN_JOB_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
@@ -162,17 +166,37 @@ function validatedManualHandoff(manual, scanJob) {
   }
 
   const tickers = parseTickers(manual.tickers.join(","));
+  const coverageValue = Number(manual.coverageThresholdPercent);
+  const coverageThreshold = normalizeScanMinCoveragePercent(coverageValue);
   const scannedTickers = new Set(parseTickers(
     Array.isArray(scanJob?.payload?.tickers)
       ? scanJob.payload.tickers.join(",")
       : "",
   ));
-  const benchmark = parseTickers(manual?.benchmark || scanJob?.payload?.benchmark || "SPY")[0];
+  const eligibleTickers = new Set(
+    buildScanCoverageStats(scanJob?.results, coverageThreshold).shown
+      .map((item) => parseTickers(item?.ticker)[0])
+      .filter(Boolean),
+  );
+  const scanBenchmark = parseTickers(scanJob?.payload?.benchmark || "SPY")[0];
+  const handoffBenchmark = parseTickers(manual?.benchmark || "")[0];
+  const scanStart = String(scanJob?.payload?.startDate || "");
+  const scanEnd = String(scanJob?.payload?.endDate || "");
   if (
     tickers.length < 2
     || tickers.length > MAX_SOURCE_TICKERS
-    || tickers.includes(benchmark)
+    || !Number.isFinite(coverageValue)
+    || coverageValue !== coverageThreshold
+    || handoffBenchmark !== scanBenchmark
+    || manual?.startDate !== scanStart
+    || manual?.endDate !== scanEnd
+    || manual?.valuationCurrency !== VALUATION_CURRENCY
+    || !isIsoDate(scanStart)
+    || !isIsoDate(scanEnd)
+    || scanStart > scanEnd
+    || tickers.includes(scanBenchmark)
     || tickers.some((ticker) => !scannedTickers.has(ticker))
+    || tickers.some((ticker) => !eligibleTickers.has(ticker))
   ) {
     return null;
   }

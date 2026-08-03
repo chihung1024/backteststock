@@ -119,14 +119,58 @@ test("a matching but invalid manual handoff cannot inject a ticker outside the s
         endDate: "2025-12-31",
       },
       pending: [],
-      results: [],
+      results: [
+        { ticker: "AAA", status: "ok", retryable: false, data_coverage: 1 },
+        { ticker: "BBB", status: "ok", retryable: false, data_coverage: 1 },
+        { ticker: "CCC", status: "ok", retryable: false, data_coverage: 1 },
+      ],
     }));
     localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
       version: 2,
       sourceJobId: "current-scan",
       selectionMode: "manual_fixed_source_pool",
       benchmark: "SPY",
+      startDate: "2025-01-01",
+      endDate: "2025-12-31",
+      coverageThresholdPercent: 90,
+      valuationCurrency: "TWD",
       tickers: ["AAA", "OUTSIDE"],
+    }));
+  });
+
+  await page.goto("/optimizer.html?mode=manual", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#optimizer-source")).toHaveValue("");
+  await expect(page.locator("#optimizer-handoff-context")).toContainText("無法驗證");
+});
+
+test("a matching handoff cannot reintroduce a ticker below its saved coverage threshold", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "current-scan",
+      status: "completed",
+      payload: {
+        tickers: ["AAA", "LOW"],
+        benchmark: "SPY",
+        startDate: "2025-01-01",
+        endDate: "2025-12-31",
+      },
+      pending: [],
+      results: [
+        { ticker: "AAA", status: "ok", retryable: false, data_coverage: 1 },
+        { ticker: "LOW", status: "ok", retryable: false, data_coverage: 0.89 },
+      ],
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "current-scan",
+      selectionMode: "manual_fixed_source_pool",
+      benchmark: "SPY",
+      startDate: "2025-01-01",
+      endDate: "2025-12-31",
+      coverageThresholdPercent: 90,
+      valuationCurrency: "TWD",
+      tickers: ["AAA", "LOW"],
     }));
   });
 
