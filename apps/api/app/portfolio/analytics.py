@@ -15,7 +15,7 @@ from apps.api.app.portfolio.api_models import RegimeType
 from apps.api.app.portfolio.ledger import PortfolioLedger
 from apps.api.app.portfolio.analytics_data import FRED_SOURCE, FRENCH_FACTOR_SOURCE
 
-PORTFOLIO_ANALYTICS_CONTRACT_VERSION = "portfolio-analytics-twd-2026-08-04.1"
+PORTFOLIO_ANALYTICS_CONTRACT_VERSION = "portfolio-analytics-twd-2026-08-04.2"
 STYLE_PROXIES = {
     "large_value": "IWD",
     "large_growth": "IWF",
@@ -25,7 +25,6 @@ STYLE_PROXIES = {
     "small_growth": "IWO",
 }
 _FACTOR_COLUMNS = ("MKT_RF", "SMB", "HML", "RMW", "CMA", "MOM")
-_EPSILON = 1e-12
 
 
 def factor_fx_regression(
@@ -212,7 +211,7 @@ def regime_analysis(
         thresholds = {"moving_average_months": 10, "minimum_months": 6}
     elif regime_type == RegimeType.VOLATILITY:
         volatility = joined["benchmark"].rolling(12, min_periods=6).std() * math.sqrt(12)
-        threshold = float(volatility.dropna().median())
+        threshold = _finite_median(volatility, "benchmark volatility")
         labels = pd.Series(index=joined.index, dtype="object")
         valid = volatility.notna()
         labels.loc[valid] = np.where(
@@ -226,38 +225,40 @@ def regime_analysis(
         }
     elif regime_type == RegimeType.INFLATION:
         inflation = _year_over_year(cpi, joined.index, "CPI")
-        threshold = float(inflation.dropna().median())
-        direction = inflation.diff() >= 0.0
-        labels = pd.Series(
-            np.select(
-                [
-                    (inflation >= threshold) & direction,
-                    (inflation >= threshold) & ~direction,
-                    (inflation < threshold) & direction,
-                ],
-                ["High and rising", "High and falling", "Low and rising"],
-                default="Low and falling",
-            ),
-            index=joined.index,
+        threshold = _finite_median(inflation, "year-over-year inflation")
+        change = inflation.diff()
+        valid = inflation.notna() & change.notna()
+        direction = change >= 0.0
+        labels = pd.Series(index=joined.index, dtype="object")
+        labels.loc[valid] = np.select(
+            [
+                (inflation.loc[valid] >= threshold) & direction.loc[valid],
+                (inflation.loc[valid] >= threshold) & ~direction.loc[valid],
+                (inflation.loc[valid] < threshold) & direction.loc[valid],
+            ],
+            ["High and rising", "High and falling", "Low and rising"],
+            default="Low and falling",
         )
         thresholds = {"sample_median_yoy_inflation": threshold}
         source = FRED_SOURCE
     elif regime_type == RegimeType.BUSINESS_CYCLE:
         inflation = _year_over_year(cpi, joined.index, "CPI")
         growth = _year_over_year(real_gdp, joined.index, "real GDP")
-        inflation_threshold = float(inflation.dropna().median())
-        growth_threshold = float(growth.dropna().median())
-        labels = pd.Series(
-            np.select(
-                [
-                    (growth >= growth_threshold) & (inflation < inflation_threshold),
-                    (growth >= growth_threshold) & (inflation >= inflation_threshold),
-                    (growth < growth_threshold) & (inflation >= inflation_threshold),
-                ],
-                ["Goldilocks", "Reflation", "Stagflation"],
-                default="Slowdown",
-            ),
-            index=joined.index,
+        inflation_threshold = _finite_median(inflation, "year-over-year inflation")
+        growth_threshold = _finite_median(growth, "year-over-year real GDP growth")
+        valid = growth.notna() & inflation.notna()
+        labels = pd.Series(index=joined.index, dtype="object")
+        labels.loc[valid] = np.select(
+            [
+                (growth.loc[valid] >= growth_threshold)
+                & (inflation.loc[valid] < inflation_threshold),
+                (growth.loc[valid] >= growth_threshold)
+                & (inflation.loc[valid] >= inflation_threshold),
+                (growth.loc[valid] < growth_threshold)
+                & (inflation.loc[valid] >= inflation_threshold),
+            ],
+            ["Goldilocks", "Reflation", "Stagflation"],
+            default="Slowdown",
         )
         thresholds = {
             "sample_median_yoy_real_gdp_growth": growth_threshold,
@@ -303,6 +304,7 @@ def regime_analysis(
         "regimes": rows,
         "limitations": [
             "Regimes are retrospective classifications, not forecasts.",
+            "Months without the required rolling or year-over-year evidence remain unclassified.",
             "Sample-median thresholds adapt to the selected backtest period.",
             "Macroeconomic series are current revised data rather than vintage releases.",
         ],
@@ -384,3 +386,12 @@ def _year_over_year(
     series = _clean_macro_series(values, label).resample("ME").last().ffill()
     yoy = series.pct_change(12, fill_method=None) * 100.0
     return yoy.reindex(target_index, method="ffill")
+
+
+def _finite_median(values: pd.Series, label: str) -> float:
+    finite = pd.to_numeric(values, errors="coerce").replace(
+        [np.inf, -np.inf], np.nan
+    ).dropna()
+    if finite.empty:
+        raise ValueError(f"{label} has no usable observations")
+    return float(finite.median())
