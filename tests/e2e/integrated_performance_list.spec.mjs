@@ -57,8 +57,8 @@ test("integrates selected stocks and portfolio results into one performance work
   await page.route("**/api/scan", (route) => fulfillJson(route, scanRows));
   await page.route("**/api/backtest", async (route) => {
     const payload = route.request().postDataJSON();
-    expect(payload.portfolios[0].assets.map((asset) => asset.ticker)).toEqual(["AAA", "BBB"]);
-    expect(payload.portfolios[0].assets.reduce((sum, asset) => sum + asset.weight, 0)).toBeCloseTo(100, 6);
+    expect(payload.portfolios[0].tickers).toEqual(["AAA", "BBB"]);
+    expect(payload.portfolios[0].weights.reduce((sum, weight) => sum + weight, 0)).toBeCloseTo(100, 6);
     await fulfillJson(route, {
       data: [{
         name: "績效列表已選標的等權組合",
