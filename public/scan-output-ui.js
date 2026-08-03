@@ -12,6 +12,8 @@ const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const timingHistory = [];
 const baseFetch = window.fetch.bind(window);
 let timingScheduled = false;
+let tableScheduled = false;
+let tableObserver;
 
 const BASE_RESULT_HEADERS = [
   "ticker",
@@ -221,6 +223,64 @@ function scheduleTiming() {
   });
 }
 
+function decorateTable() {
+  const table = document.querySelector("#scan-table");
+  const body = table?.tBodies?.[0];
+  if (!body) return;
+  const resultMap = new Map(
+    currentRows().map((item) => [normalizeScoreTicker(item?.ticker), item]),
+  );
+  [...body.rows].forEach((row) => {
+    if (
+      row.dataset.scanEmpty === "true"
+      || row.classList.contains("integrated-portfolio-row")
+    ) {
+      return;
+    }
+    const cell = row.cells[0];
+    if (!cell) return;
+    const ticker = normalizeScoreTicker(
+      row.dataset.ticker || cell.dataset.ticker || cell.textContent,
+    );
+    if (!ticker) return;
+    const note = humanNote(resultMap.get(ticker));
+    const signature = `${ticker}\u0000${note}`;
+    if (cell.dataset.outputSignature === signature) return;
+
+    const symbol = document.createElement("span");
+    symbol.className = "scan-ticker-symbol";
+    symbol.textContent = ticker;
+    cell.replaceChildren(symbol);
+    cell.classList.add("scan-ticker-cell");
+    cell.dataset.ticker = ticker;
+    cell.dataset.outputSignature = signature;
+
+    if (note) {
+      const detail = document.createElement("small");
+      detail.className = "scan-ticker-note";
+      detail.textContent = `（${note}）`;
+      cell.append(detail);
+      cell.title = note;
+    } else {
+      cell.removeAttribute("title");
+    }
+  });
+}
+
+function scheduleTableDecoration() {
+  if (tableScheduled) return;
+  tableScheduled = true;
+  requestAnimationFrame(() => {
+    tableScheduled = false;
+    tableObserver?.disconnect();
+    try {
+      decorateTable();
+    } finally {
+      tableObserver?.observe(document.body, { childList: true, subtree: true });
+    }
+  });
+}
+
 window.fetch = async function fetchWithScanTiming(input, init) {
   const isScan = requestPath(input) === "/api/scan";
   const startedAt = isScan ? performance.now() : null;
@@ -240,6 +300,7 @@ window.fetch = async function fetchWithScanTiming(input, init) {
       });
       if (timingHistory.length > 30) timingHistory.shift();
       scheduleTiming();
+      scheduleTableDecoration();
     }
     return response;
   } catch (error) {
@@ -322,7 +383,10 @@ function handleAuditExport(event) {
 function initialize() {
   document.querySelector("#export-scan")?.addEventListener("click", handleConciseExport, true);
   document.querySelector("#export-scan-audit")?.addEventListener("click", handleAuditExport, true);
+  tableObserver = new MutationObserver(scheduleTableDecoration);
+  tableObserver.observe(document.body, { childList: true, subtree: true });
   scheduleTiming();
+  scheduleTableDecoration();
 }
 
 if (document.readyState === "loading") {
