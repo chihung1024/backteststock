@@ -28,7 +28,7 @@ from apps.api.app.portfolio.service import PortfolioLedgerService
 
 def _history(
     symbol: str,
-    dates: list[str],
+    dates: list[str | date],
     total: list[float],
     *,
     price: list[float] | None = None,
