@@ -1,6 +1,7 @@
 import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
 
 const STORAGE_KEY = "backteststock-state-v2";
+const LEGACY_STORAGE_KEY = "backteststock-state-v1";
 const BACKTEST_DATE_MODE_STORAGE_KEY = "backteststock-backtest-date-mode-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
@@ -224,8 +225,18 @@ const dom = {
 
 function loadState() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const current = localStorage.getItem(STORAGE_KEY);
+    const migratingLegacy = current == null;
+    const parsed = JSON.parse(
+      migratingLegacy ? localStorage.getItem(LEGACY_STORAGE_KEY) : current,
+    );
     if (parsed?.settings && Array.isArray(parsed?.portfolios) && parsed.portfolios.length) {
+      if (migratingLegacy) {
+        // The v1 amount was entered and displayed as USD. Preserve portfolio
+        // definitions and preferences, but never silently reinterpret that
+        // number as TWD after the valuation-contract migration.
+        parsed.settings.initialAmount = defaultState.settings.initialAmount;
+      }
       parsed.settings.startPeriod = normalizeSavedDate(
         parsed.settings.startPeriod,
         "start",

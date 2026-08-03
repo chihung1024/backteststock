@@ -60,6 +60,7 @@ export function createRetentionPlan(totalCombinations, options = {}) {
   }
   const maxPersisted = Math.min(
     total,
+    MAX_PERSISTED_RESULTS,
     boundedInteger(options.maxPersisted, MAX_PERSISTED_RESULTS),
   );
   const primaryFraction = Number.isFinite(options.primaryFraction)
@@ -138,7 +139,7 @@ export class TopRankBuffer {
       if (this.count === this.capacity) this.#heapify();
       return true;
     }
-    if (score <= this.scores[0]) return false;
+    if (!this.#isBetterPair(score, rank, this.scores[0], this.ranks[0])) return false;
     this.ranks[0] = rank;
     this.scores[0] = score;
     this.#siftDown(0);
@@ -203,12 +204,24 @@ export class TopRankBuffer {
       const left = (index * 2) + 1;
       const right = left + 1;
       let smallest = index;
-      if (left < this.count && this.scores[left] < this.scores[smallest]) smallest = left;
-      if (right < this.count && this.scores[right] < this.scores[smallest]) smallest = right;
+      if (left < this.count && this.#isWorseIndex(left, smallest)) smallest = left;
+      if (right < this.count && this.#isWorseIndex(right, smallest)) smallest = right;
       if (smallest === index) return;
       this.#swap(index, smallest);
       index = smallest;
     }
+  }
+
+  #isBetterPair(score, rank, otherScore, otherRank) {
+    return score > otherScore || (score === otherScore && rank < otherRank);
+  }
+
+  #isWorseIndex(left, right) {
+    const leftScore = this.scores[left];
+    const rightScore = this.scores[right];
+    return leftScore < rightScore || (
+      leftScore === rightScore && this.ranks[left] > this.ranks[right]
+    );
   }
 
   #swap(left, right) {
@@ -331,7 +344,15 @@ export class CompactResultRetention {
 
   static fromState(state) {
     const plan = state?.plan;
-    if (!plan || !Number.isInteger(plan.total) || !Number.isInteger(plan.target)) {
+    if (
+      !plan
+      || !Number.isInteger(plan.total)
+      || plan.total < 1
+      || plan.total > MAX_EXHAUSTIVE_COMBINATIONS
+      || !Number.isInteger(plan.target)
+      || plan.target < 1
+      || plan.target > Math.min(plan.total, MAX_PERSISTED_RESULTS)
+    ) {
       throw new RangeError("結果保留檢查點無效。");
     }
     const output = Object.create(CompactResultRetention.prototype);
@@ -345,6 +366,9 @@ export class CompactResultRetention {
     }));
     output.diversity = TopRankBuffer.fromState(state.diversity);
     output.accepted = Math.max(0, Math.floor(Number(state.accepted) || 0));
+    if (output.accepted > plan.total) {
+      throw new RangeError("結果保留檢查點的已計算數量無效。");
+    }
     if (output.primary.capacity !== plan.primaryCapacity || output.diversity.capacity !== plan.diversityCapacity) {
       throw new RangeError("結果保留檢查點容量不符。");
     }

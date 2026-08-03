@@ -10,7 +10,7 @@ import {
   formatDuration,
   relativeBandBounds,
   unrankCombination,
-} from "./exhaustive-optimizer-core.js?v=20260803.2";
+} from "./exhaustive-optimizer-core.js?v=20260803.3";
 import {
   CompactResultRetention,
   MAX_PERSISTED_RESULTS,
@@ -18,7 +18,7 @@ import {
   createRetentionPlan,
   estimateCompactResultBytes,
   estimateRetentionWorkingBytes,
-} from "./exhaustive-retention.js?v=20260803.2";
+} from "./exhaustive-retention.js?v=20260803.3";
 import {
   deleteJob,
   getChunk,
@@ -29,17 +29,18 @@ import {
   saveChunk,
   saveJob,
   saveRetainedChunk,
-} from "./exhaustive-optimizer-storage.js?v=20260803.2";
+} from "./exhaustive-optimizer-storage.js?v=20260803.3";
 
 const SCAN_JOB_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
 const DATE_MODE_KEY = "backteststock-exhaustive-date-mode-v1";
 const CUSTOM_RANGE_KEY = "backteststock-exhaustive-custom-range-v1";
-const WORKER_URL = "/exhaustive-optimizer-worker.js?v=20260803.2";
-const SORT_WORKER_URL = "/exhaustive-sort-worker.js?v=20260803.2";
+const WORKER_URL = "/exhaustive-optimizer-worker.js?v=20260803.3";
+const SORT_WORKER_URL = "/exhaustive-sort-worker.js?v=20260803.3";
 const PAGE_SIZE = 100;
 const CALIBRATION_SAMPLE = 160;
 const SOFT_WARNING_COMBINATIONS = 1_000_000;
+const MAX_SOURCE_TICKERS = 100;
 const LEGACY_FULL_RESULT_LIMIT = MAX_PERSISTED_RESULTS;
 const RETAINED_CHUNK_SIZE = 25_000;
 const VALUATION_CURRENCY = "TWD";
@@ -188,6 +189,9 @@ function validateInputs() {
   const tickers = parseTickers(dom.source.value);
   const settings = getSettings();
   if (tickers.length < 2) throw new Error("來源股票至少需要 2 檔。");
+  if (tickers.length > MAX_SOURCE_TICKERS) {
+    throw new Error(`全量最佳化單次最多 ${MAX_SOURCE_TICKERS} 檔來源股票。`);
+  }
   if (!Number.isInteger(settings.holdingCount) || settings.holdingCount < 1) {
     throw new Error("每組持股數必須是正整數。");
   }
@@ -345,6 +349,7 @@ async function runPreflight() {
     dom.preflightProgress.textContent = "下載並驗證完整期間行情…";
     const response = await apiFetch("/api/optimizer/exhaustive/prepare", {
       sourceTickers: input.tickers,
+      holdingCount: input.settings.holdingCount,
       benchmark: String(dom.benchmark.value || "SPY").trim().toUpperCase(),
       startDate: dom.start.value,
       endDate: dom.end.value,

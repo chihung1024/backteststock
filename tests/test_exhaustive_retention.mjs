@@ -23,6 +23,10 @@ test("50M plan reserves compact storage rather than raw result storage", () => {
   assert.equal(plan.diversityCapacity, 500_000);
   assert.ok(estimateCompactResultBytes(plan.target) < 310_000_000);
   assert.ok(estimateRetentionWorkingBytes(plan) < 130_000_000);
+  assert.equal(
+    createRetentionPlan(MAX_EXHAUSTIVE_COMBINATIONS, { maxPersisted: 9_000_000 }).target,
+    MAX_PERSISTED_RESULTS,
+  );
 });
 
 test("top-rank buffer retains only the highest deterministic scores", () => {
@@ -31,6 +35,16 @@ test("top-rank buffer retains only the highest deterministic scores", () => {
     buffer.offer(rank, score);
   }
   assert.deepEqual([...buffer.ranksDescending()], [3, 4, 1]);
+});
+
+test("top-rank ties retain the same lowest ranks regardless of arrival order", () => {
+  const ascending = new TopRankBuffer(3);
+  const descending = new TopRankBuffer(3);
+  for (const rank of [0, 1, 2, 3, 4, 5]) ascending.offer(rank, 7);
+  for (const rank of [5, 4, 3, 2, 1, 0]) descending.offer(rank, 7);
+
+  assert.deepEqual([...ascending.ranksDescending()], [0, 1, 2]);
+  assert.deepEqual([...descending.ranksDescending()], [0, 1, 2]);
 });
 
 test("retention keeps primary leaders, secondary outliers, diversity, and no duplicates", () => {

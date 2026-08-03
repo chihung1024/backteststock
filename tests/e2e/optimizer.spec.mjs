@@ -63,6 +63,7 @@ test("exhaustive optimizer preflights, confirms and evaluates every N choose K c
   await page.route("**/api/optimizer/exhaustive/prepare", async (route) => {
     const payload = route.request().postDataJSON();
     expect(payload.sourceTickers).toEqual(tickers);
+    expect(payload.holdingCount).toBe(2);
     await route.fulfill({
       status: 200,
       contentType: "application/json",

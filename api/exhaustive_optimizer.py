@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import hmac
 import json
+import math
 import os
 from typing import Any
 
@@ -31,10 +32,12 @@ from apps.api.app.data.twd_valuation import (
 exhaustive_blueprint = Blueprint("exhaustive_optimizer", __name__)
 app = Flask(__name__)
 
-EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-03.1"
+EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-03.2"
 EXHAUSTIVE_SNAPSHOT_FORMAT = "exhaustive-optimizer-snapshot-json-gzip-v1"
 EXHAUSTIVE_REBALANCE_ENGINE = "browser-exact-dynamic-k-v1"
 MIN_SOURCE_TICKERS = 2
+MAX_SOURCE_TICKERS = 100
+MAX_EXHAUSTIVE_COMBINATIONS = 50_000_000
 MINIMUM_PERIOD_COVERAGE = 0.98
 MAX_SNAPSHOT_COMPRESSED_BYTES = 5 * 1024 * 1024 // 2
 MAX_SNAPSHOT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
@@ -257,6 +260,23 @@ def _error_response(message: str, status: int):
     return jsonify({"error": message, "retryable": status >= 500}), status
 
 
+def _validated_search_shape(data: dict, source_count: int) -> tuple[int, int]:
+    """Enforce the same exhaustive ceiling at the trusted HTTP boundary."""
+
+    holding_count = data.get("holdingCount")
+    if isinstance(holding_count, bool) or not isinstance(holding_count, int):
+        raise legacy.ValidationError("每組持股數必須是正整數。")
+    if holding_count < 1 or holding_count > source_count:
+        raise legacy.ValidationError("每組持股數必須介於 1 與來源股票數之間。")
+    combination_count = math.comb(source_count, holding_count)
+    if combination_count > MAX_EXHAUSTIVE_COMBINATIONS:
+        raise legacy.ValidationError(
+            f"完整組合共 {combination_count:,} 組，超過目前安全上限 "
+            f"{MAX_EXHAUSTIVE_COMBINATIONS:,} 組。"
+        )
+    return holding_count, combination_count
+
+
 @exhaustive_blueprint.route("/api/optimizer/exhaustive/prepare", methods=["POST"])
 def prepare_exhaustive_optimizer():
     try:
@@ -272,6 +292,13 @@ def prepare_exhaustive_optimizer():
             raise legacy.ValidationError(
                 f"來源股票至少需要 {MIN_SOURCE_TICKERS} 檔不重複股票。"
             )
+        if len(source_tickers) > MAX_SOURCE_TICKERS:
+            raise legacy.ValidationError(
+                f"全量最佳化單次最多 {MAX_SOURCE_TICKERS} 檔來源股票。"
+            )
+        holding_count, combination_count = _validated_search_shape(
+            data, len(source_tickers)
+        )
         benchmark = normalize_symbol(
             legacy.normalize_ticker(data.get("benchmark") or "SPY")
         )
@@ -307,12 +334,15 @@ def prepare_exhaustive_optimizer():
             "optimizerAlgorithmVersion": EXHAUSTIVE_OPTIMIZER_VERSION,
             "rebalanceEngineVersion": EXHAUSTIVE_REBALANCE_ENGINE,
             "metricDefinitionVersion": METRIC_DEFINITION_VERSION,
+            "riskFreeRate": legacy.RISK_FREE_RATE,
             "marketDataContractVersion": market_data.MARKET_DATA_CONTRACT_VERSION,
             "valuationCurrency": VALUATION_CURRENCY,
             "twdValuationContractVersion": TWD_VALUATION_CONTRACT_VERSION,
             "corporateActionPolicyVersion": CORPORATE_ACTION_POLICY_VERSION,
             "dataSourceSettings": dict(DATA_SOURCE_SETTINGS),
             "candidateTickers": source_tickers,
+            "holdingCount": holding_count,
+            "combinationCount": combination_count,
             "benchmark": benchmark,
             "dates": [date.strftime("%Y-%m-%d") for date in common.index],
             "prices": {
@@ -355,6 +385,8 @@ def prepare_exhaustive_optimizer():
                 "summary": {
                     "sourceTickers": source_tickers,
                     "sourceTickerCount": len(source_tickers),
+                    "holdingCount": holding_count,
+                    "combinationCount": combination_count,
                     "benchmark": benchmark,
                     "observations": len(common),
                     "actualStart": snapshot["actualStart"],
@@ -368,6 +400,7 @@ def prepare_exhaustive_optimizer():
                     "dataCoverageAudit": coverage,
                     "optimizerAlgorithmVersion": EXHAUSTIVE_OPTIMIZER_VERSION,
                     "rebalanceEngineVersion": EXHAUSTIVE_REBALANCE_ENGINE,
+                    "riskFreeRate": legacy.RISK_FREE_RATE,
                     "valuationCurrency": VALUATION_CURRENCY,
                     "twdValuationContractVersion": TWD_VALUATION_CONTRACT_VERSION,
                     "persistentDailyPriceDatabase": False,

@@ -15,11 +15,17 @@ from apps.api.app.data.twd_valuation import VALUATION_CURRENCY, TWDValuationErro
 
 logger = logging.getLogger(__name__)
 
-_CURRENCY_ALIASES = {
-    "GBP": "GBP",
-    "GBX": "GBP",
-    "ZAC": "ZAR",
-    "ILA": "ILS",
+_MINOR_QUOTE_UNITS = {
+    # Yahoo uses mixed-case ``GBp`` for London prices in pence. ``GBX`` is the
+    # ISO-style code for the same unit.  Detect ``GBp`` before upper-casing so
+    # it cannot be confused with a true GBP quote.
+    "GBp": ("GBP", 0.01),
+    "GBX": ("GBP", 0.01),
+    "GBx": ("GBP", 0.01),
+    # South African cents and Israeli agorot are likewise 1/100 major unit.
+    "ZAc": ("ZAR", 0.01),
+    "ZAC": ("ZAR", 0.01),
+    "ILA": ("ILS", 0.01),
 }
 _FX_LOOKBACK_DAYS = 10
 _FX_LOOKAHEAD_DAYS = 1
@@ -29,6 +35,15 @@ _MATERIAL_FX_TRANSITION = 1.8
 
 class FXDownloadError(RuntimeError):
     """Raised when a verified FX series cannot be obtained from finite sources."""
+
+
+@dataclass(frozen=True, slots=True)
+class QuoteConvention:
+    """Yahoo quote metadata normalized to a major currency and price scale."""
+
+    raw_currency: str
+    currency: str
+    native_price_scale: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,18 +85,23 @@ class YahooFXProvider:
     """
 
     def __init__(self) -> None:
-        self._currency_cache: dict[str, str] = {}
+        self._quote_cache: dict[str, QuoteConvention] = {}
         self._fx_cache: dict[tuple[str, str, str, str], FXLevels] = {}
         self._lock = threading.RLock()
 
     def quote_currency(self, symbol: str) -> str:
-        """Return Yahoo's actual quote currency, with a small in-process cache."""
+        """Return the normalized major quote currency for compatibility callers."""
+
+        return self.quote_convention(symbol).currency
+
+    def quote_convention(self, symbol: str) -> QuoteConvention:
+        """Return Yahoo's quote currency and any minor-unit price scale."""
 
         normalized_symbol = str(symbol or "").strip().upper()
         if not normalized_symbol:
             raise TWDValuationError("cannot resolve an empty ticker currency")
         with self._lock:
-            cached = self._currency_cache.get(normalized_symbol)
+            cached = self._quote_cache.get(normalized_symbol)
         if cached is not None:
             return cached
 
@@ -89,10 +109,10 @@ class YahooFXProvider:
         for _ in range(_MAX_CURRENCY_ATTEMPTS):
             try:
                 raw_currency = yf.Ticker(normalized_symbol).fast_info.currency
-                currency = normalize_quote_currency(raw_currency)
+                convention = normalize_quote_convention(raw_currency)
                 with self._lock:
-                    self._currency_cache[normalized_symbol] = currency
-                return currency
+                    self._quote_cache[normalized_symbol] = convention
+                return convention
             except Exception as exc:  # noqa: BLE001 - external provider boundary
                 errors.append(str(exc))
         detail = errors[-1] if errors else "currency metadata was empty"
@@ -229,11 +249,29 @@ class YahooFXProvider:
 def normalize_quote_currency(value: object) -> str:
     """Normalize Yahoo currency aliases and reject unknown quote-currency data."""
 
-    currency = str(value or "").strip().upper()
-    currency = _CURRENCY_ALIASES.get(currency, currency)
+    return normalize_quote_convention(value).currency
+
+
+def normalize_quote_convention(value: object) -> QuoteConvention:
+    """Preserve Yahoo minor quote units while resolving their major currency."""
+
+    raw_currency = str(value or "").strip()
+    minor = _MINOR_QUOTE_UNITS.get(raw_currency)
+    if minor is not None:
+        currency, native_price_scale = minor
+        return QuoteConvention(
+            raw_currency=raw_currency,
+            currency=currency,
+            native_price_scale=native_price_scale,
+        )
+    currency = raw_currency.upper()
     if len(currency) != 3 or not currency.isalpha():
         raise TWDValuationError(f"Yahoo returned invalid quote currency: {value!r}")
-    return currency
+    return QuoteConvention(
+        raw_currency=raw_currency,
+        currency=currency,
+        native_price_scale=1.0,
+    )
 
 
 def _direct_fx_candidates(source: str, target: str) -> tuple[tuple[str, bool], ...]:

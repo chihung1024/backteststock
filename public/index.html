@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="多市場 TWD 投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
-  <link rel="stylesheet" href="/styles.css?v=20260801.2">
-  <script type="module" src="/app.js?v=20260803.2"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260803.3">
+  <script type="module" src="/app.js?v=20260803.3"></script>
   <script type="module" src="/scan-output-ui.js?v=20260803.2"></script>
   <script type="module" src="/scan-composite-score.js?v=20260803.2"></script>
 </head>
@@ -267,7 +267,7 @@
           <h3>計算方式</h3>
           <p>所有標的與比較基準均以每日還原股價乘上當日匯率換算為 TWD，再模擬持有股數與再平衡。</p>
           <p>Sharpe、Sortino、Beta 與 Alpha 以日報酬計算並年化；無風險利率可由後端環境變數設定。</p>
-          <p>個股績效列表另顯示 Sortino × Alpha ÷ (1 + Beta) ÷ |最大回撤|；必要數據缺漏、Beta = -1 或最大回撤為 0 時不計算。</p>
+          <p>個股績效列表另顯示四種可排序分數：穩健公式 Sortino × √((1 + CAGR) ÷ (1 + Beta))、成長公式 Sortino × √(1 + CAGR) ÷ (1 + Beta)^0.25、回撤控制公式 Sortino × √((1 + CAGR) ÷ ((1 + Beta) × (1 + |最大回撤|)))，以及優化公式 Sortino × √((1 + CAGR) ÷ ((1 + Beta)^2 × (1 + |最大回撤|)))；必要數據缺漏或公式定義域無效時不計算。</p>
         </article>
         <article class="panel">
           <h3>資料完整性</h3>

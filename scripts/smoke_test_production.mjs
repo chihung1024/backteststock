@@ -12,6 +12,7 @@ const MIN_FUNDAMENTALS_COVERAGE = 1_000;
 const REQUEST_TIMEOUT_MS = 240_000;
 const BACKEND_VERSION_ATTEMPTS = 24;
 const BACKEND_VERSION_DELAY_MS = 15_000;
+const EXPECTED_TWD_VALUATION_CONTRACT = "twd-adjusted-close-union-calendar-2026-08-03.2";
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -56,6 +57,7 @@ async function requestJson(pathname, init = {}, options = {}) {
 
 async function waitForBackendMetricVersion() {
   let lastObserved = null;
+  let lastTwdContract = null;
   let lastError = null;
 
   for (let attempt = 1; attempt <= BACKEND_VERSION_ATTEMPTS; attempt += 1) {
@@ -65,10 +67,19 @@ async function waitForBackendMetricVersion() {
         signal: AbortSignal.timeout(30_000),
       });
       lastObserved = response.headers.get("x-metric-definition-version");
-      if (response.ok && lastObserved === METRIC_DEFINITION_VERSION) {
-        return lastObserved;
+      lastTwdContract = response.headers.get("x-twd-valuation-contract-version");
+      if (
+        response.ok
+        && lastObserved === METRIC_DEFINITION_VERSION
+        && lastTwdContract === EXPECTED_TWD_VALUATION_CONTRACT
+      ) {
+        return { metricVersion: lastObserved, twdContract: lastTwdContract };
       }
-      lastError = `HTTP ${response.status}, metric=${lastObserved || "missing"}`;
+      lastError = [
+        `HTTP ${response.status}`,
+        `metric=${lastObserved || "missing"}`,
+        `twd=${lastTwdContract || "missing"}`,
+      ].join(", ");
     } catch (error) {
       lastError = error.message;
     }
@@ -84,11 +95,12 @@ async function waitForBackendMetricVersion() {
 
   throw new Error(
     `Backend did not expose metric version ${METRIC_DEFINITION_VERSION}; `
-    + `last observed ${lastObserved || "missing"}: ${lastError}`,
+    + `TWD contract ${EXPECTED_TWD_VALUATION_CONTRACT}; last observed `
+    + `${lastObserved || "missing"}/${lastTwdContract || "missing"}: ${lastError}`,
   );
 }
 
-const backendMetricVersion = await waitForBackendMetricVersion();
+const backendContract = await waitForBackendMetricVersion();
 
 const edgeHealth = await requestJson("/api/edge-health");
 assertCondition(edgeHealth.status === "ok", "Edge health did not report status=ok.");
@@ -193,11 +205,48 @@ assertCondition(
   "Live scan did not use the required yfinance repair=true contract.",
 );
 
+const exhaustiveContract = await requestJson(
+  "/api/optimizer/exhaustive/prepare",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceTickers: ["AAPL", "MSFT"],
+      holdingCount: 1,
+      benchmark: "SPY",
+      startDate: "2025-01-02",
+      endDate: "2025-03-31",
+    }),
+  },
+  { attempts: 4, delayMs: 15_000 },
+);
+assertCondition(
+  exhaustiveContract?.summary?.valuationCurrency === "TWD",
+  "Exhaustive preflight did not report TWD valuation.",
+);
+assertCondition(
+  exhaustiveContract?.summary?.twdValuationContractVersion
+    === EXPECTED_TWD_VALUATION_CONTRACT,
+  "Exhaustive preflight returned the wrong TWD valuation contract.",
+);
+assertCondition(
+  exhaustiveContract?.summary?.sourceTickerCount === 2
+    && exhaustiveContract?.summary?.holdingCount === 1
+    && exhaustiveContract?.summary?.combinationCount === 2,
+  "Exhaustive preflight did not preserve the requested 2 choose 1 search shape.",
+);
+assertCondition(
+  typeof exhaustiveContract?.snapshot?.datasetHash === "string"
+    && exhaustiveContract.snapshot.datasetHash.length === 64,
+  "Exhaustive preflight did not return a signed dataset hash.",
+);
+
 console.log(
   JSON.stringify(
     {
       workerOrigin: origin.origin,
-      backendMetricVersion,
+      backendMetricVersion: backendContract.metricVersion,
+      twdValuationContractVersion: backendContract.twdContract,
       universeVersion: russellDetail.version,
       memberCount: russellDetail.members.length,
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
@@ -207,6 +256,7 @@ console.log(
       scanPriceObservations: scanRow.metric_price_observations,
       scanBeta: scanRow.beta,
       scanAlpha: scanRow.alpha,
+      exhaustiveCombinationCount: exhaustiveContract.summary.combinationCount,
       scipyVersion: scanRow.scipy_version,
     },
     null,

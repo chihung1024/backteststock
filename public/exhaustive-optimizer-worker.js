@@ -6,8 +6,8 @@ import {
   nextCombination,
   simulateExactPortfolio,
   unrankCombination,
-} from "./exhaustive-optimizer-core.js?v=20260803.2";
-import { RETENTION_METRIC_KEYS } from "./exhaustive-retention.js?v=20260803.2";
+} from "./exhaustive-optimizer-core.js?v=20260803.3";
+import { RETENTION_METRIC_KEYS } from "./exhaustive-retention.js?v=20260803.3";
 
 let state = null;
 let cancelled = false;
@@ -19,6 +19,10 @@ function normalizeSnapshot(snapshot) {
   const benchmarkPrices = Float64Array.from(snapshot.prices[snapshot.benchmark]);
   const first = new Date(`${dates[0]}T00:00:00Z`).getTime();
   const last = new Date(`${dates.at(-1)}T00:00:00Z`).getTime();
+  const riskFreeRate = Number(snapshot.riskFreeRate || 0);
+  if (!Number.isFinite(riskFreeRate) || riskFreeRate <= -1) {
+    throw new Error("快照的無風險利率無效。");
+  }
   return {
     tickers,
     dates,
@@ -26,6 +30,8 @@ function normalizeSnapshot(snapshot) {
     benchmarkPrices,
     periodKeys: buildPeriodKeys(dates),
     elapsedYears: Math.max((last - first) / 31_557_600_000, 1 / 365.25),
+    riskFreeRate,
+    dailyRiskFreeRate: (1 + riskFreeRate) ** (1 / 252) - 1,
     datasetHash: snapshot.datasetHash || snapshot.priceDatasetHash || "",
   };
 }
@@ -41,6 +47,8 @@ function evaluate(indexes, settings, collectEvents = false) {
     bandRatio: settings.bandRatio,
     transactionCostBps: settings.transactionCostBps,
     executionDelayTradingDays: settings.executionDelayTradingDays,
+    riskFreeRate: state.riskFreeRate,
+    dailyRiskFreeRate: state.dailyRiskFreeRate,
     collectEvents,
   });
 }

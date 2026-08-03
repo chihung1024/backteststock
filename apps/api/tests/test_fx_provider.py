@@ -5,7 +5,11 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from apps.api.app.data.fx_provider import FXDownloadError, YahooFXProvider
+from apps.api.app.data.fx_provider import (
+    FXDownloadError,
+    YahooFXProvider,
+    normalize_quote_convention,
+)
 
 
 def _frame(
@@ -131,9 +135,32 @@ def test_quote_currency_is_normalized_and_cached(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("apps.api.app.data.fx_provider.yf.Ticker", FakeTicker)
     provider = YahooFXProvider()
 
+    convention = provider.quote_convention("vod.l")
+    assert convention.raw_currency == "GBp"
+    assert convention.currency == "GBP"
+    assert convention.native_price_scale == pytest.approx(0.01)
     assert provider.quote_currency("vod.l") == "GBP"
     assert provider.quote_currency("VOD.L") == "GBP"
     assert calls == ["VOD.L"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "currency", "scale"),
+    [
+        ("GBP", "GBP", 1.0),
+        ("GBp", "GBP", 0.01),
+        ("GBX", "GBP", 0.01),
+        ("ZAc", "ZAR", 0.01),
+        ("ZAC", "ZAR", 0.01),
+        ("ILA", "ILS", 0.01),
+    ],
+)
+def test_quote_convention_distinguishes_minor_units(raw, currency, scale) -> None:
+    convention = normalize_quote_convention(raw)
+
+    assert convention.raw_currency == raw
+    assert convention.currency == currency
+    assert convention.native_price_scale == pytest.approx(scale)
 
 
 def test_fx_provider_fails_closed_after_finite_candidates(

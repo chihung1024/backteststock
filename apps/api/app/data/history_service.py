@@ -11,7 +11,12 @@ from typing import Any
 import pandas as pd
 
 from api.market_data import download_prices_finitely
-from apps.api.app.data.fx_provider import FXLevels, YahooFXProvider
+from apps.api.app.data.fx_provider import (
+    FXLevels,
+    QuoteConvention,
+    YahooFXProvider,
+    normalize_quote_convention,
+)
 from apps.api.app.data.twd_valuation import (
     TWDValuation,
     TWDValuationError,
@@ -42,6 +47,8 @@ class TWDAssetHistory:
     valuation: TWDValuation
     corporate_action_audit: dict[str, Any] | None
     fx_audit: dict[str, Any] | None = None
+    raw_quote_currency: str | None = None
+    native_price_scale: float = 1.0
 
     @property
     def native_adjusted_close(self) -> pd.Series:
@@ -151,12 +158,12 @@ class TWDHistoryService:
                     retryable=True,
                 )
 
-        currencies = self._resolve_currencies(usable_native, failures)
+        quote_conventions = self._resolve_quote_conventions(usable_native, failures)
         grouped: dict[str, list[str]] = {}
         for symbol in usable_native:
-            currency = currencies.get(symbol)
-            if currency is not None:
-                grouped.setdefault(currency, []).append(symbol)
+            convention = quote_conventions.get(symbol)
+            if convention is not None:
+                grouped.setdefault(convention.currency, []).append(symbol)
 
         histories: dict[str, TWDAssetHistory] = {}
         for currency, group in grouped.items():
@@ -176,7 +183,11 @@ class TWDHistoryService:
                     continue
 
             for symbol in group:
-                native = usable_native[symbol]
+                raw_native = usable_native[symbol]
+                convention = quote_conventions[symbol]
+                native = _scale_native_prices(
+                    raw_native, convention.native_price_scale
+                )
                 try:
                     valuation = value_adjusted_close_in_twd(
                         native,
@@ -195,8 +206,10 @@ class TWDHistoryService:
                     symbol=symbol,
                     quote_currency=currency,
                     valuation=valuation,
-                    corporate_action_audit=_audit_from_native_series(native),
-                    fx_audit=_fx_audit(currency, fx_levels),
+                    corporate_action_audit=_audit_from_native_series(raw_native),
+                    fx_audit=_fx_audit(currency, fx_levels, convention),
+                    raw_quote_currency=convention.raw_currency,
+                    native_price_scale=convention.native_price_scale,
                 )
 
         return PartialTWDHistories(
@@ -205,25 +218,25 @@ class TWDHistoryService:
             failures=failures,
         )
 
-    def _resolve_currencies(
+    def _resolve_quote_conventions(
         self,
         native_prices: dict[str, pd.Series],
         failures: dict[str, HistoryFailure],
-    ) -> dict[str, str]:
+    ) -> dict[str, QuoteConvention]:
         """Resolve each symbol independently, with bounded metadata concurrency."""
 
         if not native_prices:
             return {}
-        currencies: dict[str, str] = {}
+        conventions: dict[str, QuoteConvention] = {}
         workers = min(_MAX_CURRENCY_WORKERS, len(native_prices))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(self._fx_provider.quote_currency, symbol): symbol
+                executor.submit(self._quote_convention, symbol): symbol
                 for symbol in native_prices
             }
             for future, symbol in futures.items():
                 try:
-                    currencies[symbol] = future.result()
+                    conventions[symbol] = future.result()
                 except Exception as exc:  # noqa: BLE001 - external metadata boundary
                     failures[symbol] = HistoryFailure(
                         symbol=symbol,
@@ -231,7 +244,24 @@ class TWDHistoryService:
                         detail=str(exc),
                         retryable=True,
                     )
-        return currencies
+        return conventions
+
+    def _quote_convention(self, symbol: str) -> QuoteConvention:
+        """Use the rich provider contract, with a major-unit compatibility path."""
+
+        resolver = getattr(self._fx_provider, "quote_convention", None)
+        if callable(resolver):
+            convention = resolver(symbol)
+            if not isinstance(convention, QuoteConvention):
+                raise TypeError("quote_convention must return QuoteConvention")
+            return convention
+        currency = self._fx_provider.quote_currency(symbol)
+        convention = normalize_quote_convention(currency)
+        if convention.native_price_scale != 1.0:
+            raise TWDValuationError(
+                "a quote provider returning minor units must implement quote_convention"
+            )
+        return convention
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -260,9 +290,28 @@ def _audit_from_native_series(series: pd.Series) -> dict[str, Any] | None:
     return dict(audit) if isinstance(audit, dict) else None
 
 
-def _fx_audit(currency: str, levels: FXLevels | None) -> dict[str, Any]:
+def _scale_native_prices(series: pd.Series, scale: float) -> pd.Series:
+    if not isinstance(scale, (int, float)) or scale <= 0:
+        raise TWDValuationError("native quote-unit scale must be positive")
+    scaled = series.astype(float).copy() * float(scale)
+    scaled.attrs = dict(series.attrs)
+    scaled.attrs["raw_quote_unit_scale"] = float(scale)
+    return scaled
+
+
+def _fx_audit(
+    currency: str,
+    levels: FXLevels | None,
+    convention: QuoteConvention,
+) -> dict[str, Any]:
+    quote_metadata = {
+        "raw_quote_currency": convention.raw_currency,
+        "normalized_quote_currency": convention.currency,
+        "native_price_scale": convention.native_price_scale,
+    }
     if currency == "TWD":
         return {
+            **quote_metadata,
             "source_currency": "TWD",
             "target_currency": "TWD",
             "method": "identity",
@@ -274,6 +323,7 @@ def _fx_audit(currency: str, levels: FXLevels | None) -> dict[str, Any]:
     if levels is None:
         raise AssertionError("non-TWD asset requires FX levels before valuation")
     return {
+        **quote_metadata,
         "source_currency": levels.source_currency,
         "target_currency": levels.target_currency,
         "method": levels.method,

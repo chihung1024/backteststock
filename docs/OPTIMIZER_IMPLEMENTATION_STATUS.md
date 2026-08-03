@@ -30,8 +30,9 @@ validation remain pending.
   in every saved result row.
 - Paused jobs persist checkpoints and compact chunks.  A pre-checkpoint browser
   close deliberately recomputes completed work rather than bias global ranks.
-- There is no fixed 60-source-ticker cap; the practical guard is `C(N,K) ≤
-  50,000,000`, signed snapshot size, and the preflight resource estimate.
+- The old 60-source-ticker cap is replaced by a 100-ticker platform boundary;
+  the additional guards are `C(N,K) ≤ 50,000,000`, signed snapshot size, and
+  the preflight resource estimate.
 
 ## Retired surface
 

@@ -4,7 +4,11 @@ from datetime import date
 
 import pandas as pd
 
-from apps.api.app.data.fx_provider import FXDownloadError, FXLevels
+from apps.api.app.data.fx_provider import (
+    FXDownloadError,
+    FXLevels,
+    normalize_quote_convention,
+)
 from apps.api.app.data.history_service import TWDHistoryService
 
 
@@ -24,6 +28,12 @@ class FakeFXProvider:
         if value == "ERROR":
             raise FXDownloadError(f"quote currency unavailable for {symbol}")
         return value
+
+    def quote_convention(self, symbol: str):
+        value = self.currencies[symbol]
+        if value == "ERROR":
+            raise FXDownloadError(f"quote currency unavailable for {symbol}")
+        return normalize_quote_convention(value)
 
     def fx_to_twd(self, currency: str, _start: date, _end: date) -> FXLevels:
         levels = self.rates.get(currency)
@@ -124,6 +134,31 @@ def test_service_preserves_fx_only_valuation_day(monkeypatch) -> None:
     history = result.histories["GOOD"]
     assert history.adjusted_close_twd.tolist() == [3000.0, 3020.0, 3030.0]
     assert history.daily_returns.iloc[1] == 30.2 / 30.0 - 1.0
+
+
+def test_minor_quote_units_are_scaled_before_twd_valuation(monkeypatch) -> None:
+    native_pence = _prices([125.0, 126.0], ["2025-01-02", "2025-01-03"])
+    fx = _prices([40.0, 40.5], ["2025-01-02", "2025-01-03"])
+    monkeypatch.setattr(
+        "apps.api.app.data.history_service.download_prices_finitely",
+        lambda *_args: ({"VOD.L": native_pence}, []),
+    )
+    service = TWDHistoryService(
+        fx_provider=FakeFXProvider({"VOD.L": "GBp"}, {"GBP": fx})
+    )
+
+    result = service.histories_partial(
+        ["VOD.L"], date(2025, 1, 2), date(2025, 1, 3)
+    )
+
+    history = result.histories["VOD.L"]
+    assert history.quote_currency == "GBP"
+    assert history.raw_quote_currency == "GBp"
+    assert history.native_price_scale == 0.01
+    assert history.native_adjusted_close.tolist() == [1.25, 1.26]
+    assert history.adjusted_close_twd.tolist() == [50.0, 51.03]
+    assert history.fx_audit["raw_quote_currency"] == "GBp"
+    assert history.fx_audit["native_price_scale"] == 0.01
 
 
 def test_whole_download_failure_is_an_explicit_failure_for_every_symbol(monkeypatch) -> None:

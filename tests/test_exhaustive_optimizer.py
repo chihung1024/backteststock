@@ -155,6 +155,7 @@ def test_prepare_exhaustive_accepts_variable_source_pool(monkeypatch):
         "/api/optimizer/exhaustive/prepare",
         json={
             "sourceTickers": source,
+            "holdingCount": 1,
             "benchmark": "SPY",
             "startDate": "2024-01-02",
             "endDate": "2024-05-31",
@@ -165,9 +166,12 @@ def test_prepare_exhaustive_accepts_variable_source_pool(monkeypatch):
     snapshot = decode_unsigned(payload["snapshot"])
     assert snapshot["optimizerMode"] == "exhaustive_full_period"
     assert snapshot["candidateTickers"] == source
+    assert snapshot["riskFreeRate"] == exhaustive_optimizer.legacy.RISK_FREE_RATE
     assert "split" not in snapshot
     assert snapshot["persistentDailyPriceDatabase"] is False
     assert payload["summary"]["sourceTickerCount"] == 61
+    assert payload["summary"]["holdingCount"] == 1
+    assert payload["summary"]["combinationCount"] == 61
     assert payload["summary"]["observations"] == 100
     assert snapshot["valuationCurrency"] == "TWD"
     assert snapshot["twdValuationContractVersion"]
@@ -175,3 +179,56 @@ def test_prepare_exhaustive_accepts_variable_source_pool(monkeypatch):
     assert snapshot["fxPriceFingerprints"] == {}
     assert response.headers["X-Valuation-Currency"] == "TWD"
     assert response.headers["X-TWD-Valuation-Contract-Version"]
+
+
+def test_prepare_exhaustive_rejects_more_than_50m_before_market_download(monkeypatch):
+    exhaustive_optimizer.app.config.update(TESTING=True)
+    client = exhaustive_optimizer.app.test_client()
+    calls = []
+    monkeypatch.setattr(
+        exhaustive_optimizer,
+        "_download_full_period_prices",
+        lambda *_args: calls.append(_args),
+    )
+    source = [f"T{index:03d}" for index in range(30)]
+
+    response = client.post(
+        "/api/optimizer/exhaustive/prepare",
+        json={
+            "sourceTickers": source,
+            "holdingCount": 15,
+            "benchmark": "SPY",
+            "startDate": "2024-01-02",
+            "endDate": "2024-05-31",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "50,000,000" in response.get_json()["error"]
+    assert calls == []
+
+
+def test_prepare_exhaustive_rejects_more_than_platform_source_limit(monkeypatch):
+    exhaustive_optimizer.app.config.update(TESTING=True)
+    client = exhaustive_optimizer.app.test_client()
+    calls = []
+    monkeypatch.setattr(
+        exhaustive_optimizer,
+        "_download_full_period_prices",
+        lambda *_args: calls.append(_args),
+    )
+
+    response = client.post(
+        "/api/optimizer/exhaustive/prepare",
+        json={
+            "sourceTickers": [f"T{index:03d}" for index in range(101)],
+            "holdingCount": 1,
+            "benchmark": "SPY",
+            "startDate": "2024-01-02",
+            "endDate": "2024-05-31",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "100" in response.get_json()["error"]
+    assert calls == []

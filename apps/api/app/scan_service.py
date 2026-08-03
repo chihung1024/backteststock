@@ -181,6 +181,10 @@ def _success_row(
         "status": "ok",
         "retryable": False,
         **metrics,
+        # Preserve the established scan-row audit surface used by CSV exports
+        # and deployment smoke checks. The nested valuation_metadata copy is
+        # retained as a convenient single TWD audit object.
+        **metadata,
         "data_start": metrics["metric_start"],
         "data_end": metrics["metric_end"],
         "trading_days": int(len(values)),

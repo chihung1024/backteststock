@@ -9,7 +9,8 @@ accepted combination is evaluated with the same full-period, path-dependent
 simulation. The limit is a computation limit, not a pre-ranking or sampling
 limit.
 
-There is no fixed 60-ticker source-list limit.  A request is constrained by its
+The old 60-ticker source-list limit is removed. The deployed platform accepts
+up to 100 source tickers per request, then also constrains the request by its
 actual `C(N,K)` count, signed snapshot size, and browser resource estimate.
 
 ## TWD valuation snapshot
@@ -19,6 +20,8 @@ the shared daily TWD adjusted-close series.  The signed snapshot records
 `valuationCurrency: "TWD"`, the TWD contract version, corporate-action audits,
 and FX-source audits.  The browser refuses a non-TWD snapshot, so a saved native
 currency job cannot be resumed or displayed as a TWD result.
+The signed snapshot also carries the configured annual risk-free rate so
+Sortino and Alpha use the same definition as the scanner and portfolio API.
 
 ## Why raw results are not persisted
 

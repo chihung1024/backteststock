@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 VALUATION_CURRENCY = "TWD"
-TWD_VALUATION_CONTRACT_VERSION = "twd-adjusted-close-union-calendar-2026-08-03.1"
+TWD_VALUATION_CONTRACT_VERSION = "twd-adjusted-close-union-calendar-2026-08-03.2"
 
 
 class TWDValuationError(ValueError):

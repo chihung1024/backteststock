@@ -10,7 +10,10 @@ from apps.api.app.data.history_service import (
     PartialTWDHistories,
     TWDAssetHistory,
 )
-from apps.api.app.data.twd_valuation import TWDValuation
+from apps.api.app.data.twd_valuation import (
+    TWD_VALUATION_CONTRACT_VERSION,
+    TWDValuation,
+)
 from apps.api.app.scan_service import TWDScanService
 
 
@@ -81,6 +84,8 @@ def test_scan_uses_twd_levels_not_native_currency_returns() -> None:
     assert row["fx_audit"]["method"] == "direct"
     assert row["native_price_fingerprint"]
     assert row["fx_price_fingerprint"]
+    assert row["data_source_settings"]["repair"] is True
+    assert row["scipy_version"]
     assert row["valuation_metadata"]["native_price_fingerprint"] == row[
         "native_price_fingerprint"
     ]
@@ -121,7 +126,7 @@ def test_scan_preserves_asset_result_when_benchmark_or_peer_fails() -> None:
         "error": "Yahoo unavailable",
         "benchmark_available": False,
         "valuation_currency": "TWD",
-        "twd_valuation_contract_version": "twd-adjusted-close-union-calendar-2026-08-03.1",
+        "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,
         "calendar_policy": "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1",
         "metric_definition_version": good_row["metric_definition_version"],
     }

@@ -9,7 +9,10 @@ For every asset, benchmark, scanner result, portfolio path, and optimizer score:
 TWD adjusted close[t] = native adjusted close[t] × FX(native → TWD, t)
 ```
 
-`native adjusted close` is the audited Yahoo `Adj Close` total-return series.
+`native adjusted close` is the audited Yahoo `Adj Close` total-return series,
+normalized from a minor quote unit such as `GBp`, `ZAc`, or `ILA` to its major
+currency before valuation. The raw Yahoo currency and applied price scale stay
+in the FX audit metadata.
 `FX(native → TWD, t)` is TWD per one unit of the source quote currency.  A TWD
 quote uses an FX rate of exactly `1.0`.
 

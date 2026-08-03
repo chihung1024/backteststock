@@ -50,7 +50,9 @@ For local development, copy `.dev.vars.example` to `.dev.vars`.
 
 ## 4. Deploy Cloudflare
 
-After CI passes and the pull request is merged, manually run the `Deploy Cloudflare Worker` workflow. It:
+After CI passes and the pull request is merged, the `Deploy Cloudflare Worker`
+workflow runs automatically for matching Worker, public-asset, migration, and
+deployment-script changes; it can also be started manually. It:
 
 - Resolves or creates `backteststock-universe`.
 - Applies `migrations/*.sql` remotely.
