@@ -1,0 +1,48 @@
+name: Portfolio web CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/portfolio-web/**"
+      - "public/portfolio/**"
+      - "tests/e2e/portfolio_full_page.spec.mjs"
+      - "tests/test_portfolio_web_contract.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/portfolio-web-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/portfolio-web/**"
+      - "public/portfolio/**"
+      - "tests/e2e/portfolio_full_page.spec.mjs"
+      - "tests/test_portfolio_web_contract.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/portfolio-web-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portfolio-web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check and build Portfolio app
+        run: npm run check:portfolio
+      - name: Test Portfolio source contract
+        run: node --test tests/test_portfolio_web_contract.mjs
+      - name: Verify committed production assets
+        run: git diff --exit-code -- public/portfolio
