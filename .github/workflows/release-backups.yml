@@ -63,18 +63,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PRE_SHA: ${{ github.event.pull_request.base.sha }}
           POST_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
-          pre_tag="backup-pre-pr${PR_NUMBER}-${PRE_SHA:0:12}"
+          pre_sha="$(git rev-parse "${POST_SHA}^1")"
+          pre_tag="backup-pre-pr${PR_NUMBER}-${pre_sha:0:12}"
           post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
 
           gh release view "$pre_tag" >/dev/null
           git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
           resolved_pre_sha="$(git rev-list -n 1 "$pre_tag")"
-          if [ "$resolved_pre_sha" != "$PRE_SHA" ]; then
-            echo "Pre-merge backup tag points to $resolved_pre_sha instead of $PRE_SHA." >&2
+          if [ "$resolved_pre_sha" != "$pre_sha" ]; then
+            echo "Pre-merge backup tag points to $resolved_pre_sha instead of $pre_sha." >&2
             exit 1
           fi
 
