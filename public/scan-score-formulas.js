@@ -77,15 +77,6 @@ export const SCORE_FORMULAS = Object.freeze([
     description: "Sortino × √((1 + CAGR) ÷ ((1 + Beta) × (1 + |MDD|)))",
     digits: 4,
   }),
-  Object.freeze({
-    key: "sortino_growth_beta_squared_mdd_score",
-    rankKey: "sortino_growth_beta_squared_mdd_rank",
-    statusKey: "sortino_growth_beta_squared_mdd_score_status",
-    label: "優化分數",
-    shortLabel: "優化",
-    description: "Sortino × √((1 + CAGR) ÷ ((1 + Beta)^2 × (1 + |MDD|)))",
-    digits: 4,
-  }),
 ]);
 
 const SCORE_EPSILON = 1e-12;
@@ -212,16 +203,6 @@ function calculateDrawdownRecord(metrics) {
   return finiteResult(ready, score, "回撤控制公式");
 }
 
-function calculateOptimizedRecord(metrics) {
-  const ready = prepareGrowthBetaTerms(metrics, { requireMdd: true });
-  if (ready.status !== "metrics_ready") return ready;
-  const score = ready.sortino_ratio * Math.sqrt(
-    ready.onePlusCagr
-      / (Math.pow(ready.onePlusBeta, 2) * (1 + ready.absoluteMdd)),
-  );
-  return finiteResult(ready, score, "優化公式");
-}
-
 function sameNumber(left, right) {
   return Math.abs(left - right) <= SCORE_EPSILON * Math.max(1, Math.abs(left), Math.abs(right));
 }
@@ -262,7 +243,6 @@ export function buildScoreMatrix(items) {
         sortino_growth_beta_score: calculateStableRecord(metrics),
         sortino_growth_beta_quarter_score: calculateGrowthRecord(metrics),
         sortino_growth_beta_mdd_score: calculateDrawdownRecord(metrics),
-        sortino_growth_beta_squared_mdd_score: calculateOptimizedRecord(metrics),
       },
     });
   }
