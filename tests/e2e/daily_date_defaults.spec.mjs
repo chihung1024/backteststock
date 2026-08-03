@@ -129,8 +129,8 @@ test("v1 USD state keeps portfolios while resetting the amount for TWD", async (
   await routeStaticApis(page);
   await page.goto("/");
 
-  await expect(page.locator("#portfolio-list")).toContainText("舊投組保留");
-  await expect(page.locator("#portfolio-list")).toContainText("VOD.L");
+  await expect(page.locator('[data-action="portfolio-name"]')).toHaveValue("舊投組保留");
+  await expect(page.locator('[data-action="asset-ticker"]')).toHaveValue("VOD.L");
   await expect(page.locator("#initial-amount")).toHaveValue("1000000");
   await expect(page.locator("#start-period")).toHaveValue("2019-02-01");
   await expect(page.locator("#end-period")).toHaveValue("2024-11-29");
