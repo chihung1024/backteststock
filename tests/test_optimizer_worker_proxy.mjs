@@ -4,26 +4,25 @@ import test from "node:test";
 import worker from "../worker/index.js";
 
 
-test("optimizer routes proxy payloads larger than the ordinary API limit", async () => {
+test("retired training and out-of-sample optimizer routes fail closed", async () => {
   const originalFetch = globalThis.fetch;
-  let forwardedBytes = 0;
+  let forwarded = false;
   globalThis.fetch = async (_url, options) => {
-    forwardedBytes = options.body.byteLength;
+    forwarded = Boolean(options.body);
     return Response.json({ results: [], metadata: {} });
   };
 
   try {
-    const largeValue = "x".repeat(300 * 1024);
     const response = await worker.fetch(
       new Request("https://example.com/api/optimizer/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ snapshot: { data: largeValue } }),
+        body: JSON.stringify({ snapshot: { data: "legacy" } }),
       }),
       { BACKEND_ORIGIN: "https://backend.example.com" },
     );
-    assert.equal(response.status, 200);
-    assert.ok(forwardedBytes > 256 * 1024);
+    assert.equal(response.status, 404);
+    assert.equal(forwarded, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -43,7 +42,7 @@ test("ordinary API routes still reject payloads above 256 KiB", async () => {
 });
 
 
-test("optimizer payloads above 3 MiB fail closed", async () => {
+test("retired optimizer routes reject oversized requests without a backend call", async () => {
   const response = await worker.fetch(
     new Request("https://example.com/api/optimizer/verify", {
       method: "POST",
@@ -52,5 +51,5 @@ test("optimizer payloads above 3 MiB fail closed", async () => {
     }),
     { BACKEND_ORIGIN: "https://backend.example.com" },
   );
-  assert.equal(response.status, 413);
+  assert.equal(response.status, 404);
 });

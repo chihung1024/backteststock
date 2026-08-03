@@ -56,7 +56,7 @@ test("a saved rolling default advances to the current day after refresh", async 
   const current = rollingRange(now);
 
   await page.addInitScript(({ priorRange }) => {
-    localStorage.setItem("backteststock-state-v1", JSON.stringify({
+    localStorage.setItem("backteststock-state-v2", JSON.stringify({
       settings: {
         initialAmount: 10000,
         startPeriod: priorRange.startDate,
@@ -77,14 +77,14 @@ test("a saved rolling default advances to the current day after refresh", async 
   await expect(page.locator("#start-period")).toHaveValue(current.startDate);
   await expect(page.locator("#end-period")).toHaveValue(current.endDate);
   await expect.poll(() => page.evaluate(() => {
-    const state = JSON.parse(localStorage.getItem("backteststock-state-v1"));
+    const state = JSON.parse(localStorage.getItem("backteststock-state-v2"));
     return [state.settings.startPeriod, state.settings.endPeriod];
   })).toEqual([current.startDate, current.endDate]);
 });
 
 test("an explicitly customized date range remains unchanged", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("backteststock-state-v1", JSON.stringify({
+    localStorage.setItem("backteststock-state-v2", JSON.stringify({
       settings: {
         initialAmount: 10000,
         startPeriod: "2018-01-15",
@@ -105,4 +105,37 @@ test("an explicitly customized date range remains unchanged", async ({ page }) =
   await page.goto("/");
   await expect(page.locator("#start-period")).toHaveValue("2018-01-15");
   await expect(page.locator("#end-period")).toHaveValue("2024-12-20");
+});
+
+test("v1 USD state keeps portfolios while resetting the amount for TWD", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-state-v1", JSON.stringify({
+      settings: {
+        initialAmount: 12345,
+        startPeriod: "2019-02-01",
+        endPeriod: "2024-11-29",
+        rebalancingPeriod: "quarterly",
+        benchmark: "VT",
+      },
+      portfolios: [{
+        id: "legacy-portfolio",
+        name: "舊投組保留",
+        assets: [{ id: "legacy-asset", ticker: "VOD.L", weight: 100 }],
+      }],
+    }));
+    localStorage.setItem("backteststock-backtest-date-mode-v1", "custom");
+  });
+
+  await routeStaticApis(page);
+  await page.goto("/");
+
+  await expect(page.locator('[data-action="portfolio-name"]')).toHaveValue("舊投組保留");
+  await expect(page.locator('[data-action="asset-ticker"]')).toHaveValue("VOD.L");
+  await expect(page.locator("#initial-amount")).toHaveValue("1000000");
+  await expect(page.locator("#start-period")).toHaveValue("2019-02-01");
+  await expect(page.locator("#end-period")).toHaveValue("2024-11-29");
+  await expect.poll(() => page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("backteststock-state-v2"));
+    return [state?.portfolios?.[0]?.name, state?.settings?.initialAmount];
+  })).toEqual(["舊投組保留", 1_000_000]);
 });

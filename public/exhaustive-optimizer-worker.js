@@ -6,7 +6,8 @@ import {
   nextCombination,
   simulateExactPortfolio,
   unrankCombination,
-} from "./exhaustive-optimizer-core.js";
+} from "./exhaustive-optimizer-core.js?v=20260803.3";
+import { RETENTION_METRIC_KEYS } from "./exhaustive-retention.js?v=20260803.3";
 
 let state = null;
 let cancelled = false;
@@ -18,6 +19,10 @@ function normalizeSnapshot(snapshot) {
   const benchmarkPrices = Float64Array.from(snapshot.prices[snapshot.benchmark]);
   const first = new Date(`${dates[0]}T00:00:00Z`).getTime();
   const last = new Date(`${dates.at(-1)}T00:00:00Z`).getTime();
+  const riskFreeRate = Number(snapshot.riskFreeRate || 0);
+  if (!Number.isFinite(riskFreeRate) || riskFreeRate <= -1) {
+    throw new Error("快照的無風險利率無效。");
+  }
   return {
     tickers,
     dates,
@@ -25,6 +30,8 @@ function normalizeSnapshot(snapshot) {
     benchmarkPrices,
     periodKeys: buildPeriodKeys(dates),
     elapsedYears: Math.max((last - first) / 31_557_600_000, 1 / 365.25),
+    riskFreeRate,
+    dailyRiskFreeRate: (1 + riskFreeRate) ** (1 / 252) - 1,
     datasetHash: snapshot.datasetHash || snapshot.priceDatasetHash || "",
   };
 }
@@ -40,6 +47,8 @@ function evaluate(indexes, settings, collectEvents = false) {
     bandRatio: settings.bandRatio,
     transactionCostBps: settings.transactionCostBps,
     executionDelayTradingDays: settings.executionDelayTradingDays,
+    riskFreeRate: state.riskFreeRate,
+    dailyRiskFreeRate: state.dailyRiskFreeRate,
     collectEvents,
   });
 }
@@ -63,17 +72,24 @@ function processChunk(message) {
   const { chunkIndex, count, settings } = message;
   const n = state.tickers.length;
   const k = settings.holdingCount;
-  const combinations = new Uint16Array(count * k);
-  const metrics = new Float64Array(count * METRIC_KEYS.length);
+  const retentionMode = message.resultMode === "retention";
+  const metricKeys = retentionMode ? RETENTION_METRIC_KEYS : METRIC_KEYS;
+  const metricIndexes = metricKeys.map((key) => METRIC_KEYS.indexOf(key));
+  const combinations = retentionMode ? null : new Uint16Array(count * k);
+  const metrics = new Float64Array(count * metricKeys.length);
   let indexes = unrankCombination(n, k, BigInt(message.startRank));
   const started = performance.now();
   let completed = 0;
 
   for (let row = 0; row < count; row += 1) {
     if (cancelled) break;
-    combinations.set(indexes, row * k);
+    if (combinations) combinations.set(indexes, row * k);
     const result = evaluate(indexes, settings, false);
-    metrics.set(metricsToArray(result), row * METRIC_KEYS.length);
+    const values = metricsToArray(result);
+    const offset = row * metricKeys.length;
+    for (let index = 0; index < metricIndexes.length; index += 1) {
+      metrics[offset + index] = values[metricIndexes[index]];
+    }
     completed += 1;
     if (row + 1 < count && !nextCombination(indexes, n)) break;
   }
@@ -84,10 +100,38 @@ function processChunk(message) {
     requestedCount: count,
     completed,
     elapsedMs: performance.now() - started,
-    combinations: completed === count
+    resultMode: retentionMode ? "retention" : "full",
+    metricKeys,
+    combinations: combinations && (completed === count
       ? combinations
-      : combinations.slice(0, completed * k),
+      : combinations.slice(0, completed * k)),
     metrics: completed === count
+      ? metrics
+      : metrics.slice(0, completed * metricKeys.length),
+  };
+}
+
+function materializeRanks(message) {
+  const ranks = Uint32Array.from(message.ranks || []);
+  const metrics = new Float32Array(ranks.length * METRIC_KEYS.length);
+  const started = performance.now();
+  let completed = 0;
+  for (let row = 0; row < ranks.length; row += 1) {
+    if (cancelled) break;
+    const indexes = unrankCombination(
+      state.tickers.length,
+      message.settings.holdingCount,
+      BigInt(ranks[row]),
+    );
+    metrics.set(metricsToArray(evaluate(indexes, message.settings, false)), row * METRIC_KEYS.length);
+    completed += 1;
+  }
+  return {
+    chunkIndex: message.chunkIndex,
+    rowStart: message.rowStart,
+    completed,
+    elapsedMs: performance.now() - started,
+    metrics: completed === ranks.length
       ? metrics
       : metrics.slice(0, completed * METRIC_KEYS.length),
   };
@@ -121,9 +165,20 @@ self.addEventListener("message", (event) => {
     if (message.type === "run-chunk") {
       cancelled = false;
       const result = processChunk(message);
+      const transfer = [result.metrics.buffer];
+      if (result.combinations) transfer.push(result.combinations.buffer);
       self.postMessage(
         { type: "chunk-complete", ...result },
-        [result.combinations.buffer, result.metrics.buffer],
+        transfer,
+      );
+      return;
+    }
+    if (message.type === "materialize-ranks") {
+      cancelled = false;
+      const result = materializeRanks(message);
+      self.postMessage(
+        { type: "materialized", ...result },
+        [result.metrics.buffer],
       );
       return;
     }

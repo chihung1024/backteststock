@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const STORAGE_KEY = "backteststock-scan-job-v2";
+const STORAGE_KEY = "backteststock-scan-job-v3";
 const METRIC_VERSION = "2026-08-01.2";
 
 async function fulfillJson(route, body, status = 200) {

@@ -22,6 +22,7 @@ function buildSnapshot() {
     formatVersion: "exhaustive-optimizer-snapshot-json-gzip-v1",
     optimizerMode: "exhaustive_full_period",
     optimizerAlgorithmVersion: "exhaustive-test-v1",
+    valuationCurrency: "TWD",
     candidateTickers: tickers,
     benchmark: "SPY",
     dates,
@@ -48,9 +49,9 @@ function envelope(snapshot) {
 test("exhaustive optimizer preflights, confirms and evaluates every N choose K combination", async ({ page }) => {
   await page.addInitScript(({ savedTickers }) => {
     indexedDB.deleteDatabase("backteststock-exhaustive-optimizer-v1");
-    localStorage.setItem("backteststock-scan-job-v2", JSON.stringify({
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
       id: "exhaustive-source",
-      version: 2,
+      version: 3,
       status: "completed",
       payload: { tickers: savedTickers, benchmark: "SPY" },
       results: [],
@@ -62,6 +63,7 @@ test("exhaustive optimizer preflights, confirms and evaluates every N choose K c
   await page.route("**/api/optimizer/exhaustive/prepare", async (route) => {
     const payload = route.request().postDataJSON();
     expect(payload.sourceTickers).toEqual(tickers);
+    expect(payload.holdingCount).toBe(2);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -74,6 +76,7 @@ test("exhaustive optimizer preflights, confirms and evaluates every N choose K c
           observations: snapshot.dates.length,
           actualStart: snapshot.dates[0],
           actualEnd: snapshot.dates.at(-1),
+          valuationCurrency: "TWD",
           persistentDailyPriceDatabase: false,
         },
       }),

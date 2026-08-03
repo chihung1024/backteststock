@@ -3,15 +3,11 @@ const API_ROUTES = new Map([
   ["/api/all-tickers", new Set(["GET"])],
   ["/api/backtest", new Set(["POST"])],
   ["/api/scan", new Set(["POST"])],
-  ["/api/optimizer/calendar", new Set(["POST"])],
-  ["/api/optimizer/prepare", new Set(["POST"])],
-  ["/api/optimizer/verify", new Set(["POST"])],
   ["/api/screener", new Set(["POST"])],
   ["/api/v2/screener", new Set(["POST"])],
 ]);
 
 const MAX_REQUEST_BYTES = 256 * 1024;
-const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const API_TIMEOUT_MS = 240_000;
 const EDGE_CACHE_VERSION = "2026-08-01.1";
 const EDGE_CACHE_TTL_SECONDS = 15 * 60;
@@ -53,16 +49,10 @@ function applySecurityHeaders(response, requestId) {
   });
 }
 
-function requestSizeLimit(pathname) {
-  return String(pathname || "").startsWith("/api/optimizer/")
-    ? OPTIMIZER_MAX_REQUEST_BYTES
-    : MAX_REQUEST_BYTES;
-}
-
 async function readValidatedBody(request, requestId, pathname) {
   if (request.method === "GET" || request.method === "HEAD") return undefined;
 
-  const limit = requestSizeLimit(pathname);
+  const limit = MAX_REQUEST_BYTES;
   const declaredLength = Number(request.headers.get("content-length") || "0");
   if (declaredLength > limit) {
     return jsonResponse({ error: "請求內容過大。" }, 413, requestId);

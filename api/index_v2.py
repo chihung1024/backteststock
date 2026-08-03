@@ -22,8 +22,19 @@ from api.metrics import (
     reproducibility_metadata,
     series_fingerprint,
 )
+from apps.api.app.backtest_service import (
+    PortfolioFailure,
+    PortfolioSpec,
+    TWDPortfolioBacktestService,
+    TWD_PORTFOLIO_CALENDAR_POLICY,
+)
+from apps.api.app.data.twd_valuation import (
+    TWD_VALUATION_CONTRACT_VERSION,
+    VALUATION_CURRENCY,
+)
 
 logger = logging.getLogger(__name__)
+twd_backtest_service = TWDPortfolioBacktestService()
 
 if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
     raise RuntimeError(
@@ -168,6 +179,26 @@ def _action_warning(audits: dict[str, dict]) -> str | None:
     return "；".join(parts) if parts else None
 
 
+def _serialize_twd_failure(failure: PortfolioFailure) -> dict:
+    return {
+        "name": failure.name,
+        "stage": failure.stage,
+        "detail": failure.detail,
+        "symbols": list(failure.symbols),
+        "retryable": failure.retryable,
+    }
+
+
+def _twd_failure_warning(failures: list[PortfolioFailure]) -> str | None:
+    if not failures:
+        return None
+    items = [
+        f"{failure.name}（{', '.join(failure.symbols)}：{failure.detail}）"
+        for failure in failures
+    ]
+    return "以下投組未產生結果，但其他投組已保留：" + "；".join(items)
+
+
 def backtest_handler():
     request_started = time.perf_counter()
     try:
@@ -181,50 +212,52 @@ def backtest_handler():
         benchmark_ticker = (
             legacy.normalize_ticker(data["benchmark"]) if data.get("benchmark") else None
         )
-
-        portfolio_tickers = legacy.deduplicate(
-            ticker for portfolio in portfolios for ticker in portfolio["tickers"]
-        )
-        required_tickers = legacy.deduplicate(
-            portfolio_tickers + ([benchmark_ticker] if benchmark_ticker else [])
-        )
+        specs = [
+            PortfolioSpec(
+                name=portfolio["name"],
+                tickers=tuple(portfolio["tickers"]),
+                weights=tuple(float(weight) / 100.0 for weight in portfolio["weights"]),
+                rebalancing_period=portfolio["rebalancingPeriod"],
+            )
+            for portfolio in portfolios
+        ]
         market_started = time.perf_counter()
-        prices_raw = download_data_silently(
-            tuple(sorted(required_tickers)),
-            start_date.strftime("%Y-%m-%d"),
-            end_exclusive.strftime("%Y-%m-%d"),
+        batch = twd_backtest_service.run(
+            specs,
+            start=start_date.date(),
+            end=(end_exclusive - pd.Timedelta(days=1)).date(),
+            initial_amount=initial_amount,
+            benchmark=benchmark_ticker,
+            risk_free_rate=legacy.RISK_FREE_RATE,
         )
         market_ms = (time.perf_counter() - market_started) * 1000
         compute_started = time.perf_counter()
-        action_audits = dict(
-            prices_raw.attrs.get("corporate_action_audits", {})
-        )
-        for ticker in required_tickers:
-            action_audits.setdefault(ticker, audit_from_series(prices_raw.get(ticker)))
-
-        failed_tickers = [
-            ticker
-            for ticker in required_tickers
-            if ticker not in prices_raw.columns
-            or prices_raw[ticker].dropna().empty
-        ]
-        if failed_tickers:
+        if not batch.results:
+            details = "; ".join(
+                f"{failure.name}: {failure.detail}" for failure in batch.failures
+            )
             raise legacy.DataSourceError(
-                "行情資料尚未完整取得，未建立部分資料回測："
-                + ", ".join(failed_tickers)
+                "沒有可完成的 TWD 回測投組。" + (f" {details}" if details else "")
             )
 
-        common_prices = _common_calendar(prices_raw, required_tickers)
-        effective_start = common_prices.index[0]
-        effective_end = common_prices.index[-1]
         warning_parts = []
-        if effective_start > start_date + pd.offsets.BDay(5):
-            warning_parts.append(
-                "為確保所有投組與比較基準使用完全相同期間，"
-                f"有效起始日調整為 {effective_start:%Y-%m-%d}"
+        portfolio_failure_warning = _twd_failure_warning(batch.failures)
+        if portfolio_failure_warning:
+            warning_parts.append(portfolio_failure_warning)
+        if benchmark_ticker and batch.benchmark is None:
+            detail = (
+                batch.benchmark_failure.detail
+                if batch.benchmark_failure is not None
+                else "比較基準未取得可用 TWD 歷史"
             )
-        if effective_end < end_exclusive - pd.offsets.BDay(5):
-            warning_parts.append(f"有效結束日為 {effective_end:%Y-%m-%d}")
+            warning_parts.append(
+                f"比較基準 {benchmark_ticker} 無法以 TWD 計價；"
+                f"成功投組仍已計算，但 Beta／Alpha 暫不計算：{detail}"
+            )
+        action_audits = {
+            ticker: history.corporate_action_audit or {}
+            for ticker, history in batch.histories.histories.items()
+        }
         action_warning = _action_warning(action_audits)
         if action_warning:
             warning_parts.append(action_warning)
@@ -234,78 +267,51 @@ def backtest_handler():
                 "需評估改用可投資 ETF 作為總報酬基準"
             )
 
-        benchmark_history = None
-        benchmark_result = None
-        if benchmark_ticker:
-            benchmark_history = legacy.normalized_benchmark_history(
-                common_prices[benchmark_ticker], initial_amount
-            )
-            benchmark_metrics = calculate_metrics(
-                benchmark_history,
-                benchmark_history,
-                risk_free_rate=legacy.RISK_FREE_RATE,
-            )
-            benchmark_audit = action_audits[benchmark_ticker]
-            benchmark_result = {
-                "name": benchmark_ticker,
-                **benchmark_metrics,
-                "beta": 1.0,
-                "alpha": 0.0,
-                "return_basis": RETURN_BASIS,
-                "corporate_action_policy_version": CORPORATE_ACTION_POLICY_VERSION,
-                "corporate_action_status": benchmark_audit.get(
-                    "status", "audit_not_recorded"
-                ),
-                "corporate_action_audit": benchmark_audit,
-                "portfolio_value_fingerprint": series_fingerprint(benchmark_history),
-                "portfolioHistory": [
-                    {"date": date.strftime("%Y-%m-%d"), "value": float(value)}
-                    for date, value in benchmark_history["value"].items()
-                ],
-            }
-
-        results = []
-        for portfolio in portfolios:
-            result = run_simulation(
-                portfolio,
-                common_prices,
-                initial_amount,
-                benchmark_history,
-                corporate_action_audits=action_audits,
-            )
-            if result:
-                results.append(result)
-        if not results:
-            raise legacy.ValidationError("沒有足夠的共同交易日來進行回測。")
-
         metadata = reproducibility_metadata(
             risk_free_rate=legacy.RISK_FREE_RATE,
             benchmark=benchmark_ticker,
             extra={
                 "requested_start": start_date.strftime("%Y-%m-%d"),
                 "requested_end_exclusive": end_exclusive.strftime("%Y-%m-%d"),
-                "effective_start": effective_start.strftime("%Y-%m-%d"),
-                "effective_end": effective_end.strftime("%Y-%m-%d"),
-                "common_price_observations": int(len(common_prices)),
-                "calendar_policy": "global_complete_case_across_all_assets_and_benchmark",
-                "rebalancing_execution": "previous_close_before_period_start",
+                "valuation_currency": VALUATION_CURRENCY,
+                "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,
+                "calendar_policy": TWD_PORTFOLIO_CALENDAR_POLICY,
                 "market_data_contract_version": market_data.MARKET_DATA_CONTRACT_VERSION,
+                "requested_tickers": list(batch.requested),
+                "resolved_tickers": list(batch.histories.histories),
                 "corporate_action_audits": action_audits,
                 "corporate_action_review_tickers": sorted(
                     ticker
                     for ticker, audit in action_audits.items()
                     if audit.get("status") == "review_required"
                 ),
-                "price_fingerprints": {
-                    ticker: series_fingerprint(common_prices[ticker])
-                    for ticker in required_tickers
+                "twd_price_fingerprints": {
+                    ticker: series_fingerprint(history.adjusted_close_twd)
+                    for ticker, history in batch.histories.histories.items()
+                },
+                "twd_history_failures": {
+                    ticker: {
+                        "stage": failure.stage,
+                        "detail": failure.detail,
+                        "retryable": failure.retryable,
+                    }
+                    for ticker, failure in batch.histories.failures.items()
+                },
+                "portfolio_effective_periods": {
+                    result["name"]: {
+                        "start": result.get("metric_start"),
+                        "end": result.get("metric_end"),
+                        "observations": result.get("metric_price_observations"),
+                    }
+                    for result in batch.results
                 },
             },
         )
         payload = {
-            "data": results,
-            "benchmark": benchmark_result,
+            "data": batch.results,
+            "benchmark": batch.benchmark,
             "warning": "；".join(warning_parts) if warning_parts else None,
+            "failures": [_serialize_twd_failure(failure) for failure in batch.failures],
             "metadata": metadata,
         }
         compute_ms = (time.perf_counter() - compute_started) * 1000
@@ -319,10 +325,8 @@ def backtest_handler():
         )
         response.headers["Server-Timing"] = timing
         response.headers["X-Backend-Server-Timing"] = timing
-        response.headers["X-Backtest-Requested"] = str(len(required_tickers))
-        response.headers["X-Backtest-Resolved"] = str(
-            len(required_tickers) - len(failed_tickers)
-        )
+        response.headers["X-Backtest-Requested"] = str(len(batch.requested))
+        response.headers["X-Backtest-Resolved"] = str(len(batch.histories.histories))
         return response
     except legacy.ValidationError as exc:
         return legacy.error_response(str(exc), 400)
@@ -346,4 +350,8 @@ app = legacy.app
 @app.after_request
 def add_metric_version_header(response):
     response.headers.setdefault("X-Metric-Definition-Version", METRIC_DEFINITION_VERSION)
+    response.headers.setdefault("X-Valuation-Currency", VALUATION_CURRENCY)
+    response.headers.setdefault(
+        "X-TWD-Valuation-Contract-Version", TWD_VALUATION_CONTRACT_VERSION
+    )
     return response

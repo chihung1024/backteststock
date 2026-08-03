@@ -1,43 +1,51 @@
 # Optimizer implementation status
 
-This branch implements the agreed MVP end to end:
+Status: implemented in this merge branch; deployment and browser-capacity
+validation remain pending.
 
-- strict training-only candidate selection from the source scan universe;
-- 20-stock candidate pool and 10-stock equal-weight portfolios;
-- relative ±20% weight bands with next-common-close execution;
-- 184,756-combination proxy pass and 30,000 deep-search budget;
-- deterministic multi-start, one-swap and limited two-swap search;
-- 300 Python exact verifications with 70/30 training/out-of-sample split;
-- transaction costs, turnover and rebalance event output;
-- signed compressed data snapshot reused by search and verification;
-- objective champions, exact-result table, Pareto chart and audit exports.
+## Active product contract
 
-The optimizer does not create a persistent daily-price database and does not weaken Adjusted Close, repair or corporate-action audit requirements.
+- One fixed user-supplied source pool; no pre-ranking, ticker substitution, or
+  training-period candidate selection.
+- One complete historical period; no training / out-of-sample split.
+- Every asset and benchmark is converted to daily TWD adjusted-close levels
+  before the browser receives the signed snapshot.
+- Any source or benchmark data failure stops the exhaustive preflight with an
+  explicit list; it never silently drops a ticker or shortens the period.
+- `N` source tickers and configurable `K` holdings enumerate all `C(N,K)`
+  portfolios with dynamic equal target weights `1/K`.
+- Relative bands, monthly, quarterly, annual, and no-rebalance modes use the
+  same exact browser simulation and configurable transaction cost / execution
+  delay.
 
-Final hardening guarantees exact unique budget contributions, explicit little-endian mask hashing, and a 3 MiB optimizer-only edge request ceiling compatible with the 2 MiB compressed snapshot ceiling.
+## Capacity and persistence
 
-The final implementation rejects silent out-of-sample truncation, treats null metrics as unavailable rather than zero, aggregates all three exact-verification batches to 300, and persists only compact summaries in localStorage while retaining full events in the audit JSON export.
+- The browser calculates up to **50,000,000** combinations.
+- Up to **5,000,000** result rows are durably retained after all combinations
+  have been calculated: 60% primary optimized-score leaders, 30% leaders from
+  complementary metrics, and 10% deterministic diversity coverage.
+- The first phase stores only bounded typed selection buffers; retained ranks
+  are re-evaluated and stored compactly as `Uint32 rank + Float32[14] metrics`.
+- Holdings are reconstructed from combinatorial rank, so they are not duplicated
+  in every saved result row.
+- Paused jobs persist checkpoints and compact chunks.  A pre-checkpoint browser
+  close deliberately recomputes completed work rather than bias global ranks.
+- The old 60-source-ticker cap is replaced by a 100-ticker platform boundary;
+  the additional guards are `C(N,K) ≤ 50,000,000`, signed snapshot size, and
+  the preflight resource estimate.
 
-## Dual-mode and daily-range hardening (2026-08-02)
+## Retired surface
 
-- The scan endpoint accepts exact `YYYY-MM-DD` start and end dates while retaining legacy year/month request compatibility.
-- The optimizer supports both strict automatic training-only candidate selection and a fixed manual 20-stock candidate mode.
-- Manual scan-result selections persist across sorting and pagination, are capped at 20, and must contain exactly 20 eligible stocks before launch.
-- The original three composite scores remain available, with an additional optimized score: `Sortino × sqrt((1 + CAGR) / ((1 + Beta)^2 × (1 + |MDD|)))`.
-- Automatic date defaults roll forward daily from the same local calendar date ten years ago through yesterday, while explicitly customized ranges remain unchanged.
-- Desktop content width is increased to 1480px.
+The former `/api/optimizer/*` training / out-of-sample workflow is no longer
+deployed or edge-routable.  `optimizer.html` uses only
+`/api/optimizer/exhaustive/prepare`; legacy source files remain in the repository
+temporarily as historical reference and are not part of the active build or
+public route contract.
 
-## Exhaustive full-period refactor (2026-08-02)
+## Remaining release checks
 
-The production page is reworked around the user's original fixed-universe research contract. The preceding MVP sections remain as implementation history; they no longer describe the primary page after this refactor.
-
-- The source universe is fixed exactly as supplied; no training-period ranking or silent ticker substitution occurs.
-- `N` source tickers and configurable `K` holdings produce all `C(N,K)` combinations.
-- Every combination receives the same path-dependent exact simulation across the complete selected period.
-- Equal target weights are dynamic at `1/K`.
-- Rebalancing supports relative bands, monthly, quarterly, annually, or never, with configurable common-trading-day execution delay and transaction cost.
-- Preflight validates strict full-period coverage and corporate actions, measures the current device, estimates runtime and storage, and requires explicit confirmation.
-- Web Workers process deterministic chunks; IndexedDB preserves completed chunks for stop/resume.
-- Full results support arbitrary metric sorting, filters, paging, CSV export, and on-demand event-detail reruns.
-- The original four composite formulas remain available as exact-result columns.
-- No persistent server-side daily-price database is introduced.
+- Run the real-browser IndexedDB resume and 5M-retention tests in an environment
+  with Playwright Chromium installed.
+- Measure 25/50/75/100-source preflight behavior on the target Vercel runtime.
+- Deploy the branch only after confirming configured upstream Yahoo and FX
+  request limits remain within the free hosting envelope.

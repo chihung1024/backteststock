@@ -1,4 +1,5 @@
 import math
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -6,7 +7,10 @@ import pytest
 
 from api import index_v2, market_data, scan_v2
 from api.corporate_actions import RETURN_BASIS
-from api.metrics import calculate_metrics
+from api.metrics import METRIC_DEFINITION_VERSION
+from apps.api.app.backtest_service import PortfolioFailure, TWDBacktestBatch
+from apps.api.app.data.history_service import PartialTWDHistories
+from apps.api.app.scan_service import TWDScanBatch
 
 
 @pytest.fixture()
@@ -21,21 +25,53 @@ def backtest_client():
     return index_v2.app.test_client()
 
 
-def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
-    scan_client, monkeypatch
-):
-    benchmark_dates = pd.to_datetime(
-        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08"]
-    )
-    asset_dates = benchmark_dates[[0, 2, 3, 4]]
-    benchmark = pd.Series([100, 101, 104, 103, 106], index=benchmark_dates, name="SPY")
-    asset = pd.Series([50, 55, 52, 58], index=asset_dates, name="AAA")
-    source = {"AAA": asset, "SPY": benchmark}
+class FakeTWDScanService:
+    def __init__(self, *, benchmark_available=True):
+        self.calls = []
+        self.benchmark_available = benchmark_available
 
-    def fake_download(requested, *_args, **_kwargs):
-        return ({ticker: source[ticker] for ticker in requested if ticker in source}, [])
+    def run(self, tickers, **kwargs):
+        normalized = list(tickers)
+        self.calls.append((normalized, kwargs))
+        rows = [
+            {
+                "ticker": ticker,
+                "status": "ok",
+                "retryable": False,
+                "total_return": 0.1,
+                "cagr": 0.1,
+                "mdd": -0.05,
+                "volatility": 0.2,
+                "sharpe_ratio": 0.5,
+                "sortino_ratio": 0.6,
+                "beta": 1.0 if self.benchmark_available else None,
+                "alpha": 0.0 if self.benchmark_available else None,
+                "metric_start": "2024-01-02",
+                "metric_end": "2024-01-31",
+                "metric_definition_version": METRIC_DEFINITION_VERSION,
+                "valuation_currency": "TWD",
+                "benchmark_available": self.benchmark_available,
+                "note": None if self.benchmark_available else "（Beta／Alpha 暫不計算）",
+            }
+            for ticker in normalized
+        ]
+        return TWDScanBatch(
+            requested=tuple([kwargs["benchmark"], *normalized]),
+            results=rows,
+            benchmark_symbol=kwargs["benchmark"],
+            benchmark_available=self.benchmark_available,
+            benchmark_failure=None,
+            histories=PartialTWDHistories(
+                requested=tuple([kwargs["benchmark"], *normalized]),
+                histories={},
+                failures={},
+            ),
+        )
 
-    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
+
+def test_scan_routes_twd_results_and_preserves_timing_headers(scan_client, monkeypatch):
+    fake_service = FakeTWDScanService()
+    monkeypatch.setattr(scan_v2, "twd_scan_service", fake_service)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -47,54 +83,27 @@ def test_scan_uses_aligned_standard_metrics_and_benchmark_calendar(
             "endMonth": 1,
         },
     )
+
     assert response.status_code == 200
     result = response.get_json()[0]
-    expected = calculate_metrics(asset, benchmark, risk_free_rate=scan_v2.legacy.RISK_FREE_RATE)
-
-    for key in (
-        "total_return",
-        "cagr",
-        "mdd",
-        "volatility",
-        "sharpe_ratio",
-        "sortino_ratio",
-        "beta",
-        "alpha",
-    ):
-        assert result[key] == pytest.approx(expected[key])
-    assert result["data_coverage"] == pytest.approx(0.8)
-    assert result["metric_price_observations"] == 4
-    assert result["metric_return_observations"] == 2
-    assert result["metric_start"] == "2024-01-02"
-    assert result["metric_end"] == "2024-01-08"
-    assert len(result["price_fingerprint"]) == 64
-    assert len(result["aligned_price_fingerprint"]) == 64
-    assert "repair=true" in result["reproducibility"]
-    assert "adjust=false" in result["reproducibility"]
-    assert "actions=true" in result["reproducibility"]
-    assert result["return_basis"] == RETURN_BASIS
-    assert result["corporate_action_status"] == "audit_not_recorded"
-    assert result["note"] is None
-    assert "aligned_sha256=" in result["reproducibility"]
+    tickers, call = fake_service.calls[0]
+    assert tickers == ["AAA"]
+    assert call["start"] == date(2024, 1, 1)
+    assert call["end"] == date(2024, 1, 31)
+    assert call["benchmark"] == "SPY"
+    assert result["valuation_currency"] == "TWD"
+    assert result["metric_definition_version"] == METRIC_DEFINITION_VERSION
     assert "market;dur=" in response.headers["Server-Timing"]
     assert response.headers["X-Scan-Requested"] == "1"
     assert response.headers["X-Scan-Resolved"] == "1"
-    assert response.headers["X-Metric-Definition-Version"] == result[
-        "metric_definition_version"
-    ]
+    assert response.headers["X-Metric-Definition-Version"] == METRIC_DEFINITION_VERSION
+    assert response.headers["X-Valuation-Currency"] == "TWD"
+    assert response.headers["X-TWD-Valuation-Contract-Version"]
 
 
-def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, monkeypatch):
-    asset = pd.Series(
-        [100, 101, 102], index=pd.bdate_range("2024-01-02", periods=3), name="AAA"
-    )
-
-    def fake_download(requested, *_args, **_kwargs):
-        if requested == ["SPY"]:
-            return ({}, ["SPY"])
-        return ({"AAA": asset}, [])
-
-    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
+def test_scan_keeps_asset_results_without_an_available_benchmark(scan_client, monkeypatch):
+    fake_service = FakeTWDScanService(benchmark_available=False)
+    monkeypatch.setattr(scan_v2, "twd_scan_service", fake_service)
     response = scan_client.post(
         "/api/scan",
         json={
@@ -106,49 +115,33 @@ def test_scan_keeps_asset_metrics_when_benchmark_is_unavailable(scan_client, mon
             "endMonth": 1,
         },
     )
+
     assert response.status_code == 200
     result = response.get_json()[0]
-    expected = calculate_metrics(
-        asset, risk_free_rate=scan_v2.legacy.RISK_FREE_RATE
-    )
     assert result["status"] == "ok"
-    assert result["retryable"] is False
-    assert result["cagr"] == pytest.approx(expected["cagr"])
     assert result["beta"] is None
     assert result["alpha"] is None
     assert result["benchmark_available"] is False
-    assert result["data_coverage"] == 0.0
     assert "Beta／Alpha 暫不計算" in result["note"]
 
 
-def test_scan_resolves_benchmark_and_assets_in_one_large_batch(scan_client, monkeypatch):
-    dates = pd.bdate_range("2024-01-02", periods=4)
-    source = {
-        "SPY": pd.Series([100, 101, 102, 103], index=dates, name="SPY"),
-        "AAA": pd.Series([50, 51, 52, 53], index=dates, name="AAA"),
-        "BBB": pd.Series([80, 79, 81, 82], index=dates, name="BBB"),
-    }
-    calls = []
-
-    def fake_download(requested, *_args, **_kwargs):
-        calls.append(list(requested))
-        return ({ticker: source[ticker] for ticker in requested}, [])
-
-    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
+def test_scan_accepts_more_than_the_internal_hundred_ticker_batch(scan_client, monkeypatch):
+    fake_service = FakeTWDScanService()
+    monkeypatch.setattr(scan_v2, "twd_scan_service", fake_service)
+    tickers = [f"T{index:03d}" for index in range(101)]
     response = scan_client.post(
         "/api/scan",
         json={
-            "tickers": ["AAA", "BBB"],
+            "tickers": tickers,
             "benchmark": "SPY",
-            "startYear": 2024,
-            "startMonth": 1,
-            "endYear": 2024,
-            "endMonth": 1,
+            "startDate": "2024-01-02",
+            "endDate": "2024-01-31",
         },
     )
+
     assert response.status_code == 200
-    assert calls == [["SPY", "AAA", "BBB"]]
-    assert [row["ticker"] for row in response.get_json()] == ["AAA", "BBB"]
+    assert len(fake_service.calls[0][0]) == 101
+    assert len(response.get_json()) == 101
 
 
 def test_scan_download_contract_preserves_raw_adjusted_and_actions(monkeypatch):
@@ -170,16 +163,53 @@ def test_scan_download_contract_preserves_raw_adjusted_and_actions(monkeypatch):
     assert captured["keepna"] is False
 
 
-def test_backtest_uses_one_global_common_period(backtest_client, monkeypatch):
-    dates = pd.bdate_range("2024-01-02", periods=8)
-    prices = pd.DataFrame(
-        {
-            "AAA": [np.nan, np.nan, 50, 52, 51, 54, 55, 58],
-            "SPY": [100, 101, 102, 103, 104, 105, 106, 107],
-        },
-        index=dates,
-    )
-    monkeypatch.setattr(index_v2, "download_data_silently", lambda *_a, **_k: prices)
+def test_backtest_routes_through_the_twd_service_and_preserves_partial_results(
+    backtest_client, monkeypatch
+):
+    class FakeTWDService:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, specs, **kwargs):
+            self.calls.append((specs, kwargs))
+            return TWDBacktestBatch(
+                requested=("AAA", "BAD", "SPY"),
+                results=[
+                    {
+                        "name": "Portfolio",
+                        "metric_start": "2024-01-03",
+                        "metric_end": "2024-01-31",
+                        "metric_price_observations": 21,
+                        "valuationCurrency": "TWD",
+                        "portfolioHistory": [],
+                    }
+                ],
+                failures=[
+                    PortfolioFailure(
+                        name="Unavailable",
+                        stage="market_data",
+                        detail="BAD: fx unavailable",
+                        symbols=("BAD",),
+                        retryable=True,
+                    )
+                ],
+                benchmark={
+                    "name": "SPY",
+                    "metric_start": "2024-01-03",
+                    "metric_end": "2024-01-31",
+                    "beta": 1.0,
+                    "alpha": 0.0,
+                    "valuationCurrency": "TWD",
+                    "portfolioHistory": [],
+                },
+                benchmark_failure=None,
+                histories=PartialTWDHistories(
+                    requested=("AAA", "BAD", "SPY"), histories={}, failures={}
+                ),
+            )
+
+    fake_service = FakeTWDService()
+    monkeypatch.setattr(index_v2, "twd_backtest_service", fake_service)
 
     response = backtest_client.post(
         "/api/backtest",
@@ -203,17 +233,33 @@ def test_backtest_uses_one_global_common_period(backtest_client, monkeypatch):
     )
     assert response.status_code == 200
     payload = response.get_json()
-    effective_start = dates[2].strftime("%Y-%m-%d")
-    assert payload["metadata"]["effective_start"] == effective_start
+    specs, call = fake_service.calls[0]
+    assert specs[0].weights == (1.0,)
+    assert call["start"] == date(2024, 1, 1)
+    assert call["end"] == date(2024, 1, 31)
+    assert call["benchmark"] == "SPY"
+    assert payload["metadata"]["valuation_currency"] == "TWD"
     assert payload["metadata"]["calendar_policy"] == (
-        "global_complete_case_across_all_assets_and_benchmark"
+        "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1"
     )
     assert payload["metadata"]["return_basis"] == RETURN_BASIS
-    assert payload["data"][0]["metric_start"] == effective_start
-    assert payload["data"][0]["return_basis"] == RETURN_BASIS
-    assert payload["benchmark"]["metric_start"] == effective_start
+    assert response.headers["X-Valuation-Currency"] == "TWD"
+    assert response.headers["X-TWD-Valuation-Contract-Version"]
+    assert payload["data"][0]["metric_start"] == "2024-01-03"
+    assert payload["data"][0]["valuationCurrency"] == "TWD"
+    assert payload["benchmark"]["metric_start"] == "2024-01-03"
     assert payload["benchmark"]["beta"] == 1.0
     assert payload["benchmark"]["alpha"] == 0.0
+    assert payload["failures"] == [
+        {
+            "name": "Unavailable",
+            "stage": "market_data",
+            "detail": "BAD: fx unavailable",
+            "symbols": ["BAD"],
+            "retryable": True,
+        }
+    ]
+    assert "其他投組已保留" in payload["warning"]
 
 
 def test_period_rebalance_is_effective_before_first_return_of_new_period():

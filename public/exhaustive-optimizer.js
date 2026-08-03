@@ -9,26 +9,41 @@ import {
   formatBytes,
   formatDuration,
   relativeBandBounds,
-} from "./exhaustive-optimizer-core.js";
+  unrankCombination,
+} from "./exhaustive-optimizer-core.js?v=20260803.3";
+import {
+  CompactResultRetention,
+  MAX_PERSISTED_RESULTS,
+  RETENTION_METRIC_KEYS,
+  createRetentionPlan,
+  estimateCompactResultBytes,
+  estimateRetentionWorkingBytes,
+} from "./exhaustive-retention.js?v=20260803.3";
 import {
   deleteJob,
   getChunk,
   getJob,
+  getRetainedChunk,
   listChunks,
   listJobs,
   saveChunk,
   saveJob,
-} from "./exhaustive-optimizer-storage.js";
+  saveRetainedChunk,
+} from "./exhaustive-optimizer-storage.js?v=20260803.3";
 
-const SCAN_JOB_KEY = "backteststock-scan-job-v2";
-const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v1";
+const SCAN_JOB_KEY = "backteststock-scan-job-v3";
+const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
 const DATE_MODE_KEY = "backteststock-exhaustive-date-mode-v1";
 const CUSTOM_RANGE_KEY = "backteststock-exhaustive-custom-range-v1";
-const WORKER_URL = "/exhaustive-optimizer-worker.js?v=20260802.1";
-const SORT_WORKER_URL = "/exhaustive-sort-worker.js?v=20260802.1";
+const WORKER_URL = "/exhaustive-optimizer-worker.js?v=20260803.3";
+const SORT_WORKER_URL = "/exhaustive-sort-worker.js?v=20260803.3";
 const PAGE_SIZE = 100;
 const CALIBRATION_SAMPLE = 160;
 const SOFT_WARNING_COMBINATIONS = 1_000_000;
+const MAX_SOURCE_TICKERS = 100;
+const LEGACY_FULL_RESULT_LIMIT = MAX_PERSISTED_RESULTS;
+const RETAINED_CHUNK_SIZE = 25_000;
+const VALUATION_CURRENCY = "TWD";
 
 const METRIC_LABELS = Object.freeze({
   total_return: "總報酬",
@@ -68,6 +83,7 @@ let stopRequested = false;
 let sortedIds = null;
 let currentPage = 0;
 let currentSortConfig = { field: "optimized_score", direction: "desc" };
+let activeRetention = null;
 
 function parseTickers(value) {
   return [...new Set(
@@ -173,7 +189,9 @@ function validateInputs() {
   const tickers = parseTickers(dom.source.value);
   const settings = getSettings();
   if (tickers.length < 2) throw new Error("來源股票至少需要 2 檔。");
-  if (tickers.length > 60) throw new Error("目前單次最多支援 60 檔來源股票。");
+  if (tickers.length > MAX_SOURCE_TICKERS) {
+    throw new Error(`全量最佳化單次最多 ${MAX_SOURCE_TICKERS} 檔來源股票。`);
+  }
   if (!Number.isInteger(settings.holdingCount) || settings.holdingCount < 1) {
     throw new Error("每組持股數必須是正整數。");
   }
@@ -226,9 +244,18 @@ function refreshStaticEstimate() {
     const count = binomialBigInt(tickers.length, k);
     dom.combinationCount.textContent = count.toLocaleString("en-US");
     const numeric = count <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(count) : Number.POSITIVE_INFINITY;
-    dom.staticEstimate.textContent = Number.isFinite(numeric)
-      ? `結果摘要估計約 ${formatBytes(estimateResultBytes(numeric, k))}；執行前會以本機實測校準時間。`
-      : "組合數超過瀏覽器安全整數範圍。";
+    if (!Number.isFinite(numeric)) {
+      dom.staticEstimate.textContent = "組合數超過瀏覽器安全整數範圍。";
+    } else if (numeric <= LEGACY_FULL_RESULT_LIMIT) {
+      dom.staticEstimate.textContent = `完整結果估計約 ${formatBytes(estimateResultBytes(numeric, k))}；執行前會以本機實測校準時間。`;
+    } else {
+      const plan = createRetentionPlan(numeric);
+      dom.staticEstimate.textContent = [
+        `完整計算 ${numeric.toLocaleString()} 組`,
+        `精簡保存最多 ${plan.target.toLocaleString()} 組約 ${formatBytes(estimateCompactResultBytes(plan.target))}`,
+        `暫存選取緩衝約 ${formatBytes(estimateRetentionWorkingBytes(plan))}`,
+      ].join("；");
+    }
   } catch (error) {
     dom.staticEstimate.textContent = error.message;
   }
@@ -322,12 +349,16 @@ async function runPreflight() {
     dom.preflightProgress.textContent = "下載並驗證完整期間行情…";
     const response = await apiFetch("/api/optimizer/exhaustive/prepare", {
       sourceTickers: input.tickers,
+      holdingCount: input.settings.holdingCount,
       benchmark: String(dom.benchmark.value || "SPY").trim().toUpperCase(),
       startDate: dom.start.value,
       endDate: dom.end.value,
     });
     const snapshot = await decodeSnapshot(response.snapshot);
     snapshot.datasetHash = response.snapshot.datasetHash;
+    if (snapshot.valuationCurrency !== VALUATION_CURRENCY) {
+      throw new Error("資料預檢未提供 TWD 估值快照，已停止全量回測。");
+    }
     dom.preflightProgress.textContent = "以目前電腦執行精確回測校準…";
     const worker = await createInitializedWorker(snapshot);
     const calibration = await workerRequest(
@@ -347,7 +378,12 @@ async function runPreflight() {
     const high = estimateSeconds * 1.35;
     const chunkSize = Math.max(25, Math.min(1000, Math.round(singleRate * 2.2)));
     const observations = response.summary.observations;
-    const resultBytes = estimateResultBytes(input.total, input.settings.holdingCount);
+    const compactPlan = input.total > LEGACY_FULL_RESULT_LIMIT
+      ? createRetentionPlan(input.total)
+      : null;
+    const resultBytes = compactPlan
+      ? estimateCompactResultBytes(compactPlan.target)
+      : estimateResultBytes(input.total, input.settings.holdingCount);
     const snapshotBytes = estimateSnapshotBytes(input.tickers.length, observations);
     prepared = {
       ...input,
@@ -371,15 +407,17 @@ async function runPreflight() {
         <div><dt>每組持股</dt><dd>${input.settings.holdingCount} 檔等權</dd></div>
         <div><dt>完整組合</dt><dd>${input.total.toLocaleString()} 組</dd></div>
         <div><dt>共同交易日</dt><dd>${observations.toLocaleString()} 日</dd></div>
+        <div><dt>估值幣別</dt><dd>${snapshot.valuationCurrency}</dd></div>
         <div><dt>目標權重</dt><dd>${(bounds.target * 100).toFixed(4)}%</dd></div>
         <div><dt>再平衡區間</dt><dd>${input.settings.rebalanceMode === "band" ? `${(bounds.lower * 100).toFixed(4)}%～${(bounds.upper * 100).toFixed(4)}%` : input.settings.rebalanceMode}</dd></div>
         <div><dt>本機單 Worker</dt><dd>${singleRate.toFixed(1)} 組／秒</dd></div>
         <div><dt>預估時間</dt><dd>${formatDuration(low)}～${formatDuration(high)}</dd></div>
         <div><dt>快照記憶體</dt><dd>${formatBytes(snapshotBytes * input.settings.workerCount)}</dd></div>
-        <div><dt>結果摘要</dt><dd>${formatBytes(resultBytes)}</dd></div>
+        <div><dt>${compactPlan ? "精簡保存結果" : "結果摘要"}</dt><dd>${formatBytes(resultBytes)}</dd></div>
+        ${compactPlan ? `<div><dt>選取工作暫存</dt><dd>${formatBytes(estimateRetentionWorkingBytes(compactPlan))}</dd></div>` : ""}
       </dl>
       <p class="message warning">${warning}</p>
-      <p class="form-note">本模式使用完整期間做歷史排名，不宣稱為未見資料預測；全部 ${input.total.toLocaleString()} 組都使用同一份簽章 Adjusted Close 快照與相同精確再平衡規則。</p>`;
+      <p class="form-note">本模式使用完整期間做歷史排名，不宣稱為未見資料預測；全部 ${input.total.toLocaleString()} 組都使用同一份簽章 TWD 還原股價快照與相同精確再平衡規則。${compactPlan ? ` 完整計算後會保留最多 ${compactPlan.target.toLocaleString()} 組代表性結果供排序與匯出。` : ""}</p>`;
     dom.confirmation.classList.remove("hidden");
     dom.preflightProgress.textContent = "預檢與實機校準完成，等待確認。";
   } catch (error) {
@@ -423,6 +461,7 @@ async function buildJob(preflight) {
     benchmark: preflight.snapshot.benchmark,
     settings,
     total: preflight.total,
+    storageMode: preflight.total > LEGACY_FULL_RESULT_LIMIT ? "compact" : "full",
     chunkSize,
     totalChunks,
     completedChunks: [],
@@ -452,7 +491,7 @@ function terminateActiveWorkers() {
   activeWorkers = [];
 }
 
-async function runJob(job, snapshot) {
+async function runFullResultJob(job, snapshot) {
   stopRequested = false;
   activeJob = { ...job, status: "running", startedAt: job.startedAt || new Date().toISOString() };
   await saveJob(activeJob);
@@ -581,6 +620,362 @@ async function runJob(job, snapshot) {
   await renderJobHistory();
 }
 
+function restoreOrRestartCompactRetention(job) {
+  if (
+    job.retentionState
+    && job.retentionStateCompleted === job.completedCombinations
+  ) {
+    return CompactResultRetention.fromState(job.retentionState);
+  }
+  if (job.completedCombinations > 0) {
+    // A completed-chunk list without its rank/score checkpoint cannot be used
+    // safely: retaining only the later chunks would distort the global top set.
+    // Recompute is deterministic and preserves correctness after an unplanned
+    // browser reload rather than silently returning a biased subset.
+    job.completedChunks = [];
+    job.completedCombinations = 0;
+    job.elapsedMs = 0;
+  }
+  return new CompactResultRetention(job.total);
+}
+
+async function materializeRetainedResults(job, snapshot, selection) {
+  const retained = selection || job.retainedSelection;
+  if (!retained?.ranks || !retained?.reasons) {
+    throw new Error("找不到精簡保存結果的選取清單。");
+  }
+  const ranks = retained.ranks instanceof Uint32Array
+    ? retained.ranks
+    : Uint32Array.from(retained.ranks);
+  const reasons = retained.reasons instanceof Uint8Array
+    ? retained.reasons
+    : Uint8Array.from(retained.reasons);
+  if (ranks.length !== reasons.length) throw new Error("精簡保存結果的選取清單損毀。");
+
+  activeJob = {
+    ...job,
+    status: "materializing",
+    resumePhase: "materializing",
+    retainedSelection: { ranks, reasons },
+    retainedTotal: ranks.length,
+    retainedCount: ranks.length,
+    resultChunkSize: RETAINED_CHUNK_SIZE,
+    materializedChunks: job.materializedChunks || [],
+    materializedCombinations: job.materializedCombinations || 0,
+  };
+  await saveJob(activeJob);
+  dom.runPanel.classList.remove("hidden");
+  dom.pauseButton.classList.remove("hidden");
+  dom.resumeButton.classList.add("hidden");
+  dom.resultPanel.classList.add("hidden");
+
+  const completed = new Set(activeJob.materializedChunks);
+  const totalChunks = Math.ceil(ranks.length / RETAINED_CHUNK_SIZE);
+  const queue = [];
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    if (!completed.has(chunkIndex)) queue.push(chunkIndex);
+  }
+  let inFlight = 0;
+  let finished = false;
+  let failed = null;
+  stopRequested = false;
+  setRunProgress(
+    activeJob,
+    `完整計算完成，正精簡保存 ${activeJob.materializedCombinations.toLocaleString()} / ${ranks.length.toLocaleString()} 組…`,
+  );
+
+  await new Promise((resolve, reject) => {
+    runResolve = resolve;
+    const maybeFinish = async () => {
+      if (failed) {
+        terminateActiveWorkers();
+        reject(failed);
+        return;
+      }
+      if (stopRequested && inFlight === 0) {
+        terminateActiveWorkers();
+        activeJob.status = "paused";
+        await saveJob(activeJob);
+        finished = true;
+        resolve();
+        return;
+      }
+      if (!queue.length && inFlight === 0 && !finished) {
+        terminateActiveWorkers();
+        activeJob.status = "completed";
+        activeJob.completedAt = new Date().toISOString();
+        activeJob.retainedCount = ranks.length;
+        delete activeJob.retainedSelection;
+        delete activeJob.resumePhase;
+        await saveJob(activeJob);
+        finished = true;
+        resolve();
+      }
+    };
+
+    const dispatch = (worker) => {
+      if (failed || finished || stopRequested) {
+        maybeFinish();
+        return;
+      }
+      const chunkIndex = queue.shift();
+      if (chunkIndex == null) {
+        maybeFinish();
+        return;
+      }
+      const rowStart = chunkIndex * RETAINED_CHUNK_SIZE;
+      const batchRanks = ranks.slice(
+        rowStart,
+        Math.min(ranks.length, rowStart + RETAINED_CHUNK_SIZE),
+      );
+      inFlight += 1;
+      worker.postMessage({
+        type: "materialize-ranks",
+        chunkIndex,
+        rowStart,
+        ranks: batchRanks,
+        settings: activeJob.settings,
+      });
+    };
+
+    const onWorkerMessage = async (worker, event) => {
+      const message = event.data || {};
+      if (message.type === "error") {
+        failed = new Error(message.error || "Worker 精簡保存失敗。");
+        inFlight = Math.max(0, inFlight - 1);
+        maybeFinish();
+        return;
+      }
+      if (message.type !== "materialized") return;
+      inFlight -= 1;
+      const expected = Math.min(
+        RETAINED_CHUNK_SIZE,
+        ranks.length - Number(message.rowStart),
+      );
+      if (message.completed !== expected) {
+        failed = new Error("Worker 未完成精簡保存批次，結果沒有被靜默截斷。");
+        maybeFinish();
+        return;
+      }
+      await saveRetainedChunk(activeJob.id, {
+        chunkIndex: message.chunkIndex,
+        rowStart: message.rowStart,
+        count: message.completed,
+        ranks: ranks.slice(message.rowStart, message.rowStart + message.completed),
+        reasons: reasons.slice(message.rowStart, message.rowStart + message.completed),
+        metricCount: METRIC_KEYS.length,
+        metrics: message.metrics,
+      });
+      if (!completed.has(message.chunkIndex)) {
+        completed.add(message.chunkIndex);
+        activeJob.materializedChunks = [...completed].sort((left, right) => left - right);
+        activeJob.materializedCombinations += message.completed;
+      }
+      await saveJob(activeJob);
+      setRunProgress(
+        activeJob,
+        `完整計算完成，正精簡保存 ${activeJob.materializedCombinations.toLocaleString()} / ${ranks.length.toLocaleString()} 組…`,
+      );
+      dispatch(worker);
+    };
+
+    Promise.all(
+      Array.from({ length: activeJob.settings.workerCount }, async () => {
+        const worker = await createInitializedWorker(snapshot);
+        activeWorkers.push(worker);
+        worker.addEventListener("message", (event) => {
+          onWorkerMessage(worker, event).catch((error) => {
+            failed = error;
+            maybeFinish();
+          });
+        });
+        worker.addEventListener("error", (event) => {
+          failed = new Error(event.message || "Worker 無法精簡保存結果。");
+          maybeFinish();
+        });
+        dispatch(worker);
+      }),
+    ).catch((error) => {
+      failed = error;
+      maybeFinish();
+    });
+  });
+  runResolve = null;
+
+  if (activeJob.status === "completed") {
+    dom.pauseButton.classList.add("hidden");
+    dom.resumeButton.classList.add("hidden");
+    setRunProgress(activeJob, `完整計算與 ${ranks.length.toLocaleString()} 組精簡保存結果已完成。`);
+    await showResults(activeJob);
+  } else {
+    dom.pauseButton.classList.add("hidden");
+    dom.resumeButton.classList.remove("hidden");
+    setRunProgress(activeJob, "精簡保存已中止；可稍後從已保存結果繼續。");
+  }
+  await renderJobHistory();
+}
+
+async function runCompactJob(job, snapshot) {
+  if (job.resumePhase === "materializing" && job.retainedSelection) {
+    await materializeRetainedResults(job, snapshot, job.retainedSelection);
+    return;
+  }
+  stopRequested = false;
+  activeJob = {
+    ...job,
+    status: "running",
+    startedAt: job.startedAt || new Date().toISOString(),
+  };
+  activeRetention = restoreOrRestartCompactRetention(activeJob);
+  delete activeJob.retentionState;
+  delete activeJob.retentionStateCompleted;
+  await saveJob(activeJob);
+  dom.runPanel.classList.remove("hidden");
+  dom.pauseButton.classList.remove("hidden");
+  dom.resumeButton.classList.add("hidden");
+  dom.resultPanel.classList.add("hidden");
+  setRunProgress(activeJob, "初始化平行 Worker，完整計算後精簡保存…");
+
+  const completed = new Set(activeJob.completedChunks || []);
+  const queue = [];
+  for (let chunkIndex = 0; chunkIndex < activeJob.totalChunks; chunkIndex += 1) {
+    if (!completed.has(chunkIndex)) queue.push(chunkIndex);
+  }
+  let inFlight = 0;
+  let finished = false;
+  let failed = null;
+
+  await new Promise((resolve, reject) => {
+    runResolve = resolve;
+    const maybeFinish = async () => {
+      if (failed) {
+        terminateActiveWorkers();
+        reject(failed);
+        return;
+      }
+      if (stopRequested && inFlight === 0) {
+        terminateActiveWorkers();
+        activeJob.status = "paused";
+        activeJob.retentionState = activeRetention.toState();
+        activeJob.retentionStateCompleted = activeJob.completedCombinations;
+        await saveJob(activeJob);
+        finished = true;
+        resolve();
+        return;
+      }
+      if (!queue.length && inFlight === 0 && !finished) {
+        terminateActiveWorkers();
+        activeJob.status = "materializing";
+        finished = true;
+        resolve();
+      }
+    };
+
+    const dispatch = (worker) => {
+      if (failed || finished || stopRequested) {
+        maybeFinish();
+        return;
+      }
+      const chunkIndex = queue.shift();
+      if (chunkIndex == null) {
+        maybeFinish();
+        return;
+      }
+      const startRank = chunkIndex * activeJob.chunkSize;
+      const count = Math.min(activeJob.chunkSize, activeJob.total - startRank);
+      inFlight += 1;
+      worker.postMessage({
+        type: "run-chunk",
+        resultMode: "retention",
+        chunkIndex,
+        startRank: String(startRank),
+        count,
+        settings: activeJob.settings,
+      });
+    };
+
+    const onWorkerMessage = async (worker, event) => {
+      const message = event.data || {};
+      if (message.type === "error") {
+        failed = new Error(message.error || "Worker 執行失敗。");
+        inFlight = Math.max(0, inFlight - 1);
+        maybeFinish();
+        return;
+      }
+      if (message.type !== "chunk-complete") return;
+      inFlight -= 1;
+      if (message.resultMode !== "retention") {
+        failed = new Error("Worker 未回傳精簡保存所需的結果格式。");
+        maybeFinish();
+        return;
+      }
+      if (message.completed !== message.requestedCount) {
+        failed = new Error("Worker 未完成計算批次，結果沒有被靜默截斷。");
+        maybeFinish();
+        return;
+      }
+      activeRetention.acceptMetricArray(
+        Number(message.startRank),
+        new Float64Array(message.metrics),
+        message.metricKeys || RETENTION_METRIC_KEYS,
+      );
+      if (!completed.has(message.chunkIndex)) {
+        completed.add(message.chunkIndex);
+        activeJob.completedChunks = [...completed].sort((left, right) => left - right);
+        activeJob.completedCombinations += message.completed;
+        activeJob.elapsedMs += message.elapsedMs;
+      }
+      await saveJob(activeJob);
+      setRunProgress(activeJob);
+      dispatch(worker);
+    };
+
+    Promise.all(
+      Array.from({ length: activeJob.settings.workerCount }, async () => {
+        const worker = await createInitializedWorker(snapshot);
+        activeWorkers.push(worker);
+        worker.addEventListener("message", (event) => {
+          onWorkerMessage(worker, event).catch((error) => {
+            failed = error;
+            maybeFinish();
+          });
+        });
+        worker.addEventListener("error", (event) => {
+          failed = new Error(event.message || "Worker 無法執行。");
+          maybeFinish();
+        });
+        dispatch(worker);
+      }),
+    ).catch((error) => {
+      failed = error;
+      maybeFinish();
+    });
+  });
+  runResolve = null;
+
+  if (activeJob.status === "materializing") {
+    const selection = activeRetention.finalize();
+    activeRetention = null;
+    await materializeRetainedResults(activeJob, snapshot, selection);
+    return;
+  }
+  dom.pauseButton.classList.add("hidden");
+  dom.resumeButton.classList.remove("hidden");
+  setRunProgress(activeJob, "工作已中止並保存選取狀態，可稍後繼續。");
+  await renderJobHistory();
+}
+
+async function runJob(job, snapshot) {
+  const storageMode = job.storageMode || (
+    job.total > LEGACY_FULL_RESULT_LIMIT ? "compact" : "full"
+  );
+  if (storageMode === "compact") {
+    await runCompactJob({ ...job, storageMode }, snapshot);
+    return;
+  }
+  await runFullResultJob({ ...job, storageMode: "full" }, snapshot);
+}
+
 async function startPreparedJob() {
   if (!prepared) return;
   dom.startButton.disabled = true;
@@ -597,10 +992,18 @@ async function startPreparedJob() {
 }
 
 async function pauseJob() {
-  if (!activeJob || activeJob.status !== "running") return;
+  if (!activeJob || !["running", "materializing"].includes(activeJob.status)) return;
   stopRequested = true;
   terminateActiveWorkers();
   activeJob.status = "paused";
+  if (
+    activeJob.storageMode === "compact"
+    && activeJob.resumePhase !== "materializing"
+    && activeRetention
+  ) {
+    activeJob.retentionState = activeRetention.toState();
+    activeJob.retentionStateCompleted = activeJob.completedCombinations;
+  }
   await saveJob(activeJob);
   if (runResolve) runResolve();
   dom.pauseButton.classList.add("hidden");
@@ -611,6 +1014,7 @@ async function pauseJob() {
 async function resumeJob(jobId = activeJob?.id) {
   const job = await getJob(jobId);
   if (!job) return;
+  assertTwdJob(job);
   const snapshot = await decodeSnapshot(job.snapshotEnvelope);
   snapshot.datasetHash = job.datasetHash;
   await runJob(job, snapshot);
@@ -621,6 +1025,7 @@ async function discardActiveJob() {
   terminateActiveWorkers();
   await deleteJob(activeJob.id);
   activeJob = null;
+  activeRetention = null;
   sortedIds = null;
   dom.runPanel.classList.add("hidden");
   dom.resultPanel.classList.add("hidden");
@@ -645,6 +1050,9 @@ function passesFilters(metrics, offset) {
 }
 
 async function buildSortedIndex(job, field, direction) {
+  if (job.storageMode === "compact") {
+    return buildCompactSortedIndex(job, field, direction);
+  }
   const index = metricIndex(field);
   if (index < 0) throw new Error("不支援的排序欄位。");
   dom.resultSummary.textContent = "讀取結果摘要並建立排序索引…";
@@ -683,6 +1091,47 @@ async function buildSortedIndex(job, field, direction) {
   return new Uint32Array(result.indexes);
 }
 
+async function buildCompactSortedIndex(job, field, direction) {
+  const index = metricIndex(field);
+  if (index < 0) throw new Error("不支援的排序欄位。");
+  const retainedCount = Number(job.retainedCount || job.retainedTotal || 0);
+  if (!retainedCount) throw new Error("找不到精簡保存的回測結果。");
+  dom.resultSummary.textContent = "讀取精簡保存結果並建立排序索引…";
+  const values = new Float32Array(retainedCount);
+  const ids = new Uint32Array(retainedCount);
+  let accepted = 0;
+  const chunkSize = Number(job.resultChunkSize || RETAINED_CHUNK_SIZE);
+  const totalChunks = Math.ceil(retainedCount / chunkSize);
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const chunk = await getRetainedChunk(job.id, chunkIndex);
+    if (!chunk) throw new Error(`缺少精簡保存結果批次 ${chunkIndex + 1}。`);
+    const metrics = new Float32Array(chunk.metrics);
+    for (let row = 0; row < chunk.count; row += 1) {
+      const offset = row * METRIC_KEYS.length;
+      if (!passesFilters(metrics, offset)) continue;
+      ids[accepted] = Number(chunk.rowStart) + row;
+      values[accepted] = metrics[offset + index];
+      accepted += 1;
+    }
+  }
+  const worker = new Worker(SORT_WORKER_URL);
+  const result = await workerRequest(
+    worker,
+    {
+      type: "sort",
+      values: values.slice(0, accepted).buffer,
+      ids: ids.slice(0, accepted).buffer,
+      valueType: "float32",
+      direction,
+      absolute: field === "mdd" || field === "beta",
+    },
+    "sorted",
+    600_000,
+  );
+  worker.terminate();
+  return new Uint32Array(result.indexes);
+}
+
 function formatMetric(key, value) {
   if (!Number.isFinite(value)) return "—";
   if (["total_return", "cagr", "mdd", "volatility", "alpha", "annualized_turnover_one_way", "transaction_cost"].includes(key)) {
@@ -693,6 +1142,7 @@ function formatMetric(key, value) {
 }
 
 async function rowFromGlobalId(job, id, cache) {
+  if (job.storageMode === "compact") return rowFromRetainedId(job, id, cache);
   const chunkIndex = Math.floor(id / job.chunkSize);
   let chunk = cache.get(chunkIndex);
   if (!chunk) {
@@ -708,6 +1158,36 @@ async function rowFromGlobalId(job, id, cache) {
   return {
     id,
     indexes: [...combinations.slice(comboOffset, comboOffset + job.settings.holdingCount)],
+    metrics: Object.fromEntries(
+      METRIC_KEYS.map((key, index) => [key, metrics[metricOffset + index]]),
+    ),
+  };
+}
+
+async function rowFromRetainedId(job, id, cache) {
+  const chunkSize = Number(job.resultChunkSize || RETAINED_CHUNK_SIZE);
+  const chunkIndex = Math.floor(id / chunkSize);
+  let chunk = cache.get(chunkIndex);
+  if (!chunk) {
+    chunk = await getRetainedChunk(job.id, chunkIndex);
+    if (!chunk) throw new Error(`缺少精簡保存結果批次 ${chunkIndex + 1}。`);
+    cache.set(chunkIndex, chunk);
+    if (cache.size > 16) cache.delete(cache.keys().next().value);
+  }
+  const row = id - Number(chunk.rowStart);
+  if (row < 0 || row >= chunk.count) throw new Error("精簡保存結果列索引無效。");
+  const ranks = new Uint32Array(chunk.ranks);
+  const metrics = new Float32Array(chunk.metrics);
+  const rank = ranks[row];
+  const metricOffset = row * METRIC_KEYS.length;
+  return {
+    id,
+    rank,
+    indexes: [...unrankCombination(
+      job.sourceTickers.length,
+      job.settings.holdingCount,
+      BigInt(rank),
+    )],
     metrics: Object.fromEntries(
       METRIC_KEYS.map((key, index) => [key, metrics[metricOffset + index]]),
     ),
@@ -740,14 +1220,18 @@ async function renderResultPage() {
   dom.pageLabel.textContent = `第 ${currentPage + 1} / ${pageCount.toLocaleString()} 頁`;
   dom.previousPage.disabled = currentPage <= 0;
   dom.nextPage.disabled = currentPage >= pageCount - 1;
+  const resultScope = activeJob.storageMode === "compact"
+    ? `完整計算 ${activeJob.total.toLocaleString()} 組，精簡保存 ${activeJob.retainedCount.toLocaleString()} 組`
+    : `完整結果 ${activeJob.total.toLocaleString()} 組`;
   dom.resultSummary.textContent = [
-    `完整結果 ${activeJob.total.toLocaleString()} 組`,
+    resultScope,
     `篩選後 ${sortedIds.length.toLocaleString()} 組`,
     `依 ${METRIC_LABELS[currentSortConfig.field]} ${currentSortConfig.direction === "asc" ? "由低到高" : "由高到低"}`,
   ].join(" · ");
 }
 
 async function showResults(job) {
+  assertTwdJob(job);
   activeJob = job;
   dom.resultPanel.classList.remove("hidden");
   currentSortConfig = {
@@ -774,6 +1258,7 @@ async function applySortAndFilters() {
 
 async function showDetail(globalId) {
   if (!activeJob) return;
+  assertTwdJob(activeJob);
   const row = await rowFromGlobalId(activeJob, Number(globalId), new Map());
   const snapshot = await decodeSnapshot(activeJob.snapshotEnvelope);
   snapshot.datasetHash = activeJob.datasetHash;
@@ -867,15 +1352,34 @@ async function renderJobHistory() {
     dom.jobHistory.innerHTML = "<p class='form-note'>目前沒有保存中的全量工作。</p>";
     return;
   }
-  dom.jobHistory.innerHTML = jobs.slice(0, 8).map((job) => `
+  dom.jobHistory.innerHTML = jobs.slice(0, 8).map((job) => {
+    const compatible = isTwdJob(job);
+    const action = !compatible
+      ? "<span class='form-note'>舊版非 TWD 工作，請刪除後重新預檢。</span>"
+      : job.status === "completed"
+        ? `<button type="button" class="button ghost compact" data-job-results="${job.id}">查看結果</button>`
+        : `<button type="button" class="button ghost compact" data-job-resume="${job.id}">繼續</button>`;
+    return `
     <article class="saved-job">
       <div><strong>${job.sourceTickers.length} 選 ${job.settings.holdingCount}</strong>
       <span>${job.completedCombinations.toLocaleString()} / ${job.total.toLocaleString()} 組 · ${job.status}</span></div>
       <div class="toolbar">
-        ${job.status === "completed" ? `<button type="button" class="button ghost compact" data-job-results="${job.id}">查看結果</button>` : `<button type="button" class="button ghost compact" data-job-resume="${job.id}">繼續</button>`}
+        ${action}
         <button type="button" class="button ghost compact" data-job-delete="${job.id}">刪除</button>
       </div>
-    </article>`).join("");
+    </article>`;
+  }).join("");
+}
+
+function isTwdJob(job) {
+  return job?.engineVersion === EXHAUSTIVE_ENGINE_VERSION
+    && job?.snapshotSummary?.valuationCurrency === VALUATION_CURRENCY;
+}
+
+function assertTwdJob(job) {
+  if (!isTwdJob(job)) {
+    throw new Error("此工作使用舊版或非 TWD 資料快照，請刪除後重新預檢。");
+  }
 }
 
 function installMetricOptions() {

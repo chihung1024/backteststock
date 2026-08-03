@@ -1,7 +1,9 @@
-import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260801.2";
+import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
 
-const STORAGE_KEY = "backteststock-state-v1";
-const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const STORAGE_KEY = "backteststock-state-v2";
+const LEGACY_STORAGE_KEY = "backteststock-state-v1";
+const BACKTEST_DATE_MODE_STORAGE_KEY = "backteststock-backtest-date-mode-v1";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
   ["cagr", "年化報酬率", "percent", "positive"],
@@ -79,6 +81,27 @@ function normalizeSavedDate(value, boundary) {
   return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
 }
 
+function savedRangeUsesRollingDefaults(settings) {
+  const endDate = String(settings?.endPeriod || "").trim();
+  if (!isValidLocalIsoDate(endDate)) return false;
+  const [year, month, day] = endDate.split("-").map(Number);
+  const anchor = new Date(year, month - 1, day);
+  anchor.setDate(anchor.getDate() + 1);
+  const expected = rollingDefaultRange(anchor);
+  return String(settings?.startPeriod || "").trim() === expected.startDate
+    && endDate === expected.endDate;
+}
+
+function resolveSavedBacktestDateMode(settings) {
+  const stored = localStorage.getItem(BACKTEST_DATE_MODE_STORAGE_KEY);
+  if (stored === "rolling" || stored === "custom") return stored;
+  return savedRangeUsesRollingDefaults(settings) ? "rolling" : "custom";
+}
+
+function saveBacktestDateMode(mode) {
+  localStorage.setItem(BACKTEST_DATE_MODE_STORAGE_KEY, mode);
+}
+
 function scanPayloadDate(payload, boundary) {
   const dateKey = boundary === "start" ? "startDate" : "endDate";
   const direct = String(payload?.[dateKey] || "").trim();
@@ -121,7 +144,7 @@ function normalizeScanPayloadDates(payload) {
 
 const defaultState = {
   settings: {
-    initialAmount: 10000,
+    initialAmount: 1_000_000,
     startPeriod: defaultRange.startDate,
     endPeriod: defaultRange.endDate,
     rebalancingPeriod: "annually",
@@ -202,8 +225,18 @@ const dom = {
 
 function loadState() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const current = localStorage.getItem(STORAGE_KEY);
+    const migratingLegacy = current == null;
+    const parsed = JSON.parse(
+      migratingLegacy ? localStorage.getItem(LEGACY_STORAGE_KEY) : current,
+    );
     if (parsed?.settings && Array.isArray(parsed?.portfolios) && parsed.portfolios.length) {
+      if (migratingLegacy) {
+        // The v1 amount was entered and displayed as USD. Preserve portfolio
+        // definitions and preferences, but never silently reinterpret that
+        // number as TWD after the valuation-contract migration.
+        parsed.settings.initialAmount = defaultState.settings.initialAmount;
+      }
       parsed.settings.startPeriod = normalizeSavedDate(
         parsed.settings.startPeriod,
         "start",
@@ -212,6 +245,13 @@ function loadState() {
         parsed.settings.endPeriod,
         "end",
       );
+      const dateMode = resolveSavedBacktestDateMode(parsed.settings);
+      if (dateMode === "rolling") {
+        parsed.settings.startPeriod = defaultRange.startDate;
+        parsed.settings.endPeriod = defaultRange.endDate;
+      }
+      saveBacktestDateMode(dateMode);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
       return parsed;
     }
   } catch (error) {
@@ -310,9 +350,9 @@ function batchTimingText(count, elapsedSeconds, serverTiming) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("zh-TW", {
     style: "currency",
-    currency: "USD",
+    currency: "TWD",
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -577,6 +617,10 @@ function syncSettings() {
   };
   document.querySelector("#benchmark").value = state.settings.benchmark;
   saveState();
+}
+
+function markBacktestDatesCustom() {
+  saveBacktestDateMode("custom");
 }
 
 function buildBacktestPayload() {
@@ -884,7 +928,7 @@ function createScanJob(payload) {
     }
     : null;
   return {
-    version: 2,
+    version: 3,
     id: crypto.randomUUID(),
     status: "running",
     createdAt: new Date().toISOString(),
@@ -911,7 +955,7 @@ function loadScanJob() {
   try {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
     if (
-      job?.version === 2
+      job?.version === 3
       && Array.isArray(job?.payload?.tickers)
       && job.payload.tickers.length
       && Array.isArray(job.pending)
@@ -1464,6 +1508,8 @@ function bindEvents() {
   dom.portfolioList.addEventListener("input", handlePortfolioInput);
   dom.portfolioList.addEventListener("click", handlePortfolioClick);
   dom.backtestForm.addEventListener("submit", runBacktest);
+  document.querySelector("#start-period").addEventListener("input", markBacktestDatesCustom);
+  document.querySelector("#end-period").addEventListener("input", markBacktestDatesCustom);
   dom.scanForm.addEventListener("submit", runScan);
   document.querySelector("#run-screener").addEventListener("click", runScreener);
   document.querySelector("#add-portfolio").addEventListener("click", () => {

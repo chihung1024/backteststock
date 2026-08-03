@@ -3,9 +3,9 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260801.2";
+} from "./scan-score-formulas.js?v=20260803.2";
 
-const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const TABLE_SELECTOR = "#scan-table";
 const timingHistory = [];
 const rawResults = new Map();
@@ -74,6 +74,11 @@ const AUDIT_HEADERS = [
   "benchmark_available",
   "requested_start",
   "requested_end_exclusive",
+  "valuation_currency",
+  "twd_valuation_contract_version",
+  "calendar_policy",
+  "quote_currency",
+  "fx_audit",
   "return_basis",
   "return_price_column",
   "dividend_reinvestment_assumption",
@@ -98,9 +103,12 @@ const AUDIT_HEADERS = [
   "actions",
   "keepna",
   "price_fingerprint",
+  "native_price_fingerprint",
+  "fx_price_fingerprint",
   "aligned_price_fingerprint",
   "benchmark_price_fingerprint",
   "reproducibility",
+  "valuation_metadata",
   "note",
   "error",
 ];

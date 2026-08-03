@@ -1,5 +1,5 @@
-export const EXHAUSTIVE_ENGINE_VERSION = "exhaustive-band-v2-2026-08-02.1";
-export const MAX_EXHAUSTIVE_COMBINATIONS = 5_000_000;
+export const EXHAUSTIVE_ENGINE_VERSION = "exhaustive-band-v4-twd-2026-08-03.2";
+export { MAX_EXHAUSTIVE_COMBINATIONS } from "./exhaustive-retention.js?v=20260803.3";
 export const METRIC_KEYS = Object.freeze([
   "total_return",
   "cagr",
@@ -214,6 +214,8 @@ export function simulateExactPortfolio({
   bandRatio = 0.20,
   transactionCostBps = 0,
   executionDelayTradingDays = 1,
+  riskFreeRate = 0,
+  dailyRiskFreeRate: dailyRiskFreeRateOverride = null,
   collectEvents = false,
 }) {
   const k = indexes.length;
@@ -222,6 +224,19 @@ export function simulateExactPortfolio({
   const targetWeight = 1 / k;
   const { lower, upper } = relativeBandBounds(k, bandRatio);
   const costRate = Number(transactionCostBps) / 10_000;
+  let dailyRiskFreeRate;
+  if (dailyRiskFreeRateOverride == null) {
+    const annualRiskFreeRate = Number(riskFreeRate);
+    if (!Number.isFinite(annualRiskFreeRate) || annualRiskFreeRate <= -1) {
+      throw new Error("無風險利率必須是大於 -1 的有限數值。");
+    }
+    dailyRiskFreeRate = (1 + annualRiskFreeRate) ** (1 / TRADING_DAYS_PER_YEAR) - 1;
+  } else {
+    dailyRiskFreeRate = Number(dailyRiskFreeRateOverride);
+    if (!Number.isFinite(dailyRiskFreeRate) || dailyRiskFreeRate <= -1) {
+      throw new Error("每日無風險利率必須是大於 -1 的有限數值。");
+    }
+  }
   const delay = Math.max(0, Math.floor(Number(executionDelayTradingDays) || 0));
   const shares = new Float64Array(k);
   const preValues = new Float64Array(k);
@@ -341,7 +356,7 @@ export function simulateExactPortfolio({
     const benchmarkReturn = benchmarkPrices[position] / benchmarkPrices[position - 1] - 1;
     sum += portfolioReturn;
     sumSquares += portfolioReturn * portfolioReturn;
-    downsideSquares += Math.min(portfolioReturn, 0) ** 2;
+    downsideSquares += Math.min(portfolioReturn - dailyRiskFreeRate, 0) ** 2;
     benchmarkSum += benchmarkReturn;
     benchmarkSquares += benchmarkReturn * benchmarkReturn;
     crossSum += portfolioReturn * benchmarkReturn;
@@ -365,9 +380,14 @@ export function simulateExactPortfolio({
   const covariance = (
     crossSum - days * dailyMean * benchmarkMean
   ) / Math.max(days - 1, 1);
-  const beta = benchmarkVariance > EPSILON ? covariance / benchmarkVariance : 0;
-  const annualReturn = dailyMean * TRADING_DAYS_PER_YEAR;
-  const downsideDeviation = Math.sqrt((downsideSquares / days) * TRADING_DAYS_PER_YEAR);
+  const beta = benchmarkVariance > EPSILON
+    ? covariance / benchmarkVariance
+    : Number.NaN;
+  const excessMean = dailyMean - dailyRiskFreeRate;
+  const annualizedExcessReturn = excessMean * TRADING_DAYS_PER_YEAR;
+  const downsideDeviation = Math.sqrt(
+    (downsideSquares / days) * TRADING_DAYS_PER_YEAR,
+  );
   const years = Math.max(Number(elapsedYears) || days / TRADING_DAYS_PER_YEAR, 1 / 365.25);
   const totalReturn = previousNav - 1;
   const cagr = Math.pow(Math.max(previousNav, EPSILON), 1 / years) - 1;
@@ -378,9 +398,16 @@ export function simulateExactPortfolio({
     cagr,
     mdd,
     volatility: Math.sqrt(variance * TRADING_DAYS_PER_YEAR),
-    sortino_ratio: downsideDeviation > EPSILON ? annualReturn / downsideDeviation : 0,
+    sortino_ratio: downsideDeviation > EPSILON
+      ? annualizedExcessReturn / downsideDeviation
+      : Number.NaN,
     beta,
-    alpha: (dailyMean - beta * benchmarkMean) * TRADING_DAYS_PER_YEAR,
+    alpha: Number.isFinite(beta)
+      ? (
+        dailyMean
+        - (dailyRiskFreeRate + beta * (benchmarkMean - dailyRiskFreeRate))
+      ) * TRADING_DAYS_PER_YEAR
+      : Number.NaN,
     annualized_turnover_one_way: turnoverOneWay / years,
     rebalance_count: rebalanceCount,
     transaction_cost: totalCost,

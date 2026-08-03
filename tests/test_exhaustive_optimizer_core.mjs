@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  METRIC_KEYS,
   binomialBigInt,
   buildPeriodKeys,
   nextCombination,
@@ -54,8 +53,8 @@ test("score formulas preserve the four requested definitions", () => {
 test("dynamic-K exact band simulation executes on the next trading day", () => {
   const dates = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"];
   const prices = Array.from({ length: 7 }, () => Float64Array.from([100, 100, 100, 100]));
-  prices[0] = Float64Array.from([100, 200, 200, 200]);
-  const benchmark = Float64Array.from([100, 100, 100, 100]);
+  prices[0] = Float64Array.from([100, 200, 160, 180]);
+  const benchmark = Float64Array.from([100, 101, 99, 102]);
   const result = simulateExactPortfolio({
     prices,
     benchmarkPrices: benchmark,
@@ -72,7 +71,75 @@ test("dynamic-K exact band simulation executes on the next trading day", () => {
   assert.equal(result.events[0].signalPosition, 1);
   assert.equal(result.events[0].executionPosition, 2);
   assert.deepEqual(result.events[0].triggerIndexes, [0]);
-  for (const key of METRIC_KEYS) assert.ok(Number.isFinite(result[key]), key);
+  for (const key of [
+    "total_return",
+    "cagr",
+    "mdd",
+    "volatility",
+    "annualized_turnover_one_way",
+    "rebalance_count",
+    "transaction_cost",
+  ]) assert.ok(Number.isFinite(result[key]), key);
+});
+
+test("Sortino and alpha use the signed snapshot risk-free rate", () => {
+  const portfolio = [100, 98, 101, 99];
+  const benchmark = [100, 101, 99, 102];
+  const riskFreeRate = 0.10;
+  const result = simulateExactPortfolio({
+    prices: [Float64Array.from(portfolio)],
+    benchmarkPrices: Float64Array.from(benchmark),
+    periodKeys: buildPeriodKeys(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]),
+    indexes: Uint16Array.from([0]),
+    elapsedYears: 3 / 365.25,
+    rebalanceMode: "never",
+    riskFreeRate,
+  });
+  const returns = portfolio.slice(1).map((value, index) => value / portfolio[index] - 1);
+  const benchmarkReturns = benchmark.slice(1).map(
+    (value, index) => value / benchmark[index] - 1,
+  );
+  const dailyRiskFree = (1 + riskFreeRate) ** (1 / 252) - 1;
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const benchmarkMean = benchmarkReturns.reduce((sum, value) => sum + value, 0)
+    / benchmarkReturns.length;
+  const downside = returns.map((value) => Math.min(value - dailyRiskFree, 0));
+  const downsideDeviation = Math.sqrt(
+    downside.reduce((sum, value) => sum + (value ** 2), 0) / returns.length * 252,
+  );
+  const benchmarkVariance = benchmarkReturns.reduce(
+    (sum, value) => sum + ((value - benchmarkMean) ** 2),
+    0,
+  ) / (benchmarkReturns.length - 1);
+  const covariance = returns.reduce(
+    (sum, value, index) => sum
+      + ((value - mean) * (benchmarkReturns[index] - benchmarkMean)),
+    0,
+  ) / (returns.length - 1);
+  const expectedBeta = covariance / benchmarkVariance;
+  const expectedAlpha = (
+    mean - (dailyRiskFree + expectedBeta * (benchmarkMean - dailyRiskFree))
+  ) * 252;
+
+  assert.ok(Math.abs(
+    result.sortino_ratio - ((mean - dailyRiskFree) * 252 / downsideDeviation)
+  ) < 1e-12);
+  assert.ok(Math.abs(result.beta - expectedBeta) < 1e-12);
+  assert.ok(Math.abs(result.alpha - expectedAlpha) < 1e-12);
+});
+
+test("an undefined downside deviation remains unavailable instead of scoring as zero", () => {
+  const result = simulateExactPortfolio({
+    prices: [Float64Array.from([100, 101, 102])],
+    benchmarkPrices: Float64Array.from([100, 101, 100]),
+    periodKeys: buildPeriodKeys(["2024-01-02", "2024-01-03", "2024-01-04"]),
+    indexes: Uint16Array.from([0]),
+    elapsedYears: 2 / 365.25,
+    rebalanceMode: "never",
+  });
+
+  assert.ok(Number.isNaN(result.sortino_ratio));
+  assert.ok(Number.isNaN(result.optimized_score));
 });
 
 test("periodic mode rebalances at calendar boundaries", () => {

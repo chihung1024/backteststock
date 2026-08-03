@@ -1,4 +1,8 @@
-# Fixed-universe exhaustive portfolio backtest
+# Fixed-universe exhaustive portfolio backtest (v2 history)
+
+This document records the original packed-full-result implementation. The
+active migration moves large workloads to the 50M full-computation / compact
+retention design in [`EXHAUSTIVE_OPTIMIZER_V3.md`](EXHAUSTIVE_OPTIMIZER_V3.md).
 
 ## Research contract
 
@@ -33,6 +37,9 @@ Before execution the application:
 
 The browser then processes deterministic lexicographic combination ranges in Web Workers. Completed chunks and compact result arrays are saved in IndexedDB. A user may stop the job, preserve completed chunks, and resume later. Daily prices are not stored in a persistent server-side database.
 
-## Scale guardrails
+## Historical v2 scale guardrails
 
-The current safety limit is 5,000,000 exact combinations per job and 60 source tickers. Results are stored as packed combination indexes and Float64 metric arrays. Event histories are generated on demand for a selected portfolio rather than persisted for every combination.
+The v2 safety limit was 5,000,000 exact combinations per job and 60 source
+tickers. Results were stored as packed combination indexes and Float64 metric
+arrays. Event histories were generated on demand for a selected portfolio rather
+than persisted for every combination.
