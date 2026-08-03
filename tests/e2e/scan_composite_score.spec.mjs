@@ -186,7 +186,7 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
   await expect(formulaCell(zeroRow, formulas.drawdown)).toHaveText("#5 · 0.7071");
 
   await expect(tickerCells).toHaveText([
-    "SHORT （從 2024-03-27 開始）",
+    "SHORT（從 2024-03-27 開始）",
     "MSFT",
     "NVDA",
     "QUALITY",
@@ -197,7 +197,7 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
   await expect(stableHeader).toHaveText(`${formulas.stable.label} ▼`);
   await expect(stableHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
-    "SHORT （從 2024-03-27 開始）",
+    "SHORT（從 2024-03-27 開始）",
     "QUALITY",
     "NVDA",
     "MSFT",
@@ -212,14 +212,14 @@ test("compares and sorts three Sortino growth-beta formulas", async ({ page }) =
     "MSFT",
     "NVDA",
     "QUALITY",
-    "SHORT （從 2024-03-27 開始）",
+    "SHORT（從 2024-03-27 開始）",
   ]);
 
   await drawdownHeader.click();
   await expect(drawdownHeader).toHaveText(`${formulas.drawdown.label} ▼`);
   await expect(drawdownHeader).toHaveAttribute("aria-sort", "descending");
   await expect(tickerCells).toHaveText([
-    "SHORT （從 2024-03-27 開始）",
+    "SHORT（從 2024-03-27 開始）",
     "QUALITY",
     "NVDA",
     "MSFT",

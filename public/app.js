@@ -1,12 +1,12 @@
 import {
   METRIC_CACHE_MIGRATION_RELOAD_PENDING,
   METRIC_DEFINITION_VERSION,
-} from "./scan-score-formulas.js?v=20260803.3";
+} from "./scan-score-formulas.js?v=20260803.4";
 import {
   DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
-} from "./scan-coverage.js?v=20260803.1";
+} from "./scan-coverage.js?v=20260803.2";
 
 const STORAGE_KEY = "backteststock-state-v2";
 const LEGACY_STORAGE_KEY = "backteststock-state-v1";

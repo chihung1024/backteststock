@@ -33,7 +33,7 @@ import {
 import {
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
-} from "./scan-coverage.js?v=20260803.1";
+} from "./scan-coverage.js?v=20260803.2";
 
 const SCAN_JOB_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";

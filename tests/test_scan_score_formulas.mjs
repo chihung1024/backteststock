@@ -17,21 +17,20 @@ const FORMULA_KEYS = [
   "sortino_growth_beta_score",
   "sortino_growth_beta_quarter_score",
   "sortino_growth_beta_mdd_score",
-  "sortino_growth_beta_squared_mdd_score",
 ];
 
-test("four growth-beta formulas use raw unrounded metrics", () => {
+test("three growth-beta formulas use raw unrounded metrics", () => {
   const result = buildScoreMatrix(SAMPLE);
   const stable = scoreRecordFor(result, "AAA", "sortino_growth_beta_score");
   const growth = scoreRecordFor(result, "AAA", "sortino_growth_beta_quarter_score");
   const drawdown = scoreRecordFor(result, "AAA", "sortino_growth_beta_mdd_score");
-  const optimized = scoreRecordFor(
-    result,
-    "AAA",
-    "sortino_growth_beta_squared_mdd_score",
-  );
 
-  assert.equal(SCORE_FORMULAS.length, 4);
+  assert.equal(SCORE_FORMULAS.length, 3);
+  assert.deepEqual(SCORE_FORMULAS.map((formula) => formula.label), [
+    "穩健分數",
+    "成長分數",
+    "回撤控制分數",
+  ]);
   assert.equal(stable.status, "ok");
   assert.ok(Math.abs(stable.score - (2 * Math.sqrt(1.30 / 2.20))) < 1e-12);
   assert.equal(stable.rank, 1);
@@ -43,17 +42,13 @@ test("four growth-beta formulas use raw unrounded metrics", () => {
   assert.equal(drawdown.status, "ok");
   assert.ok(Math.abs(drawdown.score - (2 * Math.sqrt(1.30 / (2.20 * 1.20)))) < 1e-12);
   assert.equal(drawdown.rank, 1);
-
-  assert.equal(optimized.status, "ok");
-  assert.ok(
-    Math.abs(
-      optimized.score - (2 * Math.sqrt(1.30 / (Math.pow(2.20, 2) * 1.20))),
-    ) < 1e-12,
+  assert.equal(
+    scoreRecordFor(result, "AAA", "sortino_growth_beta_squared_mdd_score"),
+    null,
   );
-  assert.equal(optimized.rank, 1);
 });
 
-test("the four formulas can produce different cross-sectional ranks", () => {
+test("the three formulas can produce different cross-sectional ranks", () => {
   const result = buildScoreMatrix([
     { ticker: "A", sortino_ratio: 1.90, cagr: 0.04, beta: 1.17, mdd: -0.40 },
     { ticker: "B", sortino_ratio: 1.73, cagr: 0.06, beta: 0.15, mdd: -0.19 },
@@ -63,10 +58,6 @@ test("the four formulas can produce different cross-sectional ranks", () => {
   assert.equal(scoreRecordFor(result, "B", "sortino_growth_beta_score").rank, 1);
   assert.equal(scoreRecordFor(result, "C", "sortino_growth_beta_quarter_score").rank, 1);
   assert.equal(scoreRecordFor(result, "A", "sortino_growth_beta_mdd_score").rank, 2);
-  assert.equal(
-    scoreRecordFor(result, "B", "sortino_growth_beta_squared_mdd_score").rank,
-    1,
-  );
   assert.equal(
     scoreRecordFor(result, "C", "sortino_growth_beta_quarter_score").rankDeltaVsStable,
     -1,
@@ -99,16 +90,9 @@ test("zero MDD is valid while invalid CAGR or Beta domains remain unranked", () 
 
   const zeroStable = scoreRecordFor(result, "ZERO", "sortino_growth_beta_score");
   const zeroDrawdown = scoreRecordFor(result, "ZERO", "sortino_growth_beta_mdd_score");
-  const zeroOptimized = scoreRecordFor(
-    result,
-    "ZERO",
-    "sortino_growth_beta_squared_mdd_score",
-  );
   assert.equal(zeroStable.status, "ok");
   assert.equal(zeroDrawdown.status, "ok");
-  assert.equal(zeroOptimized.status, "ok");
   assert.equal(zeroStable.score, zeroDrawdown.score);
-  assert.ok(zeroOptimized.score < zeroDrawdown.score);
 
   for (const key of FORMULA_KEYS) {
     assert.equal(scoreRecordFor(result, "BAD_CAGR", key).status, "invalid_cagr_domain");
@@ -118,7 +102,7 @@ test("zero MDD is valid while invalid CAGR or Beta domains remain unranked", () 
   }
 });
 
-test("MDD is required for both drawdown-aware formulas", () => {
+test("MDD is required only for the drawdown-aware formula", () => {
   const result = buildScoreMatrix([
     { ticker: "MISS_MDD", sortino_ratio: 1.2, cagr: 0.20, beta: 1.1, mdd: null },
   ]);
@@ -133,10 +117,6 @@ test("MDD is required for both drawdown-aware formulas", () => {
   );
   assert.equal(
     scoreRecordFor(result, "MISS_MDD", "sortino_growth_beta_mdd_score").status,
-    "missing_metrics",
-  );
-  assert.equal(
-    scoreRecordFor(result, "MISS_MDD", "sortino_growth_beta_squared_mdd_score").status,
     "missing_metrics",
   );
 });

@@ -8,7 +8,7 @@ async function fulfillJson(route, body) {
   });
 }
 
-function scanRow(ticker, dataCoverage) {
+function scanRow(ticker, tradingDays) {
   return {
     ticker,
     status: "ok",
@@ -21,8 +21,8 @@ function scanRow(ticker, dataCoverage) {
     sortino_ratio: 1.1,
     beta: 1,
     alpha: 0.02,
-    data_coverage: dataCoverage,
-    trading_days: 252,
+    data_coverage: 1,
+    trading_days: tradingDays,
     data_start: "2025-01-02",
     data_end: "2025-12-31",
   };
@@ -33,9 +33,9 @@ test("manual scan choices become the exhaustive optimizer fixed source pool", as
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
   await page.route("**/api/scan", (route) => fulfillJson(route, [
-    scanRow("AAA", 1),
-    scanRow("BBB", 0.91),
-    scanRow("LOW", 0.89),
+    scanRow("AAA", 252),
+    scanRow("BBB", 230),
+    scanRow("LOW", 224),
   ]));
 
   await page.goto("/");
@@ -120,9 +120,9 @@ test("a matching but invalid manual handoff cannot inject a ticker outside the s
       },
       pending: [],
       results: [
-        { ticker: "AAA", status: "ok", retryable: false, data_coverage: 1 },
-        { ticker: "BBB", status: "ok", retryable: false, data_coverage: 1 },
-        { ticker: "CCC", status: "ok", retryable: false, data_coverage: 1 },
+        { ticker: "AAA", status: "ok", retryable: false, trading_days: 252 },
+        { ticker: "BBB", status: "ok", retryable: false, trading_days: 252 },
+        { ticker: "CCC", status: "ok", retryable: false, trading_days: 252 },
       ],
     }));
     localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
@@ -157,8 +157,8 @@ test("a matching handoff cannot reintroduce a ticker below its saved coverage th
       },
       pending: [],
       results: [
-        { ticker: "AAA", status: "ok", retryable: false, data_coverage: 1 },
-        { ticker: "LOW", status: "ok", retryable: false, data_coverage: 0.89 },
+        { ticker: "AAA", status: "ok", retryable: false, trading_days: 100 },
+        { ticker: "LOW", status: "ok", retryable: false, trading_days: 89 },
       ],
     }));
     localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
