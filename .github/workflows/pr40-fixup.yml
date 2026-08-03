@@ -1,0 +1,392 @@
+name: PR 40 Review Fixup
+
+on:
+  push:
+    branches: [feat/unified-performance-list-coverage]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fixes:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/unified-performance-list-coverage
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Apply reviewed fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd()
+          public = root / "public"
+
+          # Split score calculation into a pure module so coverage derivation can
+          # enrich sortable rows without importing the metric-cache reload side effect.
+          formula_path = public / "scan-score-formulas.js"
+          core_path = public / "scan-score-core.js"
+          formula_text = formula_path.read_text(encoding="utf-8")
+          marker = "export const SCORE_FORMULAS = Object.freeze(["
+          if marker in formula_text:
+              prefix, suffix = formula_text.split(marker, 1)
+              core_path.write_text(marker + suffix, encoding="utf-8")
+              formula_path.write_text(
+                  prefix.rstrip()
+                  + '\n\nexport * from "./scan-score-core.js?v=20260803.1";\n',
+                  encoding="utf-8",
+              )
+          elif not core_path.exists():
+              raise SystemExit("Unable to locate score formula split marker")
+
+          coverage_path = public / "scan-coverage.js"
+          coverage = coverage_path.read_text(encoding="utf-8")
+          core_import = '''import {
+            SCORE_FORMULAS,
+            buildScoreMatrix,
+            scoreRecordFor,
+          } from "./scan-score-core.js?v=20260803.1";
+
+          '''
+          if "./scan-score-core.js?v=20260803.1" not in coverage:
+              coverage = core_import + coverage
+
+          old_coverage_block = '''  const settled = settledSource.map((item) => ({
+            ...item,
+            benchmark_calendar_coverage: item?.benchmark_calendar_coverage ?? item?.data_coverage ?? null,
+            data_coverage: relativeScanCoverage(item, maximumTradingDays),
+            coverage_reference_trading_days: maximumTradingDays || null,
+            coverage_definition_version: SCAN_COVERAGE_DEFINITION_VERSION,
+          }));
+
+          return {'''
+          new_coverage_block = '''  const prepared = settledSource.map((item) => ({
+            ...item,
+            benchmark_calendar_coverage: item?.benchmark_calendar_coverage ?? item?.data_coverage ?? null,
+            data_coverage: relativeScanCoverage(item, maximumTradingDays),
+            coverage_reference_trading_days: maximumTradingDays || null,
+            coverage_definition_version: SCAN_COVERAGE_DEFINITION_VERSION,
+          }));
+
+          const scoreMatrix = buildScoreMatrix(prepared);
+          const settled = prepared.map((item) => {
+            const scored = { ...item };
+            for (const formula of SCORE_FORMULAS) {
+              const record = scoreRecordFor(scoreMatrix, item.ticker, formula.key);
+              scored[formula.key] = Number.isFinite(record?.score) ? record.score : null;
+              scored[formula.rankKey] = Number.isInteger(record?.rank) ? record.rank : null;
+              scored[formula.statusKey] = record?.status || "missing";
+            }
+            return scored;
+          });
+
+          return {'''
+          if old_coverage_block in coverage:
+              coverage = coverage.replace(old_coverage_block, new_coverage_block, 1)
+          elif "const scoreMatrix = buildScoreMatrix(prepared);" not in coverage:
+              raise SystemExit("Unable to patch coverage score enrichment")
+          coverage_path.write_text(coverage, encoding="utf-8")
+
+          # Keep every entry module on the same cache-busted dependency URL.
+          for path in public.glob("*.js"):
+              text = path.read_text(encoding="utf-8")
+              text = text.replace(
+                  "scan-coverage.js?v=20260803.1",
+                  "scan-coverage.js?v=20260803.2",
+              )
+              text = text.replace(
+                  "scan-score-formulas.js?v=20260803.3",
+                  "scan-score-formulas.js?v=20260803.4",
+              )
+              path.write_text(text, encoding="utf-8")
+
+          index_path = public / "index.html"
+          index_text = index_path.read_text(encoding="utf-8")
+          index_text = index_text.replace(
+              "/app.js?v=20260803.6",
+              "/app.js?v=20260803.7",
+          ).replace(
+              "/scan-composite-score.js?v=20260803.4",
+              "/scan-composite-score.js?v=20260803.5",
+          )
+          index_path.write_text(index_text, encoding="utf-8")
+
+          optimizer_html_path = public / "optimizer.html"
+          optimizer_html = optimizer_html_path.read_text(encoding="utf-8")
+          optimizer_html = optimizer_html.replace(
+              "/exhaustive-optimizer.js?v=20260803.4",
+              "/exhaustive-optimizer.js?v=20260803.5",
+          )
+          optimizer_html_path.write_text(optimizer_html, encoding="utf-8")
+
+          # The integrated portfolio launcher must not trust stale localStorage.
+          composite_path = public / "scan-composite-score.js"
+          composite = composite_path.read_text(encoding="utf-8")
+          old_selection = '''function selectedTickers() {
+            const selection = readJson(localStorage, MANUAL_SELECTION_KEY, null);
+            return Array.isArray(selection?.tickers)
+              ? selection.tickers.map(normalizeScoreTicker).filter(Boolean)
+              : [];
+          }'''
+          new_selection = '''function selectedTickers(stats = currentCoverageStats()) {
+            const job = readScanJob();
+            const selection = readJson(localStorage, MANUAL_SELECTION_KEY, null);
+            if (
+              !job?.id
+              || selection?.sourceJobId !== job.id
+              || !Array.isArray(selection?.tickers)
+            ) {
+              return [];
+            }
+
+            const benchmark = normalizeScoreTicker(job.payload?.benchmark);
+            const selectable = new Set(
+              stats.shown
+                .map((item) => normalizeScoreTicker(item?.ticker))
+                .filter((ticker) => ticker && ticker !== benchmark),
+            );
+            return [...new Set(
+              selection.tickers
+                .map(normalizeScoreTicker)
+                .filter((ticker) => selectable.has(ticker)),
+            )];
+          }'''
+          if old_selection in composite:
+              composite = composite.replace(old_selection, new_selection, 1)
+          elif "selection?.sourceJobId !== job.id" not in composite:
+              raise SystemExit("Unable to patch integrated selection validation")
+          composite_path.write_text(composite, encoding="utf-8")
+
+          # Add a unit-level guard for the score fields used by app.js sorting.
+          coverage_test_path = root / "tests/test_scan_coverage.mjs"
+          coverage_test = coverage_test_path.read_text(encoding="utf-8")
+          if "coverage derivation exposes sortable score fields" not in coverage_test:
+              coverage_test += '''
+
+test("coverage derivation exposes sortable score fields", () => {
+  const rows = [
+    {
+      ticker: "HIGH",
+      status: "ok",
+      trading_days: 1000,
+      sortino_ratio: 2,
+      cagr: 0.25,
+      beta: 0.8,
+      mdd: -0.15,
+    },
+    {
+      ticker: "LOW",
+      status: "ok",
+      trading_days: 950,
+      sortino_ratio: 1,
+      cagr: 0.10,
+      beta: 1.1,
+      mdd: -0.25,
+    },
+  ];
+
+  const derived = deriveScanCoverage(rows);
+  const high = derived.settled.find((item) => item.ticker === "HIGH");
+  const low = derived.settled.find((item) => item.ticker === "LOW");
+  assert.ok(Number.isFinite(high.sortino_growth_beta_score));
+  assert.ok(Number.isFinite(high.sortino_growth_beta_quarter_score));
+  assert.ok(Number.isFinite(high.sortino_growth_beta_mdd_score));
+  assert.ok(high.sortino_growth_beta_score > low.sortino_growth_beta_score);
+  assert.equal(high.sortino_growth_beta_rank, 1);
+  assert.equal(low.sortino_growth_beta_rank, 2);
+});
+'''
+          coverage_test_path.write_text(coverage_test, encoding="utf-8")
+
+          # Add browser guards for stale and below-threshold manual selections.
+          integrated_test_path = root / "tests/e2e/integrated_performance_list.spec.mjs"
+          integrated_test = integrated_test_path.read_text(encoding="utf-8")
+          if "ignores a stale optimizer selection from another scan job" not in integrated_test:
+              integrated_test += '''
+
+test("integrated backtest ignores a stale optimizer selection from another scan job", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "current-scan",
+      status: "completed",
+      payload: {
+        tickers: ["AAA"],
+        benchmark: "SPY",
+        startDate: "2022-01-01",
+        endDate: "2025-12-31",
+      },
+      pending: [],
+      results: [{
+        ticker: "AAA",
+        status: "ok",
+        retryable: false,
+        trading_days: 1000,
+        metric_definition_version: "2026-08-01.2",
+      }],
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "old-scan",
+      coverageThresholdPercent: 90,
+      tickers: ["AAA"],
+    }));
+  });
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+
+  await page.goto("/");
+  await expect(page.locator("#scanner-panel")).toBeVisible();
+  await expect(page.locator("#open-integrated-backtest")).toBeDisabled();
+});
+
+test("integrated backtest rejects a saved ticker below the current coverage threshold", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "current-scan",
+      status: "completed",
+      payload: {
+        tickers: ["AAA", "LOW"],
+        benchmark: "SPY",
+        startDate: "2022-01-01",
+        endDate: "2025-12-31",
+      },
+      pending: [],
+      results: [
+        {
+          ticker: "AAA",
+          status: "ok",
+          retryable: false,
+          trading_days: 1000,
+          metric_definition_version: "2026-08-01.2",
+        },
+        {
+          ticker: "LOW",
+          status: "ok",
+          retryable: false,
+          trading_days: 800,
+          metric_definition_version: "2026-08-01.2",
+        },
+      ],
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "current-scan",
+      coverageThresholdPercent: 90,
+      tickers: ["LOW"],
+    }));
+  });
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+
+  await page.goto("/");
+  await expect(page.locator("#scanner-panel")).toBeVisible();
+  await expect(page.locator("#open-integrated-backtest")).toBeDisabled();
+});
+'''
+          integrated_test_path.write_text(integrated_test, encoding="utf-8")
+
+          # Make post-merge backup discovery work for merge, squash and rebase merges.
+          release_path = root / ".github/workflows/release-backups.yml"
+          release = release_path.read_text(encoding="utf-8")
+          old_release_block = '''          pre_sha="$(git rev-parse "${POST_SHA}^1")"
+          pre_tag="backup-pre-pr${PR_NUMBER}-${pre_sha:0:12}"
+          post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
+
+          gh release view "$pre_tag" >/dev/null
+          git fetch --force origin "refs/tags/$pre_tag:refs/tags/$pre_tag"
+          resolved_pre_sha="$(git rev-list -n 1 "$pre_tag")"
+          if [ "$resolved_pre_sha" != "$pre_sha" ]; then
+            echo "Pre-merge backup tag points to $resolved_pre_sha instead of $pre_sha." >&2
+            exit 1
+          fi
+'''
+          new_release_block = '''          mapfile -t pre_tags < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \\
+              --jq '.[].tag_name' \\
+              | grep -E "^backup-pre-pr${PR_NUMBER}-[0-9a-f]{12}$" \\
+              || true
+          )
+
+          pre_tag=""
+          pre_sha=""
+          best_distance=""
+          for candidate_tag in "${pre_tags[@]}"; do
+            git fetch --force origin "refs/tags/${candidate_tag}:refs/tags/${candidate_tag}"
+            candidate_sha="$(git rev-list -n 1 "$candidate_tag")"
+            if ! git merge-base --is-ancestor "$candidate_sha" "$POST_SHA"; then
+              continue
+            fi
+            distance="$(git rev-list --count "${candidate_sha}..${POST_SHA}")"
+            if [ -z "$best_distance" ] || [ "$distance" -lt "$best_distance" ]; then
+              pre_tag="$candidate_tag"
+              pre_sha="$candidate_sha"
+              best_distance="$distance"
+            fi
+          done
+
+          if [ -z "$pre_tag" ]; then
+            echo "No verified pre-merge backup release is an ancestor of $POST_SHA." >&2
+            exit 1
+          fi
+          expected_pre_tag="backup-pre-pr${PR_NUMBER}-${pre_sha:0:12}"
+          if [ "$pre_tag" != "$expected_pre_tag" ]; then
+            echo "Pre-merge backup tag $pre_tag does not match target $pre_sha." >&2
+            exit 1
+          fi
+          gh release view "$pre_tag" >/dev/null
+          resolved_pre_sha="$(git rev-list -n 1 "$pre_tag")"
+          if [ "$resolved_pre_sha" != "$pre_sha" ]; then
+            echo "Pre-merge backup tag points to $resolved_pre_sha instead of $pre_sha." >&2
+            exit 1
+          fi
+
+          post_tag="backup-post-pr${PR_NUMBER}-${POST_SHA:0:12}"
+'''
+          if old_release_block in release:
+              release = release.replace(old_release_block, new_release_block, 1)
+          elif "No verified pre-merge backup release is an ancestor" not in release:
+              raise SystemExit("Unable to patch release backup discovery")
+          release_path.write_text(release, encoding="utf-8")
+
+          # Fail the fixup if mixed cache-version imports remain.
+          remaining = []
+          for path in public.rglob("*"):
+              if path.suffix not in {".js", ".html"}:
+                  continue
+              text = path.read_text(encoding="utf-8")
+              if "scan-coverage.js?v=20260803.1" in text:
+                  remaining.append(f"{path}: old coverage URL")
+              if "scan-score-formulas.js?v=20260803.3" in text:
+                  remaining.append(f"{path}: old score URL")
+          if remaining:
+              raise SystemExit("\n".join(remaining))
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate review fixes
+        run: |
+          npm run check
+          npm run test:score
+          git diff --check
+      - name: Commit review fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public tests .github/workflows/release-backups.yml
+          if git diff --cached --quiet; then
+            echo "No review fixes to commit."
+            exit 0
+          fi
+          git commit -m "fix: address PR 40 CI and review findings"
+          git push origin HEAD:feat/unified-performance-list-coverage
