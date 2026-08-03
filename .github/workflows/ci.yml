@@ -27,6 +27,7 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'feat/unified-performance-list-coverage' }}
         run: |
           python scripts/pr40_fixup.py
+          python scripts/pr40_followup.py
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
