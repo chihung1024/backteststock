@@ -1,4 +1,6 @@
-# 候選池投資組合最佳化器 MVP
+# 候選池投資組合最佳化器 MVP（歷史／已停用）
+
+> 本文件記錄舊的訓練期／樣本外 MVP。該流程已不再部署或對外提供；目前產品使用完整期間、固定來源池、TWD 估值的全量最佳化器，請見 [`OPTIMIZER_IMPLEMENTATION_STATUS.md`](OPTIMIZER_IMPLEMENTATION_STATUS.md)。
 
 ## 固定研究契約
 

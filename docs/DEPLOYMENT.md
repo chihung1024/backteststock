@@ -55,7 +55,9 @@ After CI passes and the pull request is merged, manually run the `Deploy Cloudfl
 - Resolves or creates `backteststock-universe`.
 - Applies `migrations/*.sql` remotely.
 - `public/` as Cloudflare Static Assets.
-- `worker/index.js` as the API proxy and security layer.
+- `worker/router.js` as the API entrypoint: it gives the exhaustive-preflight
+  route its larger signed-snapshot boundary, then delegates all other API
+  proxy and security handling to `worker/index.js`.
 
 Then run `Update Universe Membership` once with `dry_run=false`. Confirm all four sources are published
 in the uploaded `universe-update-report` artifact. The same workflow runs every Monday and Thursday.
@@ -72,6 +74,7 @@ GET /api/health
 GET /api/v2/universes
 POST /api/backtest with one 100% SPY portfolio
 POST /api/scan with SPY and QQQ
+POST /api/optimizer/exhaustive/prepare with a small fixed source pool
 POST /api/v2/screener with one available Universe and limit null
 ```
 
@@ -89,6 +92,8 @@ Confirm:
   the final table.
 - A simulated partial `/api/scan` response requeues only the missing ticker; a saved in-progress job
   resumes after reload without requesting completed tickers again.
+- The exhaustive-preflight response summary reports `valuationCurrency: "TWD"`,
+  a TWD valuation-contract version, and no silently omitted source ticker.
 
 ## Rollback
 

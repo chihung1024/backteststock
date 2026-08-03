@@ -102,6 +102,46 @@ export async function listChunks(jobId) {
   return [...results].sort((left, right) => left.chunkIndex - right.chunkIndex);
 }
 
+/**
+ * Store only the post-selection rows for the 50M engine.  `ranks` identify the
+ * original combination; holdings are reconstructed with combinatorial unrank
+ * when a row is viewed, so they are not duplicated in IndexedDB.
+ */
+export async function saveRetainedChunk(jobId, chunk) {
+  const db = await openOptimizerDb();
+  const transaction = db.transaction(CHUNK_STORE, "readwrite");
+  transaction.objectStore(CHUNK_STORE).put({
+    id: `${jobId}:retained:${chunk.chunkIndex}`,
+    jobId,
+    chunkIndex: chunk.chunkIndex,
+    chunkKind: "retained",
+    rowStart: chunk.rowStart,
+    count: chunk.count,
+    ranks: chunk.ranks,
+    reasons: chunk.reasons,
+    metricCount: chunk.metricCount,
+    metrics: chunk.metrics,
+    savedAt: new Date().toISOString(),
+  });
+  await transactionPromise(transaction);
+  db.close();
+}
+
+export async function getRetainedChunk(jobId, chunkIndex) {
+  const db = await openOptimizerDb();
+  const transaction = db.transaction(CHUNK_STORE, "readonly");
+  const result = await requestPromise(
+    transaction.objectStore(CHUNK_STORE).get(`${jobId}:retained:${chunkIndex}`),
+  );
+  db.close();
+  return result || null;
+}
+
+export async function listRetainedChunks(jobId) {
+  const chunks = await listChunks(jobId);
+  return chunks.filter((chunk) => chunk.chunkKind === "retained");
+}
+
 export async function deleteJob(jobId) {
   const db = await openOptimizerDb();
   const transaction = db.transaction([JOB_STORE, CHUNK_STORE], "readwrite");

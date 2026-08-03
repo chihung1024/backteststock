@@ -3,10 +3,10 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260801.2";
+} from "./scan-score-formulas.js?v=20260803.2";
 
 const TABLE_SELECTOR = "#scan-table";
-const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const BASELINE_FORMULA_KEY = SCORE_FORMULAS[0].key;
 const FORMULA_KEYS = new Set(SCORE_FORMULAS.map((formula) => formula.key));
 const BASE_EXPORT_HEADERS = [
@@ -23,6 +23,7 @@ const BASE_EXPORT_HEADERS = [
   "trading_days",
   "data_start",
   "data_end",
+  "valuation_currency",
   "note",
   "error",
 ];

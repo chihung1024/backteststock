@@ -9,7 +9,9 @@ self.addEventListener("message", (event) => {
   const message = event.data || {};
   if (message.type !== "sort") return;
   try {
-    const values = new Float64Array(message.values);
+    const values = message.valueType === "float32"
+      ? new Float32Array(message.values)
+      : new Float64Array(message.values);
     const ids = message.ids ? new Uint32Array(message.ids) : null;
     const direction = message.direction === "asc" ? "asc" : "desc";
     const absolute = Boolean(message.absolute);

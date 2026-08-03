@@ -1,7 +1,7 @@
-import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260801.2";
+import { METRIC_DEFINITION_VERSION } from "./scan-score-formulas.js?v=20260803.2";
 
-const STORAGE_KEY = "backteststock-state-v1";
-const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v2";
+const STORAGE_KEY = "backteststock-state-v2";
+const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
   ["cagr", "年化報酬率", "percent", "positive"],
@@ -121,7 +121,7 @@ function normalizeScanPayloadDates(payload) {
 
 const defaultState = {
   settings: {
-    initialAmount: 10000,
+    initialAmount: 1_000_000,
     startPeriod: defaultRange.startDate,
     endPeriod: defaultRange.endDate,
     rebalancingPeriod: "annually",
@@ -310,9 +310,9 @@ function batchTimingText(count, elapsedSeconds, serverTiming) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("zh-TW", {
     style: "currency",
-    currency: "USD",
+    currency: "TWD",
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -884,7 +884,7 @@ function createScanJob(payload) {
     }
     : null;
   return {
-    version: 2,
+    version: 3,
     id: crypto.randomUUID(),
     status: "running",
     createdAt: new Date().toISOString(),
@@ -911,7 +911,7 @@ function loadScanJob() {
   try {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
     if (
-      job?.version === 2
+      job?.version === 3
       && Array.isArray(job?.payload?.tickers)
       && job.payload.tickers.length
       && Array.isArray(job.pending)

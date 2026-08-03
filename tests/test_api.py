@@ -7,8 +7,17 @@ from api import index as api
 
 @pytest.fixture()
 def client():
+    # `api.index_v2` intentionally replaces this shared Flask app's production
+    # view at import time.  These are historical legacy-module tests, so keep
+    # their target explicit instead of letting test collection order decide
+    # whether they accidentally invoke the new TWD service.
+    previous_handler = api.app.view_functions["backtest_handler"]
+    api.app.view_functions["backtest_handler"] = api.backtest_handler
     api.app.config.update(TESTING=True)
-    return api.app.test_client()
+    try:
+        yield api.app.test_client()
+    finally:
+        api.app.view_functions["backtest_handler"] = previous_handler
 
 
 def business_prices(columns=("AAA", "SPY"), periods=260):

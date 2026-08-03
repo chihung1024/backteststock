@@ -1,5 +1,5 @@
-export const EXHAUSTIVE_ENGINE_VERSION = "exhaustive-band-v2-2026-08-02.1";
-export const MAX_EXHAUSTIVE_COMBINATIONS = 5_000_000;
+export const EXHAUSTIVE_ENGINE_VERSION = "exhaustive-band-v4-twd-2026-08-03.1";
+export { MAX_EXHAUSTIVE_COMBINATIONS } from "./exhaustive-retention.js?v=20260803.2";
 export const METRIC_KEYS = Object.freeze([
   "total_return",
   "cagr",

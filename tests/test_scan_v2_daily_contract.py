@@ -1,16 +1,34 @@
+from datetime import date
+
 from api import scan_v2
+from apps.api.app.data.history_service import PartialTWDHistories
+from apps.api.app.scan_service import TWDScanBatch
+
+
+class FakeTWDScanService:
+    def __init__(self):
+        self.calls = []
+
+    def run(self, tickers, **kwargs):
+        values = list(tickers)
+        self.calls.append((values, kwargs))
+        return TWDScanBatch(
+            requested=tuple([kwargs["benchmark"], *values]),
+            results=[{"ticker": ticker, "status": "failed", "retryable": False} for ticker in values],
+            benchmark_symbol=kwargs["benchmark"],
+            benchmark_available=False,
+            benchmark_failure=None,
+            histories=PartialTWDHistories(
+                requested=tuple([kwargs["benchmark"], *values]),
+                histories={},
+                failures={},
+            ),
+        )
 
 
 def test_scan_v2_accepts_exact_daily_dates(monkeypatch):
-    captured = {}
-
-    def fake_download(tickers, start_date, end_date):
-        captured["tickers"] = list(tickers)
-        captured["start"] = start_date
-        captured["end"] = end_date
-        return {}, list(tickers)
-
-    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
+    fake_service = FakeTWDScanService()
+    monkeypatch.setattr(scan_v2, "twd_scan_service", fake_service)
     response = scan_v2.app.test_client().post(
         "/api/scan",
         json={
@@ -22,23 +40,23 @@ def test_scan_v2_accepts_exact_daily_dates(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured == {
-        "tickers": ["SPY", "AAPL"],
-        "start": "2024-01-02",
-        "end": "2024-03-22",
-    }
+    assert fake_service.calls == [
+        (
+            ["AAPL"],
+            {
+                "start": date(2024, 1, 2),
+                "end": date(2024, 3, 21),
+                "benchmark": "SPY",
+                "risk_free_rate": scan_v2.legacy.RISK_FREE_RATE,
+            },
+        )
+    ]
     assert response.get_json()[0]["ticker"] == "AAPL"
 
 
 def test_scan_v2_keeps_legacy_year_month_contract(monkeypatch):
-    captured = {}
-
-    def fake_download(tickers, start_date, end_date):
-        captured["start"] = start_date
-        captured["end"] = end_date
-        return {}, list(tickers)
-
-    monkeypatch.setattr(scan_v2, "download_prices_finitely", fake_download)
+    fake_service = FakeTWDScanService()
+    monkeypatch.setattr(scan_v2, "twd_scan_service", fake_service)
     response = scan_v2.app.test_client().post(
         "/api/scan",
         json={
@@ -52,4 +70,5 @@ def test_scan_v2_keeps_legacy_year_month_contract(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured == {"start": "2024-01-01", "end": "2024-04-01"}
+    assert fake_service.calls[0][1]["start"] == date(2024, 1, 1)
+    assert fake_service.calls[0][1]["end"] == date(2024, 3, 31)

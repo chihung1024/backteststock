@@ -1,6 +1,6 @@
 # Backtest Stock
 
-重新整理後的美股投資組合回測與個股掃描工具。
+以 TWD 統一估值的多市場投資組合回測、個股掃描與全量最佳化工具。
 
 ## 架構
 
@@ -21,12 +21,13 @@ Browser
 - **Cloudflare Worker**：提供靜態資產，並將 `/api/*` 安全地代理到 Python 後端。
 - **Cloudflare D1**：保存 Universe 定義、版本化成分股、來源日期、checksum 與目前有效版本。
 - **GitHub Actions**：只負責測試與部署，不是應用程式執行環境。
-- **Vercel Python Function**：第一階段保留 Flask、pandas、NumPy、yfinance。後續可比較 Cloudflare Container 或預處理資料後的 Worker-native 引擎。
+- **Vercel Python Function**：目前保留 Flask、pandas、NumPy、yfinance 作為相容外層；`apps/api/app/` 提供共用 TWD 資料、掃描、投組與全量快照核心，未來可直接接至 FastAPI。
 
 ## 目錄
 
 ```text
 api/                         Python API
+apps/api/app/                共用 TWD 估值與回測核心
 public/                      靜態前端
 worker/                      Cloudflare Worker
 tests/                       Python 回歸測試
@@ -46,7 +47,7 @@ vercel.json                  Python API 設定
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
-flask --app api.index run --port 5000
+flask --app api.index_v2 run --port 5000
 ```
 
 ### Cloudflare 前端與代理
@@ -68,7 +69,7 @@ npx wrangler d1 migrations apply backteststock-universe --local
 
 ```bash
 python -m pytest -q
-ruff check api scripts tests
+ruff check api apps scripts tests
 npm run check
 npm run test:worker
 npx playwright install chromium
@@ -88,6 +89,7 @@ Playwright 測試會以真實瀏覽器驗證前端初始化、Universe 預篩選
 - 新版本完整寫入並驗證後才切換 `universe_current`；來源或內容驗證失敗時，舊版本繼續服務。
 - 預篩選預設將所有通過條件的股票納入回測；需要縮小範圍時，可手動輸入正整數上限，且不會靜默截斷。
 - 手動股票清單沒有整批 100 檔限制；瀏覽器優先以每批 100 檔循序執行，可處理完整 Russell 2000 代理池。
+- 所有個股、投組、基準與全量最佳化快照均以「Yahoo 還原股價 × 每日對 TWD 匯率」計價；FX-only 日保留匯率趨勢，且不會用未來匯率回填。
 - 行情以多股票批次優先取得，並逐檔驗證及逐檔快取；HTTP 成功但缺少個別股票時，後端批次補抓缺漏，瀏覽器最後只重新排隊仍缺漏的股票，不會把不完整批次當成完成。
 - 每個掃描工作在瀏覽器持久保存成功結果與未完成佇列，完成結果也保留到下一次掃描；暫時性失敗自動退避重試，重整頁面後只接續未完成股票。
 - 結果區在執行中與完成時都明列成功、失敗、未完成數量，並支援大量結果分頁。
@@ -131,5 +133,5 @@ GitHub Actions secrets：
 
 - 不提供任何會輸出環境變數的 debug endpoint。
 - 不將 Cloudflare、Vercel 或資料來源 token 寫進 repository。
-- API 有輸入大小、股票數量、日期與權重驗證。
+- API 有輸入大小、日期與權重驗證；全量最佳化以 5,000 萬組組合與實際快照容量為安全邊界，不另設 60 檔來源清單上限。
 - 目前資料來源適合研究與教育用途，不構成投資建議。

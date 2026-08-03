@@ -16,20 +16,29 @@ from flask import Blueprint, Flask, jsonify
 
 from api import index as legacy
 from api import market_data
-from api.corporate_actions import CORPORATE_ACTION_POLICY_VERSION, audit_from_series
+from api.corporate_actions import CORPORATE_ACTION_POLICY_VERSION
 from api.metrics import DATA_SOURCE_SETTINGS, METRIC_DEFINITION_VERSION, series_fingerprint
+from apps.api.app.backtest_service import (
+    TWD_PORTFOLIO_CALENDAR_POLICY,
+    align_twd_price_frame,
+)
+from apps.api.app.data.history_service import TWDHistoryService, normalize_symbol
+from apps.api.app.data.twd_valuation import (
+    TWD_VALUATION_CONTRACT_VERSION,
+    VALUATION_CURRENCY,
+)
 
 exhaustive_blueprint = Blueprint("exhaustive_optimizer", __name__)
 app = Flask(__name__)
 
-EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-2026-08-02.1"
+EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-03.1"
 EXHAUSTIVE_SNAPSHOT_FORMAT = "exhaustive-optimizer-snapshot-json-gzip-v1"
 EXHAUSTIVE_REBALANCE_ENGINE = "browser-exact-dynamic-k-v1"
 MIN_SOURCE_TICKERS = 2
-MAX_SOURCE_TICKERS = 60
 MINIMUM_PERIOD_COVERAGE = 0.98
 MAX_SNAPSHOT_COMPRESSED_BYTES = 5 * 1024 * 1024 // 2
 MAX_SNAPSHOT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
+twd_history_service = TWDHistoryService()
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -84,43 +93,91 @@ def _download_full_period_prices(
     end_text: str,
     benchmark: str,
 ):
-    prices, failures = market_data.download_data_reliably(
+    """Build a signed, full-period TWD snapshot from audited source histories."""
+
+    start = pd.Timestamp(start_text).date()
+    end = (pd.Timestamp(end_text) - pd.Timedelta(days=1)).date()
+    histories = twd_history_service.histories_partial(
         tickers,
-        start_text,
-        end_text,
-        attempts=legacy.MARKET_DATA_ATTEMPTS,
-        backoff_seconds=legacy.MARKET_DATA_BACKOFF_SECONDS,
-        timeout_seconds=legacy.MARKET_DATA_TIMEOUT_SECONDS,
-        download_threads=legacy.MARKET_DATA_DOWNLOAD_THREADS,
-        batch_size=legacy.MARKET_DATA_BATCH_SIZE,
+        start,
+        end,
     )
     failed = [
         ticker
         for ticker in tickers
-        if ticker in failures
-        or ticker not in prices.columns
-        or prices[ticker].dropna().empty
+        if ticker not in histories.histories
     ]
     if failed:
-        raise legacy.DataSourceError(
-            "行情資料尚未完整取得：" + ", ".join(sorted(failed))
+        details = "; ".join(
+            f"{ticker}: {histories.failures[ticker].stage} - "
+            f"{histories.failures[ticker].detail}"
+            for ticker in failed
+            if ticker in histories.failures
         )
-    reference_index = pd.DatetimeIndex(prices[benchmark].dropna().index)
+        raise legacy.DataSourceError(
+            "行情資料尚未完整取得，不會靜默移除來源股票："
+            + ", ".join(sorted(failed))
+            + (f"；{details}" if details else "")
+        )
+
+    reference_index = pd.DatetimeIndex([])
+    for ticker in tickers:
+        reference_index = reference_index.union(
+            histories.histories[ticker].adjusted_close_twd.index
+        )
+    reference_index = reference_index.sort_values().unique()
     if len(reference_index) < 60:
         raise legacy.ValidationError("比較基準交易日不足 60 日。")
     availability_masks = {
-        ticker: prices[ticker].reindex(reference_index).notna().to_numpy(dtype=bool)
+        ticker: _availability_mask(
+            histories.histories[ticker].adjusted_close_twd,
+            reference_index,
+        )
         for ticker in tickers
     }
-    common = prices[tickers].reindex(reference_index).dropna().astype(float)
+    common = align_twd_price_frame(histories.histories, tickers)
     if len(common) < 60:
         raise legacy.ValidationError("沒有足夠共同交易日建立全量回測快照。")
-    audits = dict(prices.attrs.get("corporate_action_audits", {}))
-    for ticker in tickers:
-        audits.setdefault(ticker, audit_from_series(prices[ticker]))
+    audits = {
+        ticker: histories.histories[ticker].corporate_action_audit or {}
+        for ticker in tickers
+    }
     common.attrs["reference_index"] = reference_index
     common.attrs["availability_masks"] = availability_masks
+    common.attrs["fx_audits"] = {
+        ticker: histories.histories[ticker].fx_audit for ticker in tickers
+    }
+    common.attrs["native_price_fingerprints"] = {
+        ticker: series_fingerprint(histories.histories[ticker].native_adjusted_close)
+        for ticker in tickers
+    }
+    common.attrs["fx_price_fingerprints"] = {
+        ticker: series_fingerprint(histories.histories[ticker].fx_to_twd)
+        for ticker in tickers
+    }
+    common.attrs["valuation_currency"] = VALUATION_CURRENCY
+    common.attrs["twd_valuation_contract_version"] = TWD_VALUATION_CONTRACT_VERSION
     return common, audits
+
+
+def _availability_mask(levels: pd.Series, reference_index: pd.DatetimeIndex) -> np.ndarray:
+    """Mark each price as available after its first and before its last observation.
+
+    Non-trading days in the global TWD union are deliberately not treated as a
+    missing quote: their prior adjusted level is the valid valuation basis.  A
+    late listing or early delisting remains visible to the strict full-period
+    audit through the first/last true positions in this mask.
+    """
+
+    observed = pd.DatetimeIndex(levels.index).intersection(reference_index)
+    mask = np.zeros(len(reference_index), dtype=bool)
+    if observed.empty:
+        return mask
+    first = reference_index.get_indexer([observed[0]])[0]
+    last = reference_index.get_indexer([observed[-1]])[0]
+    if first >= 0 and last >= first:
+        mask[first : last + 1] = True
+    return mask
 
 
 def _strict_full_period_coverage(
@@ -209,13 +266,15 @@ def prepare_exhaustive_optimizer():
         if not isinstance(raw_tickers, list):
             raise legacy.ValidationError("來源股票必須為股票代碼列表。")
         source_tickers = legacy.deduplicate(
-            legacy.normalize_ticker(value) for value in raw_tickers
+            normalize_symbol(legacy.normalize_ticker(value)) for value in raw_tickers
         )
-        if not MIN_SOURCE_TICKERS <= len(source_tickers) <= MAX_SOURCE_TICKERS:
+        if len(source_tickers) < MIN_SOURCE_TICKERS:
             raise legacy.ValidationError(
-                f"來源股票必須包含 {MIN_SOURCE_TICKERS}～{MAX_SOURCE_TICKERS} 檔不重複股票。"
+                f"來源股票至少需要 {MIN_SOURCE_TICKERS} 檔不重複股票。"
             )
-        benchmark = legacy.normalize_ticker(data.get("benchmark") or "SPY")
+        benchmark = normalize_symbol(
+            legacy.normalize_ticker(data.get("benchmark") or "SPY")
+        )
         if benchmark in source_tickers:
             raise legacy.ValidationError("比較基準不可同時列入來源股票池。")
 
@@ -249,6 +308,8 @@ def prepare_exhaustive_optimizer():
             "rebalanceEngineVersion": EXHAUSTIVE_REBALANCE_ENGINE,
             "metricDefinitionVersion": METRIC_DEFINITION_VERSION,
             "marketDataContractVersion": market_data.MARKET_DATA_CONTRACT_VERSION,
+            "valuationCurrency": VALUATION_CURRENCY,
+            "twdValuationContractVersion": TWD_VALUATION_CONTRACT_VERSION,
             "corporateActionPolicyVersion": CORPORATE_ACTION_POLICY_VERSION,
             "dataSourceSettings": dict(DATA_SOURCE_SETTINGS),
             "candidateTickers": source_tickers,
@@ -264,10 +325,17 @@ def prepare_exhaustive_optimizer():
             ).strftime("%Y-%m-%d"),
             "actualStart": common.index[0].strftime("%Y-%m-%d"),
             "actualEnd": common.index[-1].strftime("%Y-%m-%d"),
-            "commonCalendarPolicy": "global_complete_case_source_pool_and_benchmark",
+            "commonCalendarPolicy": TWD_PORTFOLIO_CALENDAR_POLICY,
             "minimumPeriodCoverage": MINIMUM_PERIOD_COVERAGE,
             "dataCoverageAudit": coverage,
             "corporateActionAudits": audits,
+            "fxAudits": dict(common.attrs.get("fx_audits", {})),
+            "nativePriceFingerprints": dict(
+                common.attrs.get("native_price_fingerprints", {})
+            ),
+            "fxPriceFingerprints": dict(
+                common.attrs.get("fx_price_fingerprints", {})
+            ),
             "priceFingerprints": {
                 ticker: series_fingerprint(common[ticker]) for ticker in required
             },
@@ -292,12 +360,16 @@ def prepare_exhaustive_optimizer():
                     "actualStart": snapshot["actualStart"],
                     "actualEnd": snapshot["actualEnd"],
                     "priceFingerprints": snapshot["priceFingerprints"],
+                    "nativePriceFingerprints": snapshot["nativePriceFingerprints"],
+                    "fxPriceFingerprints": snapshot["fxPriceFingerprints"],
                     "corporateActionStatus": {
                         ticker: audits[ticker].get("status") for ticker in required
                     },
                     "dataCoverageAudit": coverage,
                     "optimizerAlgorithmVersion": EXHAUSTIVE_OPTIMIZER_VERSION,
                     "rebalanceEngineVersion": EXHAUSTIVE_REBALANCE_ENGINE,
+                    "valuationCurrency": VALUATION_CURRENCY,
+                    "twdValuationContractVersion": TWD_VALUATION_CONTRACT_VERSION,
                     "persistentDailyPriceDatabase": False,
                 },
             }
@@ -319,4 +391,8 @@ def add_exhaustive_headers(response):
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Exhaustive-Optimizer-Version", EXHAUSTIVE_OPTIMIZER_VERSION)
+    response.headers.setdefault("X-Valuation-Currency", VALUATION_CURRENCY)
+    response.headers.setdefault(
+        "X-TWD-Valuation-Contract-Version", TWD_VALUATION_CONTRACT_VERSION
+    )
     return response

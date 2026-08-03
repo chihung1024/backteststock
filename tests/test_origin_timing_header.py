@@ -1,19 +1,32 @@
-import pandas as pd
-
 from api import scan_v2
+from apps.api.app.data.history_service import PartialTWDHistories
+from apps.api.app.scan_service import TWDScanBatch
 
 
 def test_scan_origin_emits_stable_timing_alias(monkeypatch):
-    dates = pd.bdate_range("2025-01-02", periods=40)
-    source = {
-        "SPY": pd.Series(range(100, 140), index=dates, name="SPY", dtype=float),
-        "AAPL": pd.Series(range(200, 240), index=dates, name="AAPL", dtype=float),
-    }
+    class FakeTWDScanService:
+        def run(self, tickers, **kwargs):
+            symbols = tuple(tickers)
+            benchmark = kwargs["benchmark"]
+            return TWDScanBatch(
+                requested=(benchmark, *symbols),
+                results=[
+                    {
+                        "ticker": ticker,
+                        "status": "ok",
+                        "valuation_currency": "TWD",
+                    }
+                    for ticker in symbols
+                ],
+                benchmark_symbol=benchmark,
+                benchmark_available=True,
+                benchmark_failure=None,
+                histories=PartialTWDHistories(
+                    requested=(benchmark, *symbols), histories={}, failures={}
+                ),
+            )
 
-    def fake_download(requested, *_args, **_kwargs):
-        return ({ticker: source[ticker] for ticker in requested}, [])
-
-    monkeypatch.setattr(scan_v2.legacy, "download_prices_finitely", fake_download)
+    monkeypatch.setattr(scan_v2, "twd_scan_service", FakeTWDScanService())
     scan_v2.app.config.update(TESTING=True)
     response = scan_v2.app.test_client().post(
         "/api/scan",
@@ -37,3 +50,4 @@ def test_scan_origin_emits_stable_timing_alias(monkeypatch):
     assert "total;dur=" in stable
     assert response.headers["X-Scan-Requested"] == "1"
     assert response.headers["X-Scan-Resolved"] == "1"
+    assert response.headers["X-Valuation-Currency"] == "TWD"

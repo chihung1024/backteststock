@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
   <link rel="stylesheet" href="/optimizer.css?v=20260801.1">
   <link rel="stylesheet" href="/exhaustive-optimizer.css?v=20260802.1">
-  <script type="module" src="/exhaustive-optimizer.js?v=20260802.1"></script>
+  <script type="module" src="/exhaustive-optimizer.js?v=20260803.2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow">EXHAUSTIVE PORTFOLIO BACKTEST</p>
       <h1>固定來源池全量精確回測</h1>
-      <p class="subtitle">N 選 K 全部組合 · 完整期間 · 等權再平衡 · 全結果自由排序</p>
+      <p class="subtitle">N 選 K 全部組合 · TWD 每日估值 · 完整期間 · 等權再平衡</p>
     </div>
     <a class="button ghost" href="/">返回回測與個股掃描</a>
   </header>
@@ -28,9 +28,10 @@
         <div><strong>來源池</strong><span>輸入多少檔就固定使用多少檔，不自動換股或預先排名</span></div>
         <div><strong>組合</strong><span>完整枚舉 C(N,K)，每組持有 K 檔並等權配置</span></div>
         <div><strong>期間</strong><span>整段歷史統一精確回測，不切訓練期與樣本外期</span></div>
+        <div><strong>估值</strong><span>每檔每日還原股價乘上對 TWD 匯率；FX-only 日也反映匯率變動</span></div>
         <div><strong>再平衡</strong><span>權重門檻、月、季、年或不再平衡；成本逐次計入</span></div>
         <div><strong>運算</strong><span>執行前以本機精確校準估時，確認後才啟動多 Worker</span></div>
-        <div><strong>保存</strong><span>完成批次存於瀏覽器 IndexedDB，可中止並接續</span></div>
+        <div><strong>保存</strong><span>50M 模式完整計算後精簡保存最多 500 萬筆，可中止並接續</span></div>
       </div>
       <p class="message warning">這是完整期間歷史排名工具。組合越多，越需要留意資料探勘與事後選擇偏誤；結果不等同未見資料預測。</p>
     </section>
@@ -59,7 +60,7 @@
       <div class="control-grid optimizer-controls exhaustive-controls">
         <label>
           <span>每組持股數 K</span>
-          <input id="optimizer-holding-count" type="number" min="1" max="60" step="1" value="10">
+          <input id="optimizer-holding-count" type="number" min="1" step="1" value="10">
         </label>
         <label>
           <span>再平衡模式</span>

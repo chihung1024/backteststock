@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const STORAGE_KEY = "backteststock-scan-job-v2";
+const STORAGE_KEY = "backteststock-scan-job-v3";
 const SESSION_KEY = "backteststock-metric-cache-invalidated";
 const METRIC_VERSION = "2026-08-01.2";
 
@@ -48,7 +48,7 @@ test("stale saved scan results are automatically recalculated", async ({ page })
 
   await page.evaluate(({ storageKey, payload }) => {
     localStorage.setItem(storageKey, JSON.stringify({
-      version: 2,
+      version: 3,
       id: "legacy-metric-job",
       status: "completed",
       createdAt: "2025-01-01T00:00:00.000Z",
@@ -120,7 +120,7 @@ test("current metric-version scan results remain available without recalculation
   });
   await page.evaluate(({ storageKey, metricVersion, payload }) => {
     localStorage.setItem(storageKey, JSON.stringify({
-      version: 2,
+      version: 3,
       id: "current-metric-job",
       status: "completed",
       createdAt: "2026-07-31T00:00:00.000Z",

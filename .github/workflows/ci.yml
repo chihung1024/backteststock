@@ -38,10 +38,11 @@ jobs:
         run: >-
           python -m compileall -q
           api/index.py api/index_v2.py api/metrics.py api/scan.py api/scan_v2.py
-          api/screener.py api/optimizer.py api/exhaustive_optimizer.py
+          api/screener.py api/exhaustive_optimizer.py
+          apps/api/app
           scripts/update_universes.py
       - name: Lint Python
-        run: ruff check api scripts tests
+        run: ruff check api apps scripts tests
       - name: Test Python
         run: python -m pytest -q
       - name: Check JavaScript

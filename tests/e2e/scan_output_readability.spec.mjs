@@ -45,6 +45,11 @@ const scanRow = {
   benchmark_available: true,
   requested_start: "2025-01-01",
   requested_end_exclusive: "2026-08-01",
+  valuation_currency: "TWD",
+  twd_valuation_contract_version: "twd-adjusted-close-union-calendar-2026-08-03.1",
+  calendar_policy: "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1",
+  quote_currency: "USD",
+  fx_audit: { method: "direct", tickers: ["USDTWD=X"] },
   return_basis: "yahoo_adjusted_close_total_return_gross_reinvestment",
   return_price_column: "Adj Close",
   dividend_reinvestment_assumption: "gross_distribution_reinvestment_as_embedded_in_yahoo_adjusted_close",
@@ -70,9 +75,12 @@ const scanRow = {
     "rights_or_warrant_distribution",
   ],
   price_fingerprint: "abc",
+  native_price_fingerprint: "native-abc",
+  fx_price_fingerprint: "fx-abc",
   aligned_price_fingerprint: "def",
   benchmark_price_fingerprint: "ghi",
   reproducibility: "metric=2026-08-01.2;basis=yahoo_adjusted_close_total_return_gross_reinvestment;asset_sha256=abc;aligned_sha256=def",
+  valuation_metadata: { valuation_currency: "TWD", quote_currency: "USD" },
   data_source_settings: {
     interval: "1d",
     auto_adjust: false,
@@ -144,6 +152,11 @@ test("scan table stays compact and separates concise from audit CSV", async ({ p
   expect(auditText).toContain("sortino_growth_beta_score_status");
   expect(auditText).toContain("fingerprint_algorithm");
   expect(auditText).toContain("price_fingerprint");
+  expect(auditText).toContain("native_price_fingerprint");
+  expect(auditText).toContain("fx_price_fingerprint");
+  expect(auditText).toContain("valuation_currency");
+  expect(auditText).toContain("twd-adjusted-close-union-calendar");
+  expect(auditText).toContain("USDTWD=X");
   expect(auditText).toContain("asset_sha256=abc");
   expect(auditText).toContain("return_basis");
   expect(auditText).toContain("yahoo_adjusted_close_total_return_gross_reinvestment");

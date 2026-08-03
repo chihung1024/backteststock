@@ -311,7 +311,7 @@ test("accepts more than 100 manually entered tickers", async ({ page }) => {
 test("restores a saved scan and requests only unfinished tickers", async ({ page }) => {
   const scanPayloads = [];
   const savedJob = {
-    version: 2,
+    version: 3,
     id: "saved-scan",
     status: "running",
     createdAt: "2026-07-30T00:00:00.000Z",
@@ -332,7 +332,7 @@ test("restores a saved scan and requests only unfinished tickers", async ({ page
   };
 
   await page.addInitScript((job) => {
-    localStorage.setItem("backteststock-scan-job-v2", JSON.stringify(job));
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify(job));
   }, savedJob);
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
@@ -355,7 +355,7 @@ test("restores a saved scan and requests only unfinished tickers", async ({ page
   });
   await expect.poll(
     () => page.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem("backteststock-scan-job-v2"));
+      const saved = JSON.parse(localStorage.getItem("backteststock-scan-job-v3"));
       return { status: saved?.status, results: saved?.results?.length };
     }),
   ).toEqual({ status: "completed", results: 3 });

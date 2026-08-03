@@ -56,7 +56,7 @@ test("a saved rolling default advances to the current day after refresh", async 
   const current = rollingRange(now);
 
   await page.addInitScript(({ priorRange }) => {
-    localStorage.setItem("backteststock-state-v1", JSON.stringify({
+    localStorage.setItem("backteststock-state-v2", JSON.stringify({
       settings: {
         initialAmount: 10000,
         startPeriod: priorRange.startDate,
@@ -77,14 +77,14 @@ test("a saved rolling default advances to the current day after refresh", async 
   await expect(page.locator("#start-period")).toHaveValue(current.startDate);
   await expect(page.locator("#end-period")).toHaveValue(current.endDate);
   await expect.poll(() => page.evaluate(() => {
-    const state = JSON.parse(localStorage.getItem("backteststock-state-v1"));
+    const state = JSON.parse(localStorage.getItem("backteststock-state-v2"));
     return [state.settings.startPeriod, state.settings.endPeriod];
   })).toEqual([current.startDate, current.endDate]);
 });
 
 test("an explicitly customized date range remains unchanged", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("backteststock-state-v1", JSON.stringify({
+    localStorage.setItem("backteststock-state-v2", JSON.stringify({
       settings: {
         initialAmount: 10000,
         startPeriod: "2018-01-15",

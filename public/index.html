@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="美股投資組合回測與個股績效掃描工具">
+  <meta name="description" content="多市場 TWD 投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css?v=20260801.2">
-  <script type="module" src="/app.js?v=20260801.6"></script>
-  <script type="module" src="/scan-output-ui.js?v=20260801.4"></script>
-  <script type="module" src="/scan-composite-score.js?v=20260801.3"></script>
+  <script type="module" src="/app.js?v=20260803.2"></script>
+  <script type="module" src="/scan-output-ui.js?v=20260803.2"></script>
+  <script type="module" src="/scan-composite-score.js?v=20260803.2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主要內容</a>
@@ -17,7 +17,7 @@
     <div>
       <p class="eyebrow">PORTFOLIO RESEARCH</p>
       <h1>Backtest Stock</h1>
-      <p class="subtitle">投資組合回測、風險比較與個股績效掃描</p>
+      <p class="subtitle">多市場 TWD 投資組合回測、風險比較與個股績效掃描</p>
     </div>
     <div class="service-status" aria-live="polite">
       <span id="status-dot" class="status-dot"></span>
@@ -48,8 +48,8 @@
       <form id="backtest-form" novalidate>
         <div class="control-grid panel">
           <label>
-            <span>初始投資金額（USD）</span>
-            <input id="initial-amount" type="number" min="1" max="1000000000000" step="100" value="10000" inputmode="decimal">
+            <span>初始投資金額（TWD）</span>
+            <input id="initial-amount" type="number" min="1" max="1000000000000" step="1000" value="1000000" inputmode="decimal">
           </label>
           <label>
             <span>起始日期</span>
@@ -265,7 +265,7 @@
       <div class="information-grid">
         <article class="panel">
           <h3>計算方式</h3>
-          <p>使用調整後收盤價模擬持有股數，於指定週期第一個共同交易日依目標權重再平衡。</p>
+          <p>所有標的與比較基準均以每日還原股價乘上當日匯率換算為 TWD，再模擬持有股數與再平衡。</p>
           <p>Sharpe、Sortino、Beta 與 Alpha 以日報酬計算並年化；無風險利率可由後端環境變數設定。</p>
           <p>個股績效列表另顯示 Sortino × Alpha ÷ (1 + Beta) ÷ |最大回撤|；必要數據缺漏、Beta = -1 或最大回撤為 0 時不計算。</p>
         </article>
@@ -276,7 +276,7 @@
         </article>
         <article class="panel">
           <h3>不包含項目</h3>
-          <p>未完整納入交易成本、滑價、稅務、匯率、融資成本及流動性限制。</p>
+          <p>未完整納入交易成本、滑價、稅務、融資成本及流動性限制；匯率採趨勢追蹤的每日 TWD 換算，並非交易可得的精確報價。</p>
           <p>結果僅供研究與教育用途，不構成投資建議或未來績效保證。</p>
         </article>
       </div>
