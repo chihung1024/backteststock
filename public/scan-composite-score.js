@@ -13,9 +13,6 @@ import {
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
-const PORTFOLIO_RESULT_KEY = "backteststock-integrated-portfolio-results-v1";
-const BACKTEST_STATE_KEY = "backteststock-state-v2";
-const MAX_SAVED_PORTFOLIO_ROWS = 20;
 
 let observer;
 let updateScheduled = false;
@@ -23,6 +20,7 @@ let activeSortKey = "cagr";
 let activeSortDirection = "desc";
 let backtestDialog = null;
 let integratedBacktestButton = null;
+let integratedPortfolioRows = [];
 const baseFetch = window.fetch.bind(window);
 
 function readJson(storage, key, fallback = null) {
@@ -93,12 +91,11 @@ function selectedTickers(stats = currentCoverageStats()) {
 }
 
 function savedPortfolioRows() {
-  const rows = readJson(localStorage, PORTFOLIO_RESULT_KEY, []);
-  return Array.isArray(rows) ? rows : [];
+  return integratedPortfolioRows;
 }
 
 function savePortfolioRows(rows) {
-  writeJson(localStorage, PORTFOLIO_RESULT_KEY, rows.slice(0, MAX_SAVED_PORTFOLIO_ROWS));
+  integratedPortfolioRows = Array.isArray(rows) ? rows : [];
 }
 
 function formatPercent(value) {
@@ -642,12 +639,7 @@ function captureBacktestResult(payload) {
       captured_at: capturedAt,
     };
   });
-  const existing = savedPortfolioRows();
-  const byName = new Map(existing.map((item) => [item.name, item]));
-  rows.forEach((item) => byName.set(item.name, item));
-  savePortfolioRows([...byName.values()].sort((a, b) => (
-    String(b.captured_at).localeCompare(String(a.captured_at))
-  )));
+  savePortfolioRows(rows);
   scheduleUpdate();
 }
 
