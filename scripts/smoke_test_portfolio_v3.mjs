@@ -4,13 +4,27 @@ if (!originArgument) {
   throw new Error("Usage: node scripts/smoke_test_portfolio_v3.mjs <worker-origin>");
 }
 
+function positiveNumberFromEnvironment(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 const origin = new URL(originArgument).origin;
 const expectedDeploymentSha = String(process.env.EXPECTED_DEPLOYMENT_SHA || "")
   .trim()
   .toLowerCase();
-const requestTimeoutMs = 240_000;
-const readinessTimeoutMs = 10 * 60_000;
-const readinessPollMs = 10_000;
+const requestTimeoutMs = positiveNumberFromEnvironment(
+  "PORTFOLIO_REQUEST_TIMEOUT_MS",
+  240_000,
+);
+const readinessTimeoutMs = positiveNumberFromEnvironment(
+  "PORTFOLIO_READINESS_TIMEOUT_MS",
+  10 * 60_000,
+);
+const readinessPollMs = positiveNumberFromEnvironment(
+  "PORTFOLIO_READINESS_POLL_MS",
+  10_000,
+);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
