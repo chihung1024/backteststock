@@ -24,7 +24,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -36,35 +36,15 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
-      - name: Resolve Portfolio dependencies
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'feat/portfolio-migration-pr5-navigation-handoff' }}
-        run: npm install
       - name: Install locked dependencies
-        if: ${{ !(github.event_name == 'pull_request' && github.head_ref == 'feat/portfolio-migration-pr5-navigation-handoff') }}
         run: npm ci
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs
-      - name: Commit PR5 lockfile and production assets
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'feat/portfolio-migration-pr5-navigation-handoff' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json public/portfolio
-          if git diff --cached --quiet; then
-            echo "Portfolio lockfile and production assets are current."
-            exit 0
-          fi
-          git commit -m "build: lock and bundle Portfolio application [portfolio-pr5]"
-          git push origin HEAD:${{ github.head_ref }}
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
