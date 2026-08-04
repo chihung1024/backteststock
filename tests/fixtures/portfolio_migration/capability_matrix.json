@@ -35,7 +35,7 @@
     {"id":"results.data_audit","area":"results","required":true,"phase":4,"status":"implemented","acceptance":"quote currencies, FX path, coverage, repairs, fingerprints and contract versions are visible"},
     {"id":"state.save_share_export","area":"state","required":true,"phase":4,"status":"implemented","acceptance":"local save, secret-free share URL, JSON import/export and result CSV/JSON export are supported"},
     {"id":"accessibility.responsive","area":"quality","required":true,"phase":4,"status":"implemented","acceptance":"keyboard, screen reader, reduced motion, high contrast, desktop and 390px mobile acceptance tests pass"},
-    {"id":"dependency.remove_old_api","area":"cutover","required":true,"phase":6,"status":"planned","acceptance":"production runtime contains no old API origin, old Pages path, portfolio-lab proxy route or dialog identifier"},
+    {"id":"dependency.remove_old_api","area":"cutover","required":true,"phase":6,"status":"implemented","acceptance":"production runtime contains no old API origin, old Pages path, portfolio-lab proxy route or dialog identifier"},
     {"id":"retirement.delete_source","area":"retirement","required":true,"phase":7,"status":"planned","acceptance":"legacy GitHub Pages, Vercel project and repository are removed only after the documented observation gate"}
   ]
 }

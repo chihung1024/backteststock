@@ -1,4 +1,3 @@
-import "./portfolio-lab-capture-bridge.js?v=20260803.1";
 import {
   SCORE_FORMULAS,
   buildScoreMatrix,
