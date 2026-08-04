@@ -1,0 +1,278 @@
+name: Portfolio PR5 finalize once
+
+on:
+  push:
+    branches: [feat/portfolio-migration-pr5-navigation-handoff]
+    paths:
+      - ".github/workflows/portfolio-pr5-finalize-once.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portfolio-pr5-finalize-once
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/portfolio-migration-pr5-navigation-handoff
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Replace the primary dialog flow with full-page navigation
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"missing expected {label}")
+              return text.replace(old, new, 1)
+
+          index_path = Path("public/index.html")
+          html = index_path.read_text()
+          html = replace_once(
+              html,
+              '  <link rel="stylesheet" href="/backtest-workspace.css?v=20260803.1">\n',
+              '  <link rel="stylesheet" href="/backtest-workspace.css?v=20260803.1">\n  <link rel="stylesheet" href="/portfolio-route.css?v=20260804.1">\n',
+              "Portfolio route stylesheet insertion",
+          )
+          html = replace_once(
+              html,
+              '  <script type="module" src="/scan-composite-score.js?v=20260803.5"></script>\n',
+              '  <script type="module" src="/portfolio-route-bridge.js?v=20260804.1"></script>\n  <script type="module" src="/scan-composite-score.js?v=20260804.1"></script>\n',
+              "Portfolio route bridge insertion",
+          )
+          html = replace_once(
+              html,
+              '    <button class="tab-button active" type="button" data-tab="backtest" aria-selected="true">投資組合回測</button>\n    <button class="tab-button" type="button" data-tab="scanner" aria-selected="false">個股掃描</button>',
+              '    <a id="portfolio-route-link" class="tab-button portfolio-route-link" href="/portfolio/" data-portfolio-route="main">投資組合回測</a>\n    <button class="tab-button active" type="button" data-tab="scanner" aria-selected="true">個股掃描</button>',
+              "main navigation",
+          )
+          html = replace_once(
+              html,
+              '    <section id="backtest-panel" class="tab-panel" aria-labelledby="backtest-title">',
+              '    <section id="backtest-panel" class="tab-panel hidden" aria-labelledby="backtest-title">',
+              "hidden legacy backtest panel",
+          )
+          html = replace_once(
+              html,
+              '    <section id="scanner-panel" class="tab-panel hidden" aria-labelledby="scanner-title">',
+              '    <section id="scanner-panel" class="tab-panel" aria-labelledby="scanner-title">',
+              "visible scanner panel",
+          )
+          index_path.write_text(html)
+
+          scanner_path = Path("public/scan-composite-score.js")
+          scanner = scanner_path.read_text()
+          scanner = replace_once(
+              scanner,
+              'const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";\n',
+              'const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";\nconst MAX_PORTFOLIO_ASSETS = 20;\n',
+              "Portfolio asset limit",
+          )
+          scanner = scanner.replace("let backtestDialog = null;\n", "", 1)
+          scanner = "\n".join(
+              line for line in scanner.splitlines()
+              if "integrated-backtest-dialog" not in line
+              and "integrated-backtest-shell" not in line
+          ) + "\n"
+
+          primary_block = re.compile(
+              r"function ensureBacktestDialog\(\) \{[\s\S]*?\nfunction ensureResultControls\(\) \{",
+          )
+          replacement = '''function activateResearchWorkspace() {
+            const scannerButton = document.querySelector('.tab-button[data-tab="scanner"]');
+            const portfolioLink = document.querySelector("#portfolio-route-link");
+            if (scannerButton) {
+              scannerButton.textContent = "績效研究（個股掃描）";
+              if (!scannerButton.classList.contains("active")) scannerButton.click();
+            }
+            if (portfolioLink) {
+              portfolioLink.title = "前往完整投資組合研究工作區";
+              portfolioLink.setAttribute("aria-label", "投資組合回測（開啟完整頁面）");
+            }
+          }
+
+          function ensureResultControls() {'''
+          scanner, count = primary_block.subn(replacement, scanner, count=1)
+          if count != 1:
+              raise SystemExit("unable to replace primary dialog flow")
+
+          old_control = '''  integratedBacktestButton = document.querySelector("#open-integrated-backtest");
+            if (!integratedBacktestButton) {
+              integratedBacktestButton = document.createElement("button");
+              integratedBacktestButton.id = "open-integrated-backtest";
+              integratedBacktestButton.type = "button";
+              integratedBacktestButton.className = "button primary";
+              integratedBacktestButton.textContent = "建立投資組合回測";
+              integratedBacktestButton.addEventListener("click", () => (
+                openBacktestDialog({ useSelection: true })
+              ));
+              actionRow.insertBefore(integratedBacktestButton, actionRow.querySelector("#open-manual-optimizer"));
+            }
+          '''
+          new_control = '''  integratedBacktestButton = document.querySelector("#open-integrated-backtest");
+            if (!integratedBacktestButton) {
+              integratedBacktestButton = document.createElement("a");
+              integratedBacktestButton.id = "open-integrated-backtest";
+              integratedBacktestButton.href = "/portfolio/";
+              integratedBacktestButton.dataset.portfolioRoute = "scanner";
+              integratedBacktestButton.className = "button primary";
+              integratedBacktestButton.textContent = "建立投資組合回測";
+              integratedBacktestButton.setAttribute("aria-disabled", "true");
+              actionRow.insertBefore(integratedBacktestButton, actionRow.querySelector("#open-manual-optimizer"));
+            }
+          '''
+          scanner = replace_once(scanner, old_control, new_control, "scanner Portfolio link")
+
+          old_action = '''        const action = document.createElement("button");
+                  action.type = "button";
+                  action.className = "button ghost compact integrated-portfolio-action";
+                  action.textContent = "查看走勢與明細";
+                  action.addEventListener("click", () => openBacktestDialog({ useSelection: false }));'''
+          new_action = '''        const action = document.createElement("a");
+                  action.href = "/portfolio/";
+                  action.dataset.portfolioRoute = "main";
+                  action.className = "button ghost compact integrated-portfolio-action";
+                  action.textContent = "前往投組研究";'''
+          scanner = replace_once(scanner, old_action, new_action, "saved portfolio action")
+
+          selection_block = re.compile(
+              r"function updateSelectionControls\(\) \{[\s\S]*?\nfunction updateMethodology\(\) \{",
+          )
+          selection_replacement = '''function updateSelectionControls() {
+            const count = selectedTickers().length;
+            if (integratedBacktestButton) {
+              const enabled = count >= 1 && count <= MAX_PORTFOLIO_ASSETS;
+              integratedBacktestButton.setAttribute("aria-disabled", String(!enabled));
+              integratedBacktestButton.classList.toggle("disabled", !enabled);
+              integratedBacktestButton.tabIndex = enabled ? 0 : -1;
+              integratedBacktestButton.href = "/portfolio/";
+              integratedBacktestButton.textContent = count > MAX_PORTFOLIO_ASSETS
+                ? `已選 ${count.toLocaleString("zh-TW")} 檔（投組上限 20）`
+                : count
+                  ? `使用已選 ${count.toLocaleString("zh-TW")} 檔建立投組回測`
+                  : "建立投資組合回測";
+            }
+          }
+
+          function updateMethodology() {'''
+          scanner, count = selection_block.subn(selection_replacement, scanner, count=1)
+          if count != 1:
+              raise SystemExit("unable to replace selection controls")
+
+          for forbidden in (
+              "integrated-backtest-dialog",
+              "ensureBacktestDialog",
+              "openBacktestDialog",
+              "showModal(",
+          ):
+              if forbidden in scanner:
+                  raise SystemExit(f"legacy primary dialog token remains: {forbidden}")
+          scanner_path.write_text(scanner)
+
+          package_path = Path("package.json")
+          package = json.loads(package_path.read_text())
+          package["scripts"]["check"] = package["scripts"]["check"].replace(
+              "node --check public/backtest-workspace.js &&",
+              "node --check public/backtest-workspace.js && node --check public/portfolio-route-bridge.js &&",
+          )
+          package["scripts"]["test:worker"] += " tests/test_portfolio_route_bridge.mjs"
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n")
+
+          matrix_path = Path("tests/fixtures/portfolio_migration/capability_matrix.json")
+          matrix = json.loads(matrix_path.read_text())
+          completed = {
+              "page.full_route",
+              "page.scanner_handoff",
+              "allocation.five_portfolios",
+              "allocation.twenty_assets",
+              "allocation.matrix",
+              "results.complete_dashboard",
+              "results.data_audit",
+              "state.save_share_export",
+              "accessibility.responsive",
+          }
+          for capability in matrix["capabilities"]:
+              if capability["id"] in completed:
+                  capability["status"] = "implemented"
+          matrix_path.write_text(json.dumps(matrix, ensure_ascii=False, indent=2) + "\n")
+
+          readme_path = Path("docs/portfolio-migration/README.md")
+          readme = readme_path.read_text()
+          readme = replace_once(
+              readme,
+              "| PR 4～PR 7 | 未開始 | 依本文件順序執行 |",
+              "| PR 4 | 已完成 | React + TypeScript `/portfolio/` 獨立專頁、完整配置／設定／結果／稽核、儲存分享匯出及 390px 響應式驗收 |\n| PR 5 | 已完成 | 主站與 Scanner 以正常頁面導覽進入 `/portfolio/`，保留 Scan Job、日期、Benchmark、覆蓋率、排序、分頁與返回位置 |\n| PR 6～PR 7 | 未開始 | 依本文件順序執行 |",
+              "migration progress",
+          )
+          marker = "## 差異治理"
+          section = '''## PR 4 全頁式應用契約
+
+          `/portfolio/` 可直接開啟、重新整理及分享，使用同源 Portfolio v3 API，主功能不使用 Dialog 或 iframe。完整規則見：
+
+          - `docs/portfolio-migration/PR4_FULL_PAGE_APP.md`
+
+          ## PR 5 正常導覽與 Scanner handoff
+
+          主站「投資組合回測」及績效列表已選標的均以正常頁面導覽進入 `/portfolio/`。Scanner handoff 使用同源 `sessionStorage`，保留來源 Scan Job、已選股票、日期、Benchmark、資料覆蓋率門檻、排序、分頁與捲動位置；返回時恢復原績效列表。handoff 不含 API 金鑰或回測結果，24 小時後失效，且最多接受 20 檔資產。
+
+          PR 5 只移除主要 Dialog 操作路徑；PR 6 將刪除舊 Portfolio Lab scripts、Dialog 相容碼、舊 API proxy 與舊網域 runtime 依賴。
+
+          '''
+          section = re.sub(r"^          ", "", section, flags=re.MULTILINE)
+          if "## PR 5 正常導覽與 Scanner handoff" not in readme:
+              readme = readme.replace(marker, section + marker)
+          readme_path.write_text(readme)
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check and build Portfolio app
+        run: npm run check:portfolio
+      - name: Validate JavaScript and route contracts
+        run: |
+          npm run check
+          node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs
+          npm run test:worker
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run navigation, handoff and full-page acceptance
+        run: >-
+          npx playwright test
+          tests/e2e/backtest_workspace_layout.spec.mjs
+          tests/e2e/integrated_performance_list.spec.mjs
+          tests/e2e/portfolio_full_page.spec.mjs
+          --reporter=line
+      - name: Verify deterministic Portfolio bundle
+        run: git diff --exit-code -- public/portfolio
+      - name: Commit finalized PR5 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/portfolio-pr4-acceptance-once.yml
+          rm -f .github/workflows/portfolio-pr4-finalize-once.yml
+          rm -f .github/workflows/portfolio-web-build-once.yml
+          rm -f .github/workflows/portfolio-pr5-finalize-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/index.html public/scan-composite-score.js public/portfolio-route-bridge.js public/portfolio-route.css \
+            apps/portfolio-web public/portfolio package.json package-lock.json \
+            tests/test_portfolio_route_bridge.mjs tests/e2e/backtest_workspace_layout.spec.mjs \
+            tests/e2e/integrated_performance_list.spec.mjs \
+            tests/fixtures/portfolio_migration/capability_matrix.json \
+            docs/portfolio-migration/README.md \
+            .github/workflows/portfolio-pr4-acceptance-once.yml \
+            .github/workflows/portfolio-pr4-finalize-once.yml \
+            .github/workflows/portfolio-web-build-once.yml \
+            .github/workflows/portfolio-pr5-finalize-once.yml
+          git commit -m "feat: finalize full-page Portfolio navigation handoff [portfolio-pr5]"
+          git push origin HEAD:feat/portfolio-migration-pr5-navigation-handoff
