@@ -5,50 +5,111 @@ if (!originArgument) {
 }
 
 const origin = new URL(originArgument).origin;
-const timeoutMs = 240_000;
+const expectedDeploymentSha = String(process.env.EXPECTED_DEPLOYMENT_SHA || "")
+  .trim()
+  .toLowerCase();
+const requestTimeoutMs = 240_000;
+const readinessTimeoutMs = 10 * 60_000;
+const readinessPollMs = 10_000;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function responseDescription(path, response, text) {
+  const contentType = response.headers.get("content-type") || "unknown";
+  const body = text.replace(/\s+/g, " ").trim().slice(0, 500);
+  return `${path} returned ${response.status} (${contentType}): ${body || "<empty body>"}`;
+}
+
+async function requestJson(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const response = await fetch(new URL(path, origin), {
+      ...options,
+      headers: {
+        accept: "application/json",
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch (error) {
+      throw new Error(responseDescription(path, response, text), { cause: error });
+    }
+    if (!response.ok) {
+      throw new Error(responseDescription(path, response, text));
+    }
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchJson(path, options = {}, attempts = 3) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(new URL(path, origin), {
-        ...options,
-        headers: {
-          accept: "application/json",
-          ...(options.body ? { "content-type": "application/json" } : {}),
-          ...(options.headers || {}),
-        },
-        signal: controller.signal,
-      });
-      const text = await response.text();
-      const payload = text ? JSON.parse(text) : null;
-      if (!response.ok) {
-        throw new Error(`${path} returned ${response.status}: ${text.slice(0, 1000)}`);
-      }
-      return payload;
+      return await requestJson(path, options);
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
-      }
-    } finally {
-      clearTimeout(timeout);
+      if (attempt < attempts) await sleep(attempt * 2_000);
     }
   }
   throw lastError;
 }
 
-const health = await fetchJson("/api/v3/portfolio/health");
-assert(health?.status === "ok", "Portfolio v3 health is not ok");
-assert(health?.service === "backteststock-portfolio-v3", "Unexpected Portfolio service");
-assert(health?.contract_version === "portfolio-v3", "Unexpected Portfolio contract");
-assert(health?.schema_version, "Portfolio schema version is missing");
+async function waitForExpectedDeployment() {
+  const deadline = Date.now() + readinessTimeoutMs;
+  let lastError;
+  let lastObservedSha = "";
+  let attempt = 0;
+
+  while (Date.now() < deadline) {
+    attempt += 1;
+    try {
+      const health = await requestJson("/api/v3/portfolio/health");
+      assert(health?.status === "ok", "Portfolio v3 health is not ok");
+      assert(health?.service === "backteststock-portfolio-v3", "Unexpected Portfolio service");
+      assert(health?.contract_version === "portfolio-v3", "Unexpected Portfolio contract");
+      assert(health?.schema_version, "Portfolio schema version is missing");
+
+      lastObservedSha = String(health.deployment_sha || "").trim().toLowerCase();
+      if (!expectedDeploymentSha || lastObservedSha === expectedDeploymentSha) {
+        return health;
+      }
+      lastError = new Error(
+        `Portfolio backend is healthy but serves ${lastObservedSha || "an unknown SHA"}; expected ${expectedDeploymentSha}.`,
+      );
+    } catch (error) {
+      lastError = error;
+    }
+
+    console.log(JSON.stringify({
+      readiness: "waiting",
+      attempt,
+      expectedDeploymentSha: expectedDeploymentSha || null,
+      observedDeploymentSha: lastObservedSha || null,
+      detail: String(lastError?.message || lastError),
+    }));
+    await sleep(Math.min(readinessPollMs, Math.max(0, deadline - Date.now())));
+  }
+
+  throw new Error(
+    `Portfolio backend did not become ready for ${expectedDeploymentSha || "the current deployment"} within ${readinessTimeoutMs / 1000} seconds. Last error: ${String(lastError?.message || lastError)}`,
+  );
+}
+
+const health = await waitForExpectedDeployment();
 
 const search = await fetchJson("/api/v3/portfolio/assets/search?q=2330&limit=5");
 assert(
@@ -177,6 +238,8 @@ console.log(JSON.stringify({
   origin,
   service: health.service,
   schemaVersion: health.schema_version,
+  deploymentSha: health.deployment_sha || null,
+  expectedDeploymentSha: expectedDeploymentSha || null,
   requestId: result.request_id,
   effectiveEnd: result.effective_end,
   observations: portfolio.series.length,
