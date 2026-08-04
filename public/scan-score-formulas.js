@@ -1,3 +1,5 @@
+import "./portfolio-route-bridge.js?v=20260804.1";
+
 export const METRIC_DEFINITION_VERSION = "2026-08-01.2";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";

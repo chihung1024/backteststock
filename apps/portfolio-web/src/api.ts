@@ -41,36 +41,46 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+function withSignal(options: RequestInit, signal?: AbortSignal): RequestInit {
+  return signal ? { ...options, signal } : options;
+}
+
 export async function checkHealth(signal?: AbortSignal): Promise<Record<string, string>> {
-  const response = await fetch(`${API_PREFIX}/health`, {
-    headers: { accept: "application/json" },
-    cache: "no-store",
-    signal,
-  });
+  const response = await fetch(
+    `${API_PREFIX}/health`,
+    withSignal({
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    }, signal),
+  );
   return parseResponse<Record<string, string>>(response);
 }
 
 export async function searchAssets(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
   const parameters = new URLSearchParams({ q: query, limit: "8" });
-  const response = await fetch(`${API_PREFIX}/assets/search?${parameters}`, {
-    headers: { accept: "application/json" },
-    cache: "no-store",
-    signal,
-  });
+  const response = await fetch(
+    `${API_PREFIX}/assets/search?${parameters}`,
+    withSignal({
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    }, signal),
+  );
   return parseResponse<SearchResult[]>(response);
 }
 
 async function post<T>(path: string, request: PortfolioApiRequest, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_PREFIX}/${path}`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(request),
-    cache: "no-store",
-    signal,
-  });
+  const response = await fetch(
+    `${API_PREFIX}/${path}`,
+    withSignal({
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+      cache: "no-store",
+    }, signal),
+  );
   return parseResponse<T>(response);
 }
 

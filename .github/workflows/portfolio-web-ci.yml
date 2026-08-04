@@ -7,6 +7,7 @@ on:
       - "public/portfolio/**"
       - "tests/e2e/portfolio_full_page.spec.mjs"
       - "tests/test_portfolio_web_contract.mjs"
+      - "tests/test_portfolio_route_bridge.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/portfolio-web-ci.yml"
@@ -17,6 +18,7 @@ on:
       - "public/portfolio/**"
       - "tests/e2e/portfolio_full_page.spec.mjs"
       - "tests/test_portfolio_web_contract.mjs"
+      - "tests/test_portfolio_route_bridge.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/portfolio-web-ci.yml"
@@ -31,18 +33,18 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
-      - name: Test Portfolio source contract
-        run: node --test tests/test_portfolio_web_contract.mjs
+      - name: Test Portfolio source contracts
+        run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs
       - name: Verify committed production assets
-        run: git diff --exit-code -- public/portfolio
+        run: git diff --exit-code -- package-lock.json public/portfolio
