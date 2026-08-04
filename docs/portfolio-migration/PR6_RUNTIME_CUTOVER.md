@@ -35,10 +35,10 @@ Cloudflare 部署後執行 `scripts/smoke_test_portfolio_v3.mjs`，驗證：
 - `SPY + 2330.TW` 混合市場 Preflight。
 - TWD 估值。
 - 固定金額定期現金流。
-- 股息再投入。
+- 配息保留為 TWD 現金。
 - 月度再平衡。
 - 交易成本。
 - 固定比例槓桿與融資利息。
-- 事件、配置歷史、核心指標與 reproducibility metadata。
+- 正式 `series` 回應、事件、配置歷史、核心指標與 reproducibility metadata。
 
 PR 7 僅處理觀察期、遷移通知及外部舊 repository／Vercel project 下線，不再承擔 runtime 功能切換。
