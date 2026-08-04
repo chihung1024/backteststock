@@ -38,6 +38,33 @@ function normalizedThreshold(value) {
   return Math.min(100, Math.max(0, numeric));
 }
 
+function activateScannerDom() {
+  let portfolioLink = document.querySelector("#portfolio-route-link");
+  const oldBacktestButton = document.querySelector('.tab-button[data-tab="backtest"]');
+  if (!portfolioLink && oldBacktestButton) {
+    portfolioLink = document.createElement("a");
+    portfolioLink.id = "portfolio-route-link";
+    portfolioLink.className = "tab-button portfolio-route-link";
+    portfolioLink.href = "/portfolio/";
+    portfolioLink.dataset.portfolioRoute = "main";
+    portfolioLink.textContent = "投資組合回測";
+    portfolioLink.title = "前往完整投資組合研究工作區";
+    portfolioLink.setAttribute("aria-label", "投資組合回測（開啟完整頁面）");
+    oldBacktestButton.replaceWith(portfolioLink);
+  }
+
+  const scannerButton = document.querySelector('.tab-button[data-tab="scanner"]');
+  document.querySelectorAll(".tab-button[data-tab]").forEach((button) => {
+    const active = button === scannerButton;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  if (scannerButton) scannerButton.textContent = "績效研究（個股掃描）";
+  document.querySelector("#backtest-panel")?.classList.add("hidden");
+  document.querySelector("#about-panel")?.classList.add("hidden");
+  document.querySelector("#scanner-panel")?.classList.remove("hidden");
+}
+
 function readScanJob() {
   const job = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
   return job && typeof job === "object" && Array.isArray(job.results) ? job : null;
@@ -146,16 +173,18 @@ function selectionStatus(message) {
 }
 
 function handlePortfolioNavigation(event) {
-  const integrated = event.target.closest("#open-integrated-backtest");
-  const mainEntry = event.target.closest("#portfolio-route-link, [data-portfolio-route='main']");
+  if (!event.isTrusted) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const integrated = target?.closest("#open-integrated-backtest");
+  const mainEntry = target?.closest("#portfolio-route-link, [data-portfolio-route='main']");
   if (!integrated && !mainEntry) return;
 
+  event.preventDefault();
+  event.stopImmediatePropagation();
   const source = integrated ? "scanner" : "main";
   if (source === "scanner") {
     const count = selectedPortfolioTickers().length;
     if (count < 1 || count > MAX_PORTFOLIO_ASSETS) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
       selectionStatus(count > MAX_PORTFOLIO_ASSETS
         ? `已選 ${count} 檔；投組工作區最多接受 ${MAX_PORTFOLIO_ASSETS} 檔，請先減少選取。`
         : "請先從符合資料覆蓋率門檻的股票中選取至少 1 檔。"
@@ -166,21 +195,10 @@ function handlePortfolioNavigation(event) {
 
   const record = createHandoff(source);
   if (!record) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
     selectionStatus("無法建立投組移交資料，請確認瀏覽器允許工作階段儲存。 ");
     return;
   }
-
-  const destination = portfolioUrl(record);
-  const target = integrated || mainEntry;
-  if (target instanceof HTMLAnchorElement) {
-    target.href = destination;
-    return;
-  }
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  window.location.assign(destination);
+  window.location.assign(portfolioUrl(record));
 }
 
 function desiredSortHeader(key) {
@@ -189,15 +207,13 @@ function desiredSortHeader(key) {
 }
 
 function restoreSort(sort) {
-  if (!sort?.key) return true;
+  if (!sort?.key) return;
   const header = desiredSortHeader(sort.key);
-  if (!header) return false;
+  if (!header) return;
   const desired = sort.direction === "asc" ? "ascending" : "descending";
-  if (header.getAttribute("aria-sort") === desired) return true;
+  if (header.getAttribute("aria-sort") === desired) return;
   header.click();
-  if (header.getAttribute("aria-sort") === desired) return true;
-  header.click();
-  return header.getAttribute("aria-sort") === desired;
+  if (header.getAttribute("aria-sort") !== desired) header.click();
 }
 
 function restorePagination(returnState) {
@@ -222,15 +238,31 @@ function restorePagination(returnState) {
     if (updated === current) break;
     current = updated;
   }
-  return current === desiredPage;
+}
+
+function restoreSelection(record) {
+  if (!record.sourceJobId || !Array.isArray(record.selectedTickers)) return;
+  const tickers = [...new Set(record.selectedTickers.map(normalizeTicker).filter(Boolean))];
+  writeJson(localStorage, MANUAL_SELECTION_STORAGE_KEY, {
+    version: 2,
+    sourceJobId: record.sourceJobId,
+    coverageThresholdPercent: normalizedThreshold(record.coverageThresholdPercent),
+    tickers,
+  });
+  const selected = new Set(tickers);
+  document.querySelectorAll('#scan-table input[data-optimizer-ticker]').forEach((input) => {
+    const ticker = normalizeTicker(input.dataset.optimizerTicker || input.value);
+    const shouldBeChecked = selected.has(ticker);
+    if (input.checked === shouldBeChecked) return;
+    input.checked = shouldBeChecked;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 }
 
 function restoreScannerState(record) {
-  const scannerButton = document.querySelector('.tab-button[data-tab="scanner"]');
-  if (scannerButton && !scannerButton.classList.contains("active")) scannerButton.click();
-
-  const thresholdInput = document.querySelector("#scan-min-coverage");
+  activateScannerDom();
   const returnState = record.returnState || {};
+  const thresholdInput = document.querySelector("#scan-min-coverage");
   if (thresholdInput) {
     thresholdInput.value = String(
       normalizedThreshold(returnState.coverageThresholdPercent ?? record.coverageThresholdPercent),
@@ -241,38 +273,46 @@ function restoreScannerState(record) {
 
   const results = document.querySelector("#scan-results");
   if (!results || results.classList.contains("hidden")) return false;
-  const sortReady = restoreSort(returnState.sort);
-  const pageReady = restorePagination(returnState);
-  if (!sortReady || !pageReady) return false;
-
+  restoreSelection(record);
+  restoreSort(returnState.sort);
+  restorePagination(returnState);
   window.requestAnimationFrame(() => {
     const y = Number(returnState.scrollY);
-    if (Number.isFinite(y) && y > 0) window.scrollTo({ top: y, behavior: "instant" });
+    if (Number.isFinite(y) && y > 0) window.scrollTo({ top: y });
     else results.scrollIntoView({ block: "start" });
   });
   return true;
 }
 
+function removeRestoreParameter() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("restore");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 function restorePortfolioReturn() {
   const parameters = new URLSearchParams(window.location.search);
   if (parameters.get("tab") !== "scanner") return;
-  const scannerButton = document.querySelector('.tab-button[data-tab="scanner"]');
-  if (scannerButton && !scannerButton.classList.contains("active")) scannerButton.click();
+  activateScannerDom();
 
   const restoreId = parameters.get("restore");
   const record = readJson(sessionStorage, PORTFOLIO_HANDOFF_STORAGE_KEY, null);
   if (!restoreId || record?.id !== restoreId) return;
-  if (Date.parse(record.expiresAt || "") < Date.now()) return;
+  if (Date.parse(record.expiresAt || "") < Date.now()) {
+    removeRestoreParameter();
+    return;
+  }
 
+  restoreSelection(record);
   let attempts = 0;
   const tryRestore = () => {
     attempts += 1;
-    if (restoreScannerState(record) || attempts >= 120) {
-      if (attempts < 120) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("restore");
-        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-      }
+    if (restoreScannerState(record)) {
+      removeRestoreParameter();
+      return;
+    }
+    if (attempts >= 120) {
+      removeRestoreParameter();
       return;
     }
     window.setTimeout(tryRestore, 50);
@@ -281,6 +321,7 @@ function restorePortfolioReturn() {
 }
 
 function initializePortfolioRouteBridge() {
+  activateScannerDom();
   document.addEventListener("click", handlePortfolioNavigation, true);
   restorePortfolioReturn();
 }
@@ -289,6 +330,7 @@ window.PortfolioRouteBridge = Object.freeze({
   createHandoff,
   selectedPortfolioTickers,
   restorePortfolioReturn,
+  activateScannerDom,
 });
 
 if (document.readyState === "loading") {
