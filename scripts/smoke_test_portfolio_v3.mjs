@@ -48,6 +48,7 @@ const health = await fetchJson("/api/v3/portfolio/health");
 assert(health?.status === "ok", "Portfolio v3 health is not ok");
 assert(health?.service === "backteststock-portfolio-v3", "Unexpected Portfolio service");
 assert(health?.contract_version === "portfolio-v3", "Unexpected Portfolio contract");
+assert(health?.schema_version, "Portfolio schema version is missing");
 
 const search = await fetchJson("/api/v3/portfolio/assets/search?q=2330&limit=5");
 assert(
@@ -72,7 +73,7 @@ const request = {
   initial_amount: 100000,
   base_currency: "TWD",
   include_ytd: true,
-  reinvest_distributions: true,
+  reinvest_distributions: false,
   transaction_cost_bps: 5,
   cashflow: {
     type: "fixed",
@@ -109,6 +110,7 @@ const preflight = await fetchJson("/api/v3/portfolio/preflight", {
   body: JSON.stringify(request),
 });
 assert(preflight?.base_currency === "TWD", "Preflight base currency is not TWD");
+assert(preflight?.contract_version === "portfolio-v3", "Preflight contract mismatch");
 assert(
   Array.isArray(preflight?.portfolios) && preflight.portfolios[0]?.status === "ready",
   "Mixed-market portfolio is not ready",
@@ -117,12 +119,17 @@ assert(
   Array.isArray(preflight?.assets) && preflight.assets.length >= 2,
   "Preflight asset audit is incomplete",
 );
+assert(
+  preflight.assets.every((asset) => asset?.status === "ready"),
+  "One or more mixed-market assets failed preflight",
+);
 
 const result = await fetchJson("/api/v3/portfolio/backtests", {
   method: "POST",
   body: JSON.stringify(request),
 });
 assert(result?.base_currency === "TWD", "Backtest base currency is not TWD");
+assert(result?.contract_version === "portfolio-v3", "Backtest contract mismatch");
 assert(
   Array.isArray(result?.results) && result.results.length === 1,
   "Expected one successful Portfolio result",
@@ -131,15 +138,40 @@ assert(
   Array.isArray(result?.failures) && result.failures.length === 0,
   "Portfolio v3 smoke returned failures",
 );
+
+const portfolio = result.results[0];
 assert(
-  result.results[0]?.metrics && Number.isFinite(Number(result.results[0].metrics.cagr)),
+  portfolio?.metrics && Number.isFinite(Number(portfolio.metrics.cagr)),
   "CAGR is missing",
 );
 assert(
-  Array.isArray(result.results[0]?.history) && result.results[0].history.length >= 40,
-  "Portfolio history is unexpectedly short",
+  Number.isFinite(Number(portfolio.metrics.final_balance))
+    && Number(portfolio.metrics.final_balance) > 0,
+  "Final balance is missing or invalid",
 );
-assert(result?.reproducibility?.api_schema_version, "Reproducibility metadata is missing");
+assert(
+  Number.isFinite(Number(portfolio.metrics.max_drawdown)),
+  "Maximum drawdown is missing",
+);
+assert(
+  Array.isArray(portfolio?.series) && portfolio.series.length >= 40,
+  "Portfolio series is unexpectedly short",
+);
+assert(
+  Array.isArray(portfolio?.events) && portfolio.events.length > 0,
+  "Portfolio ledger events are missing",
+);
+assert(
+  Array.isArray(portfolio?.allocation_history) && portfolio.allocation_history.length > 0,
+  "Portfolio allocation history is missing",
+);
+assert(
+  portfolio?.metadata?.metric_context_version,
+  "Portfolio metric context metadata is missing",
+);
+assert(result?.reproducibility?.api_schema_version, "API reproducibility metadata is missing");
+assert(result?.reproducibility?.ledger_contract_version, "Ledger contract metadata is missing");
+assert(result?.reproducibility?.twd_valuation_contract_version, "TWD valuation metadata is missing");
 
 console.log(JSON.stringify({
   origin,
@@ -147,8 +179,10 @@ console.log(JSON.stringify({
   schemaVersion: health.schema_version,
   requestId: result.request_id,
   effectiveEnd: result.effective_end,
-  observations: result.results[0].history.length,
-  finalValue: result.results[0].history.at(-1)?.value,
-  cagr: result.results[0].metrics.cagr,
-  maxDrawdown: result.results[0].metrics.max_drawdown,
+  observations: portfolio.series.length,
+  finalValue: portfolio.series.at(-1)?.value,
+  cagr: portfolio.metrics.cagr,
+  maxDrawdown: portfolio.metrics.max_drawdown,
+  eventCount: portfolio.events.length,
+  allocationObservations: portfolio.allocation_history.length,
 }, null, 2));
