@@ -93,3 +93,20 @@ test("Portfolio v3 production smoke validates the actual series response and adv
   assert.match(smoke, /ledger_contract_version/);
   assert.match(smoke, /twd_valuation_contract_version/);
 });
+
+test("Cloudflare smoke waits for the Vercel deployment serving the same Git SHA", () => {
+  const smoke = readFileSync("scripts/smoke_test_portfolio_v3.mjs", "utf8");
+  const deploy = readFileSync(".github/workflows/deploy-cloudflare.yml", "utf8");
+  const api = readFileSync("api/portfolio_v3.py", "utf8");
+  const packageJson = readFileSync("package.json", "utf8");
+
+  assert.match(api, /VERCEL_GIT_COMMIT_SHA/);
+  assert.match(api, /"deployment_sha"/);
+  assert.match(smoke, /EXPECTED_DEPLOYMENT_SHA/);
+  assert.match(smoke, /health\.deployment_sha/);
+  assert.match(smoke, /waitForExpectedDeployment/);
+  assert.match(smoke, /PORTFOLIO_READINESS_TIMEOUT_MS/);
+  assert.match(smoke, /PORTFOLIO_READINESS_POLL_MS/);
+  assert.match(deploy, /EXPECTED_DEPLOYMENT_SHA:\s*\$\{\{ github\.sha \}\}/);
+  assert.match(packageJson, /test_portfolio_smoke_readiness\.mjs/);
+});
