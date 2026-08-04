@@ -98,6 +98,7 @@ jobs:
       - name: Smoke test production Portfolio v3 flow
         env:
           WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
+          EXPECTED_DEPLOYMENT_SHA: ${{ github.sha }}
         run: node scripts/smoke_test_portfolio_v3.mjs "$WORKER_ORIGIN"
       - name: Report final deployment status
         if: ${{ always() }}
