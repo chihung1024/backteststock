@@ -1,0 +1,438 @@
+name: Portfolio PR6 runtime cutover once
+
+on:
+  push:
+    branches: [feat/portfolio-migration-pr6-runtime-cutover]
+    paths:
+      - ".github/workflows/portfolio-pr6-cutover-once.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portfolio-pr6-runtime-cutover-once
+  cancel-in-progress: true
+
+jobs:
+  cutover:
+    if: ${{ !contains(github.event.head_commit.message, '[portfolio-pr6-cutover]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/portfolio-migration-pr6-runtime-cutover
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Remove old Portfolio runtime and cut over contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          root = Path('.')
+
+          router_path = root / 'worker/router.js'
+          router = router_path.read_text()
+          router, count = re.subn(
+              r'const PORTFOLIO_LAB_PREFIX = .*?const OPTIMIZER_MAX_REQUEST_BYTES',
+              'const OPTIMIZER_MAX_REQUEST_BYTES',
+              router,
+              flags=re.S,
+          )
+          assert count == 1, f'legacy constants block replacements={count}'
+          router, count = re.subn(
+              r'\nfunction portfolioLabOrigin\(env, requestId\) \{.*?\n\}\n\nfunction safeProxyHeaders',
+              '\nfunction safeProxyHeaders',
+              router,
+              flags=re.S,
+          )
+          assert count == 1, f'legacy origin function replacements={count}'
+          router, count = re.subn(
+              r'\nasync function proxyPortfolioLab\(request, env\) \{.*?\n\}\n\nasync function proxyExhaustivePrepare',
+              '\nasync function proxyExhaustivePrepare',
+              router,
+              flags=re.S,
+          )
+          assert count == 1, f'legacy proxy function replacements={count}'
+          router = router.replace(
+              'export { proxyExhaustivePrepare, proxyPortfolioLab, proxyPortfolioV3 };',
+              'export { proxyExhaustivePrepare, proxyPortfolioV3 };',
+          )
+          router, count = re.subn(
+              r'\n    if \(url\.pathname\.startsWith\(PORTFOLIO_LAB_PREFIX\)\) \{\n      return proxyPortfolioLab\(request, env\);\n    \}',
+              '',
+              router,
+          )
+          assert count == 1, f'legacy route branch replacements={count}'
+          router_path.write_text(router)
+
+          index_path = root / 'public/index.html'
+          index = index_path.read_text()
+          index = '\n'.join(
+              line for line in index.splitlines()
+              if 'backtest-workspace.css' not in line
+              and 'backtest-workspace.js' not in line
+          ) + '\n'
+          index_path.write_text(index)
+
+          coverage_path = root / 'public/scan-coverage.js'
+          coverage = coverage_path.read_text().replace(
+              'import "./portfolio-lab-capture-bridge.js?v=20260803.1";\n',
+              '',
+          )
+          coverage_path.write_text(coverage)
+
+          optimizer_test_path = root / 'tests/test_optimizer_worker_proxy.mjs'
+          optimizer_test = optimizer_test_path.read_text()
+          marker = '\n\ntest("portfolio lab backtests proxy to the original full API contract"'
+          assert marker in optimizer_test
+          optimizer_test_path.write_text(optimizer_test.split(marker, 1)[0].rstrip() + '\n')
+
+          package_path = root / 'package.json'
+          package = json.loads(package_path.read_text())
+          check = package['scripts']['check']
+          legacy_checks = [
+              'public/backtest-workspace.js',
+              'public/portfolio-lab-capture-bridge.js',
+              'public/portfolio-lab-core.js',
+              'public/portfolio-lab-settings.js',
+              'public/portfolio-lab-assets.js',
+              'public/portfolio-lab-results.js',
+              'public/portfolio-lab-integration.js',
+          ]
+          for legacy in legacy_checks:
+              check = check.replace(f' && node --check {legacy}', '')
+          if 'scripts/smoke_test_portfolio_v3.mjs' not in check:
+              check += ' && node --check scripts/smoke_test_portfolio_v3.mjs'
+          package['scripts']['check'] = check
+          worker_tests = package['scripts']['test:worker']
+          if 'tests/test_portfolio_runtime_cutover.mjs' not in worker_tests:
+              worker_tests += ' tests/test_portfolio_runtime_cutover.mjs'
+          package['scripts']['test:worker'] = worker_tests
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n')
+
+          deploy_path = root / '.github/workflows/deploy-cloudflare.yml'
+          deploy = deploy_path.read_text()
+          deploy = deploy.replace(
+              '      - "scripts/smoke_test_portfolio_lab.mjs"',
+              '      - "scripts/smoke_test_portfolio_v3.mjs"',
+          )
+          deploy = deploy.replace(
+              '      - name: Smoke test production Portfolio Lab flow\n'
+              '        env:\n'
+              '          WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}\n'
+              '        run: node scripts/smoke_test_portfolio_lab.mjs "$WORKER_ORIGIN"',
+              '      - name: Smoke test production Portfolio v3 flow\n'
+              '        env:\n'
+              '          WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}\n'
+              '        run: node scripts/smoke_test_portfolio_v3.mjs "$WORKER_ORIGIN"',
+          )
+          deploy_path.write_text(deploy)
+
+          matrix_path = root / 'tests/fixtures/portfolio_migration/capability_matrix.json'
+          matrix = json.loads(matrix_path.read_text())
+          target = next(
+              item for item in matrix['capabilities']
+              if item['id'] == 'dependency.remove_old_api'
+          )
+          target['status'] = 'implemented'
+          matrix_path.write_text(json.dumps(matrix, ensure_ascii=False, indent=2) + '\n')
+
+          readme_path = root / 'docs/portfolio-migration/README.md'
+          readme = readme_path.read_text()
+          readme = readme.replace(
+              '| PR 4～PR 7 | 未開始 | 依本文件順序執行 |',
+              '| PR 4 | 已完成 | React + TypeScript `/portfolio/` 全頁式應用與完整桌機／390px 驗收 |\n'
+              '| PR 5 | 已完成 | Scanner 選股正常導覽、來源狀態移交與返回恢復 |\n'
+              '| PR 6 | 已完成 | 正式 runtime 僅保留自有 `/api/v3/portfolio/*`，舊代理、舊網域與 Dialog runtime 已移除 |\n'
+              '| PR 7 | 未開始 | 遷移通知、觀察期與原專案／舊 Vercel project 下線 |',
+          )
+          section = '''## PR 4～PR 6 正式介面與技術斬斷
+
+- PR 4：`/portfolio/` 成為可直接開啟、重新整理與分享的 React + TypeScript 全頁式應用。
+- PR 5：Scanner 選股透過同源、限時且不含秘密資料的 handoff 導入 `/portfolio/`，返回時恢復研究狀態。
+- PR 6：正式 Portfolio runtime 只使用 `/api/v3/portfolio/*` 與 `BACKEND_ORIGIN`；舊 `/api/portfolio-lab/*`、舊 GitHub Pages Origin／Referer 偽裝、舊 API 網域、Dialog loader、capture bridge 與舊 production smoke 全部移除。
+
+PR 7 只負責觀察期、通知與外部舊專案下線，不再承擔 runtime 功能切換。
+
+'''
+          if section not in readme:
+              readme = readme.replace('## 差異治理', section + '## 差異治理')
+          readme_path.write_text(readme)
+          PY
+
+          cat > scripts/smoke_test_portfolio_v3.mjs <<'EOF'
+          const originArgument = process.argv[2];
+
+          if (!originArgument) {
+            throw new Error("Usage: node scripts/smoke_test_portfolio_v3.mjs <worker-origin>");
+          }
+
+          const origin = new URL(originArgument).origin;
+          const timeoutMs = 240_000;
+
+          function assert(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+
+          async function fetchJson(path, options = {}, attempts = 3) {
+            let lastError;
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), timeoutMs);
+              try {
+                const response = await fetch(new URL(path, origin), {
+                  ...options,
+                  headers: {
+                    accept: "application/json",
+                    ...(options.body ? { "content-type": "application/json" } : {}),
+                    ...(options.headers || {}),
+                  },
+                  signal: controller.signal,
+                });
+                const text = await response.text();
+                const payload = text ? JSON.parse(text) : null;
+                if (!response.ok) {
+                  throw new Error(`${path} returned ${response.status}: ${text.slice(0, 1000)}`);
+                }
+                return payload;
+              } catch (error) {
+                lastError = error;
+                if (attempt < attempts) {
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
+                }
+              } finally {
+                clearTimeout(timeout);
+              }
+            }
+            throw lastError;
+          }
+
+          const health = await fetchJson("/api/v3/portfolio/health");
+          assert(health?.status === "ok", "Portfolio v3 health is not ok");
+          assert(health?.service === "backteststock-portfolio-v3", "Unexpected Portfolio service");
+          assert(health?.contract_version === "portfolio-v3", "Unexpected Portfolio contract");
+
+          const search = await fetchJson("/api/v3/portfolio/assets/search?q=2330&limit=5");
+          assert(Array.isArray(search) && search.some((item) => item?.symbol === "2330.TW"), "Asset search did not resolve 2330.TW");
+
+          const request = {
+            contract_version: "portfolio-v3",
+            portfolios: [
+              {
+                name: "Production mixed-market smoke",
+                assets: [
+                  { symbol: "SPY", weight: 60 },
+                  { symbol: "2330.TW", weight: 40 },
+                ],
+              },
+            ],
+            benchmark: "SPY",
+            start_date: "2025-01-02",
+            end_date: "2025-03-31",
+            initial_amount: 100000,
+            base_currency: "TWD",
+            include_ytd: true,
+            reinvest_distributions: true,
+            transaction_cost_bps: 5,
+            cashflow: {
+              type: "fixed",
+              amount: 1000,
+              frequency: "monthly",
+              timing: "end",
+              annual_growth_rate_percent: 0,
+            },
+            rebalancing: {
+              frequency: "monthly",
+              threshold_percent: null,
+            },
+            leverage: {
+              type: "fixed_ratio",
+              ratio: 1.2,
+              debt_amount: 0,
+              annual_interest_rate_percent: 2,
+              maintenance_margin_percent: 25,
+            },
+            analytics: {
+              factor_analysis: false,
+              style_analysis: false,
+              regime: "none",
+              inflation_adjusted: false,
+              risk_free_rate_percent: 0,
+            },
+            output_frequency: "daily",
+            include_events: true,
+            include_allocation_history: true,
+          };
+
+          const preflight = await fetchJson("/api/v3/portfolio/preflight", {
+            method: "POST",
+            body: JSON.stringify(request),
+          });
+          assert(preflight?.base_currency === "TWD", "Preflight base currency is not TWD");
+          assert(Array.isArray(preflight?.portfolios) && preflight.portfolios[0]?.status === "ready", "Mixed-market portfolio is not ready");
+          assert(Array.isArray(preflight?.assets) && preflight.assets.length >= 2, "Preflight asset audit is incomplete");
+
+          const result = await fetchJson("/api/v3/portfolio/backtests", {
+            method: "POST",
+            body: JSON.stringify(request),
+          });
+          assert(result?.base_currency === "TWD", "Backtest base currency is not TWD");
+          assert(Array.isArray(result?.results) && result.results.length === 1, "Expected one successful Portfolio result");
+          assert(Array.isArray(result?.failures) && result.failures.length === 0, "Portfolio v3 smoke returned failures");
+          assert(result.results[0]?.metrics && Number.isFinite(Number(result.results[0].metrics.cagr)), "CAGR is missing");
+          assert(Array.isArray(result.results[0]?.history) && result.results[0].history.length >= 40, "Portfolio history is unexpectedly short");
+          assert(result?.reproducibility?.api_schema_version, "Reproducibility metadata is missing");
+
+          console.log(JSON.stringify({
+            origin,
+            service: health.service,
+            schemaVersion: health.schema_version,
+            requestId: result.request_id,
+            effectiveEnd: result.effective_end,
+            observations: result.results[0].history.length,
+            finalValue: result.results[0].history.at(-1)?.value,
+            cagr: result.results[0].metrics.cagr,
+            maxDrawdown: result.results[0].metrics.max_drawdown,
+          }, null, 2));
+          EOF
+
+          cat > tests/test_portfolio_runtime_cutover.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+          import { extname, join } from "node:path";
+          import test from "node:test";
+
+          const retiredFiles = [
+            "public/backtest-workspace.js",
+            "public/backtest-workspace.css",
+            "public/portfolio-lab.css",
+            "public/portfolio-lab-core.js",
+            "public/portfolio-lab-settings.js",
+            "public/portfolio-lab-assets.js",
+            "public/portfolio-lab-results.js",
+            "public/portfolio-lab-integration.js",
+            "public/portfolio-lab-capture-bridge.js",
+            "scripts/smoke_test_portfolio_lab.mjs",
+            "tests/e2e/backtest_workspace_layout.spec.mjs",
+          ];
+
+          const forbiddenRuntimeText = [
+            "/api/portfolio-lab/",
+            "portfolio-backtest-api.vercel.app",
+            "https://chihung1024.github.io/backtest/",
+            "PORTFOLIO_LAB_API_ORIGIN",
+            "integrated-backtest-dialog",
+          ];
+
+          const searchableExtensions = new Set([
+            ".css", ".html", ".js", ".json", ".jsonc", ".mjs", ".ts", ".tsx", ".yml", ".yaml",
+          ]);
+
+          function runtimeFiles(path) {
+            if (!existsSync(path)) return [];
+            if (!statSync(path).isDirectory()) return [path];
+            return readdirSync(path).flatMap((entry) => runtimeFiles(join(path, entry)));
+          }
+
+          test("old Portfolio Lab runtime assets are deleted", () => {
+            for (const path of retiredFiles) {
+              assert.equal(existsSync(path), false, `${path} must be deleted`);
+            }
+          });
+
+          test("production runtime contains no old API, Pages impersonation or dialog identifier", () => {
+            const roots = ["public", "worker", "scripts", ".github/workflows", "vercel.json", "wrangler.jsonc"];
+            const violations = [];
+            for (const path of roots.flatMap(runtimeFiles)) {
+              if (!searchableExtensions.has(extname(path))) continue;
+              const content = readFileSync(path, "utf8");
+              for (const forbidden of forbiddenRuntimeText) {
+                if (content.includes(forbidden)) violations.push(`${path}: ${forbidden}`);
+              }
+            }
+            assert.deepEqual(violations, []);
+          });
+
+          test("only the self-owned Portfolio v3 route remains in the edge router and deployment smoke", () => {
+            const router = readFileSync("worker/router.js", "utf8");
+            const deploy = readFileSync(".github/workflows/deploy-cloudflare.yml", "utf8");
+            assert.match(router, /\/api\/v3\/portfolio\//);
+            assert.doesNotMatch(router, /proxyPortfolioLab|PORTFOLIO_LAB/);
+            assert.match(deploy, /smoke_test_portfolio_v3\.mjs/);
+            assert.doesNotMatch(deploy, /smoke_test_portfolio_lab\.mjs/);
+          });
+          EOF
+
+          cat > docs/portfolio-migration/PR6_RUNTIME_CUTOVER.md <<'EOF'
+          # PR 6：Portfolio runtime 技術斬斷
+
+          ## 正式路徑
+
+          - 前端：`/portfolio/`
+          - Edge API：`/api/v3/portfolio/*`
+          - 後端：`backteststock` 自有 `BACKEND_ORIGIN`
+
+          ## 已移除
+
+          - `/api/portfolio-lab/*` 舊代理及其 allowlist。
+          - `portfolio-backtest-api.vercel.app` 預設來源。
+          - 舊 GitHub Pages Origin／Referer 偽裝。
+          - Dialog loader、舊 Portfolio Lab scripts／CSS、capture bridge。
+          - 舊 Portfolio Lab production smoke 與對應 E2E／Worker 測試。
+
+          ## 不可回退契約
+
+          `tests/test_portfolio_runtime_cutover.mjs` 會掃描正式 runtime 與部署設定，禁止重新引入舊 API、舊 Pages 路徑、環境變數或 Dialog 識別字，並確認已退役檔案不存在。
+
+          ## 正式 smoke
+
+          Cloudflare 部署後執行 `scripts/smoke_test_portfolio_v3.mjs`，驗證：
+
+          - 自有 Portfolio v3 health 與 schema。
+          - 台股資產搜尋。
+          - SPY + 2330.TW 混合市場 Preflight。
+          - TWD 估值、定期現金流、股息再投入、月度再平衡、交易成本、固定比例槓桿、事件與配置歷史。
+          - 完整結果、觀察數、核心指標與 reproducibility metadata。
+          EOF
+
+          rm -f \
+            public/backtest-workspace.js \
+            public/backtest-workspace.css \
+            public/portfolio-lab.css \
+            public/portfolio-lab-core.js \
+            public/portfolio-lab-settings.js \
+            public/portfolio-lab-assets.js \
+            public/portfolio-lab-results.js \
+            public/portfolio-lab-integration.js \
+            public/portfolio-lab-capture-bridge.js \
+            scripts/smoke_test_portfolio_lab.mjs \
+            tests/e2e/backtest_workspace_layout.spec.mjs
+
+          rm -f .github/workflows/portfolio-pr6-cutover-once.yml
+
+      - name: Validate cutover before committing
+        run: |
+          npm ci
+          npm run check
+          npm run test:worker
+          npm run test:score
+          npm run check:portfolio
+          node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs
+          git diff --check
+      - name: Commit validated runtime cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: complete Portfolio runtime cutover [portfolio-pr6-cutover]"
+          git push origin HEAD:feat/portfolio-migration-pr6-runtime-cutover
