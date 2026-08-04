@@ -9,20 +9,18 @@ import {
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
 } from "./scan-coverage.js?v=20260803.2";
+import "./portfolio-route-bridge.js?v=20260804.1";
 
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
+const MAX_PORTFOLIO_ASSETS = 20;
 
 let observer;
 let updateScheduled = false;
 let activeSortKey = "cagr";
 let activeSortDirection = "desc";
-let backtestDialog = null;
 let integratedBacktestButton = null;
-let integratedPortfolioRows = [];
-let integratedPortfolioSourceJobId = null;
-const baseFetch = window.fetch.bind(window);
 
 function readJson(storage, key, fallback = null) {
   try {
@@ -33,24 +31,14 @@ function readJson(storage, key, fallback = null) {
   }
 }
 
-function requestPath(input) {
-  try {
-    const value = typeof input === "string" || input instanceof URL ? input : input?.url;
-    return new URL(value, window.location.href).pathname;
-  } catch {
-    return "";
-  }
-}
-
 function readScanJob() {
   const job = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
   return job && Array.isArray(job.results) ? job : null;
 }
 
 function currentThreshold() {
-  const value = document.querySelector("#scan-min-coverage")?.value;
   return normalizeScanMinCoveragePercent(
-    value,
+    document.querySelector("#scan-min-coverage")?.value,
     DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   );
 }
@@ -66,9 +54,7 @@ function selectedTickers(stats = currentCoverageStats()) {
     !job?.id
     || selection?.sourceJobId !== job.id
     || !Array.isArray(selection?.tickers)
-  ) {
-    return [];
-  }
+  ) return [];
 
   const benchmark = normalizeScoreTicker(job.payload?.benchmark);
   const selectable = new Set(
@@ -76,25 +62,8 @@ function selectedTickers(stats = currentCoverageStats()) {
       .map((item) => normalizeScoreTicker(item?.ticker))
       .filter((ticker) => ticker && ticker !== benchmark),
   );
-  return [...new Set(
-    selection.tickers
-      .map(normalizeScoreTicker)
-      .filter((ticker) => selectable.has(ticker)),
-  )];
-}
-
-function savedPortfolioRows() {
-  const currentJobId = readScanJob()?.id || null;
-  if (integratedPortfolioSourceJobId !== currentJobId) {
-    integratedPortfolioRows = [];
-    integratedPortfolioSourceJobId = null;
-  }
-  return integratedPortfolioRows;
-}
-
-function savePortfolioRows(rows) {
-  integratedPortfolioRows = Array.isArray(rows) ? rows : [];
-  integratedPortfolioSourceJobId = readScanJob()?.id || null;
+  return [...new Set(selection.tickers.map(normalizeScoreTicker))]
+    .filter((ticker) => selectable.has(ticker));
 }
 
 function formatPercent(value) {
@@ -112,7 +81,7 @@ function formatInteger(value) {
 }
 
 function median(values) {
-  const finite = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const finite = values.map(Number).filter(Number.isFinite).sort((left, right) => left - right);
   if (!finite.length) return null;
   const middle = Math.floor(finite.length / 2);
   return finite.length % 2
@@ -136,164 +105,47 @@ function injectStyles() {
   const style = document.createElement("style");
   style.id = "unified-performance-styles";
   style.textContent = `
+    .tab-nav a.tab-button { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; }
     .scan-control-stack { display:grid; gap:.75rem; margin:0 0 1rem; }
     .scan-control-row { display:flex; align-items:center; gap:.65rem; flex-wrap:wrap; padding:.75rem .85rem; border:1px solid var(--border); border-radius:11px; background:var(--surface-subtle); }
     .scan-control-row .scan-coverage-filter { display:flex; align-items:center; grid-template-columns:none; }
     .scan-control-row .scan-coverage-filter-status { flex:1 1 26rem; white-space:normal; }
     .scan-control-row .optimizer-manual-selection-status { margin-right:auto; white-space:normal; }
     .scan-result-export-actions { justify-content:flex-end; }
-    .integrated-backtest-dialog { width:min(1480px,96vw); max-width:none; height:min(92vh,1100px); padding:0; border:0; border-radius:16px; background:var(--bg); box-shadow:0 28px 80px rgb(15 23 42 / .32); }
-    .integrated-backtest-dialog::backdrop { background:rgb(15 23 42 / .56); }
-    .integrated-backtest-shell { height:100%; overflow:auto; padding:1rem; }
-    .integrated-backtest-dialog-toolbar { position:sticky; top:0; z-index:20; display:flex; justify-content:flex-end; padding:.25rem 0 .75rem; background:linear-gradient(var(--bg) 75%, transparent); }
-    .integrated-backtest-dialog #backtest-panel { display:block !important; }
-    .integrated-portfolio-row { background:#eef6ff; }
-    .integrated-portfolio-row th:first-child { min-width:190px !important; }
-    .integrated-portfolio-name { display:block; font-weight:850; color:var(--primary-dark); }
-    .integrated-portfolio-meta { display:block; margin-top:.25rem; font-size:.7rem; color:var(--muted); white-space:normal; }
-    .integrated-portfolio-action { margin-top:.4rem; }
+    #open-integrated-backtest[aria-disabled="true"] { pointer-events:none; opacity:.52; cursor:not-allowed; }
     #scan-table th[data-composite-metric], #scan-table td[data-composite-metric] { min-width:132px; }
     #scan-table { min-width:1740px; }
     .coverage-definition-note { margin-top:.55rem; color:var(--muted); font-size:.78rem; }
     @media (max-width:640px) {
       .scan-control-row { align-items:stretch; flex-direction:column; }
       .scan-control-row .button, .scan-control-row a.button { width:100%; text-align:center; }
-      .integrated-backtest-dialog { width:100vw; height:100vh; border-radius:0; }
-      .integrated-backtest-shell { padding:.75rem; }
     }
   `;
   document.head.append(style);
 }
 
-function ensureBacktestDialog() {
-  if (backtestDialog?.isConnected) return backtestDialog;
-  const backtestPanel = document.querySelector("#backtest-panel");
-  if (!backtestPanel) return null;
-
-  backtestDialog = document.createElement("dialog");
-  backtestDialog.id = "integrated-backtest-dialog";
-  backtestDialog.className = "integrated-backtest-dialog";
-  backtestDialog.setAttribute("aria-label", "投資組合回測建立器");
-
-  const shell = document.createElement("div");
-  shell.className = "integrated-backtest-shell";
-  const toolbar = document.createElement("div");
-  toolbar.className = "integrated-backtest-dialog-toolbar";
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "button ghost";
-  close.textContent = "關閉並返回績效列表";
-  close.addEventListener("click", () => backtestDialog.close());
-  toolbar.append(close);
-
-  backtestPanel.classList.remove("hidden");
-  shell.append(toolbar, backtestPanel);
-  backtestDialog.append(shell);
-  document.body.append(backtestDialog);
-  return backtestDialog;
-}
-
 function activateResearchWorkspace() {
+  const oldBacktestButton = document.querySelector('.tab-button[data-tab="backtest"]');
+  let portfolioLink = document.querySelector("#portfolio-route-link");
+  if (!portfolioLink && oldBacktestButton) {
+    portfolioLink = document.createElement("a");
+    portfolioLink.id = "portfolio-route-link";
+    portfolioLink.className = "tab-button portfolio-route-link";
+    portfolioLink.href = "/portfolio/";
+    portfolioLink.dataset.portfolioRoute = "main";
+    portfolioLink.textContent = "投資組合回測";
+    portfolioLink.title = "前往完整投資組合研究工作區";
+    portfolioLink.setAttribute("aria-label", "投資組合回測（開啟完整頁面）");
+    oldBacktestButton.replaceWith(portfolioLink);
+  }
+
   const scannerButton = document.querySelector('.tab-button[data-tab="scanner"]');
-  const backtestButton = document.querySelector('.tab-button[data-tab="backtest"]');
   if (scannerButton) {
     scannerButton.textContent = "績效研究（個股掃描）";
     if (!scannerButton.classList.contains("active")) scannerButton.click();
   }
-
-  ensureBacktestDialog();
-  if (backtestButton && backtestButton.dataset.integratedLauncher !== "true") {
-    backtestButton.dataset.integratedLauncher = "true";
-    backtestButton.classList.remove("active");
-    backtestButton.setAttribute("aria-selected", "false");
-    backtestButton.title = "由績效列表選取股票後開啟，亦可直接使用既有設定。";
-    backtestButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openBacktestDialog({ useSelection: false });
-    }, true);
-  }
-}
-
-function dispatchInput(element) {
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-function prepareEqualWeightPortfolio(tickers) {
-  if (!tickers.length) return;
-  const list = document.querySelector("#portfolio-list");
-  if (!list) return;
-
-  while (list.querySelectorAll(".portfolio-card").length > 1) {
-    const cards = [...list.querySelectorAll(".portfolio-card")];
-    cards.at(-1)?.querySelector('button[data-action="remove-portfolio"]')?.click();
-  }
-
-  let card = list.querySelector(".portfolio-card");
-  if (!card) return;
-  while (card.querySelectorAll(".asset-row").length > 1) {
-    card.querySelectorAll('.asset-row button[data-action="remove-asset"]')?.item(
-      card.querySelectorAll(".asset-row").length - 1,
-    )?.click();
-    card = list.querySelector(".portfolio-card");
-  }
-  while (card.querySelectorAll(".asset-row").length < tickers.length) {
-    card.querySelector('button[data-action="add-asset"]')?.click();
-    card = list.querySelector(".portfolio-card");
-  }
-
-  const nameInput = card.querySelector('input[data-action="portfolio-name"]');
-  if (nameInput) {
-    nameInput.value = "績效列表已選標的等權組合";
-    dispatchInput(nameInput);
-  }
-
-  tickers.forEach((ticker, index) => {
-    const rows = list.querySelectorAll(".portfolio-card .asset-row");
-    const input = rows.item(index)?.querySelector('input[data-action="asset-ticker"]');
-    if (input) {
-      input.value = ticker;
-      dispatchInput(input);
-    }
-  });
-
-  const baseWeight = Math.floor((100 / tickers.length) * 100) / 100;
-  tickers.forEach((ticker, index) => {
-    const rows = list.querySelectorAll(".portfolio-card .asset-row");
-    const input = rows.item(index)?.querySelector('input[data-action="asset-weight"]');
-    if (!input) return;
-    const weight = index === tickers.length - 1
-      ? Number((100 - baseWeight * (tickers.length - 1)).toFixed(2))
-      : baseWeight;
-    input.value = String(weight);
-    dispatchInput(input);
-  });
-
-  const job = readScanJob();
-  if (job?.payload) {
-    const values = {
-      "#start-period": job.payload.startDate,
-      "#end-period": job.payload.endDate,
-      "#benchmark": job.payload.benchmark,
-    };
-    for (const [selector, value] of Object.entries(values)) {
-      const input = document.querySelector(selector);
-      if (input && value) input.value = value;
-    }
-  }
-}
-
-function openBacktestDialog({ useSelection = true } = {}) {
-  const dialog = ensureBacktestDialog();
-  if (!dialog) return;
-  const backtestPanel = document.querySelector("#backtest-panel");
-  backtestPanel?.classList.remove("hidden");
-  if (useSelection) {
-    const tickers = selectedTickers();
-    if (!tickers.length) return;
-    prepareEqualWeightPortfolio(tickers);
-  }
-  if (!dialog.open) dialog.showModal();
+  document.querySelector("#backtest-panel")?.classList.add("hidden");
+  document.querySelector("#scanner-panel")?.classList.remove("hidden");
 }
 
 function ensureResultControls() {
@@ -327,12 +179,11 @@ function ensureResultControls() {
 
   const exportIds = new Set(["export-scan", "export-scan-audit"]);
   [...toolbar.children].forEach((element) => {
-    if (!exportIds.has(element.id)) {
-      if (element.matches(".scan-coverage-filter, #scan-coverage-filter-status")) {
-        coverageRow.append(element);
-      } else {
-        actionRow.append(element);
-      }
+    if (exportIds.has(element.id)) return;
+    if (element.matches(".scan-coverage-filter, #scan-coverage-filter-status")) {
+      coverageRow.append(element);
+    } else {
+      actionRow.append(element);
     }
   });
 
@@ -353,21 +204,26 @@ function ensureResultControls() {
 
   integratedBacktestButton = document.querySelector("#open-integrated-backtest");
   if (!integratedBacktestButton) {
-    integratedBacktestButton = document.createElement("button");
+    integratedBacktestButton = document.createElement("a");
     integratedBacktestButton.id = "open-integrated-backtest";
-    integratedBacktestButton.type = "button";
+    integratedBacktestButton.href = "/portfolio/";
+    integratedBacktestButton.dataset.portfolioRoute = "scanner";
     integratedBacktestButton.className = "button primary";
     integratedBacktestButton.textContent = "建立投資組合回測";
-    integratedBacktestButton.addEventListener("click", () => (
-      openBacktestDialog({ useSelection: true })
-    ));
-    actionRow.insertBefore(integratedBacktestButton, actionRow.querySelector("#open-manual-optimizer"));
+    integratedBacktestButton.setAttribute("aria-disabled", "true");
+    actionRow.insertBefore(
+      integratedBacktestButton,
+      actionRow.querySelector("#open-manual-optimizer"),
+    );
   }
 
-  const note = coverageRow.querySelector(".coverage-definition-note") || document.createElement("span");
-  note.className = "coverage-definition-note";
-  note.textContent = "資料覆蓋率＝個股有效交易日 ÷ 本次掃描成功標的最大交易日。";
-  if (!note.isConnected) coverageRow.append(note);
+  let note = coverageRow.querySelector(".coverage-definition-note");
+  if (!note) {
+    note = document.createElement("span");
+    note.className = "coverage-definition-note";
+    note.textContent = "資料覆蓋率＝個股有效交易日 ÷ 本次掃描成功標的最大交易日。";
+    coverageRow.append(note);
+  }
 }
 
 function formatScore(record, formula) {
@@ -403,17 +259,18 @@ function ensureFormulaDetails() {
 function removeInjectedColumns(table, headerRow) {
   [...headerRow.querySelectorAll("th[data-composite-metric]")].forEach((cell) => cell.remove());
   [...table.querySelectorAll("td[data-composite-metric]")].forEach((cell) => cell.remove());
-  [...table.querySelectorAll("tr.integrated-portfolio-row")].forEach((row) => row.remove());
 }
 
 function injectScoreColumns(table, stats) {
   const headerRow = table?.tHead?.rows?.[0];
-  if (!table || !headerRow) return null;
+  if (!table || !headerRow) return;
   removeInjectedColumns(table, headerRow);
 
   const originalHeaders = [...headerRow.cells];
-  const alphaIndex = originalHeaders.findIndex((cell) => normalizedHeader(cell.textContent) === "Alpha");
-  if (alphaIndex < 0) return null;
+  const alphaIndex = originalHeaders.findIndex(
+    (cell) => normalizedHeader(cell.textContent) === "Alpha",
+  );
+  if (alphaIndex < 0) return;
 
   const matrix = buildScoreMatrix(stats.shown);
   let headerAnchor = originalHeaders[alphaIndex];
@@ -461,73 +318,6 @@ function injectScoreColumns(table, stats) {
       anchor = cell;
     });
   });
-  return matrix;
-}
-
-function portfolioMetricCell(record, label, stats, matrix) {
-  const normalized = normalizedHeader(label);
-  const mapping = {
-    "候選": "投組",
-    "區間總報酬": formatPercent(record.total_return),
-    "年化報酬率": formatPercent(record.cagr),
-    "年化波動率": formatPercent(record.volatility),
-    "最大回撤": formatPercent(record.mdd),
-    "Sharpe": formatNumber(record.sharpe_ratio),
-    "Sortino": formatNumber(record.sortino_ratio),
-    "Beta": formatNumber(record.beta),
-    "Alpha": formatPercent(record.alpha),
-    "資料覆蓋率": formatPercent(
-      stats.maximumTradingDays > 0
-        ? Math.min(Number(record.trading_days || 0) / stats.maximumTradingDays, 1)
-        : null,
-    ),
-    "交易日": formatInteger(record.trading_days),
-    "資料區間": `${record.data_start || "—"} ～ ${record.data_end || "—"}`,
-  };
-  if (Object.hasOwn(mapping, normalized)) return mapping[normalized];
-  const formula = SCORE_FORMULAS.find((item) => item.label === normalized);
-  if (formula) {
-    const score = scoreRecordFor(matrix, record.ticker, formula.key);
-    return Number.isFinite(score?.score) ? Number(score.score).toFixed(formula.digits) : "—";
-  }
-  return "—";
-}
-
-function renderPortfolioRows(table, stats) {
-  const records = savedPortfolioRows();
-  if (!records.length || !table?.tBodies?.[0] || !table?.tHead?.rows?.[0]) return;
-  const headers = [...table.tHead.rows[0].cells];
-  const matrix = buildScoreMatrix(records);
-
-  [...records].reverse().forEach((record) => {
-    const row = document.createElement("tr");
-    row.className = "integrated-portfolio-row";
-    row.dataset.ticker = record.ticker;
-    headers.forEach((header, index) => {
-      if (index === 0) {
-        const cell = document.createElement("th");
-        cell.scope = "row";
-        const name = document.createElement("span");
-        name.className = "integrated-portfolio-name";
-        name.textContent = `投組｜${record.name}`;
-        const meta = document.createElement("small");
-        meta.className = "integrated-portfolio-meta";
-        meta.textContent = "由績效列表整合回測";
-        const action = document.createElement("button");
-        action.type = "button";
-        action.className = "button ghost compact integrated-portfolio-action";
-        action.textContent = "查看走勢與明細";
-        action.addEventListener("click", () => openBacktestDialog({ useSelection: false }));
-        cell.append(name, meta, action);
-        row.append(cell);
-      } else {
-        const cell = document.createElement("td");
-        cell.textContent = portfolioMetricCell(record, header.textContent, stats, matrix);
-        row.append(cell);
-      }
-    });
-    table.tBodies[0].prepend(row);
-  });
 }
 
 function renderSummary(stats) {
@@ -566,7 +356,9 @@ function renderSummary(stats) {
 
   const status = document.querySelector("#scan-coverage-filter-status");
   if (status) {
-    const threshold = Number(currentThreshold()).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
+    const threshold = Number(currentThreshold()).toLocaleString("zh-TW", {
+      maximumFractionDigits: 1,
+    });
     status.textContent = [
       `顯示 ${stats.shown.length.toLocaleString("zh-TW")} / ${stats.settled.length.toLocaleString("zh-TW")} 檔`,
       `門檻 ≥ ${threshold}%`,
@@ -578,12 +370,17 @@ function renderSummary(stats) {
 
 function updateSelectionControls() {
   const count = selectedTickers().length;
-  if (integratedBacktestButton) {
-    integratedBacktestButton.disabled = count < 1;
-    integratedBacktestButton.textContent = count
+  if (!integratedBacktestButton) return;
+  const enabled = count >= 1 && count <= MAX_PORTFOLIO_ASSETS;
+  integratedBacktestButton.setAttribute("aria-disabled", String(!enabled));
+  integratedBacktestButton.classList.toggle("disabled", !enabled);
+  integratedBacktestButton.tabIndex = enabled ? 0 : -1;
+  integratedBacktestButton.href = "/portfolio/";
+  integratedBacktestButton.textContent = count > MAX_PORTFOLIO_ASSETS
+    ? `已選 ${count.toLocaleString("zh-TW")} 檔（投組上限 20）`
+    : count
       ? `使用已選 ${count.toLocaleString("zh-TW")} 檔建立投組回測`
       : "建立投資組合回測";
-  }
 }
 
 function updateMethodology() {
@@ -614,42 +411,6 @@ function updateMethodology() {
   }
 }
 
-function captureBacktestResult(payload) {
-  if (!payload || !Array.isArray(payload.data)) return;
-  const capturedAt = new Date().toISOString();
-  const rows = payload.data.map((item, index) => {
-    const history = Array.isArray(item?.portfolioHistory) ? item.portfolioHistory : [];
-    const name = String(item?.name || `投資組合 ${index + 1}`).trim();
-    return {
-      ticker: `PORTFOLIO-${normalizeScoreTicker(name).replace(/[^A-Z0-9_-]/g, "").slice(0, 24) || index + 1}`,
-      name,
-      type: "portfolio",
-      total_return: item?.total_return,
-      cagr: item?.cagr,
-      volatility: item?.volatility,
-      mdd: item?.mdd,
-      sharpe_ratio: item?.sharpe_ratio,
-      sortino_ratio: item?.sortino_ratio,
-      beta: item?.beta,
-      alpha: item?.alpha,
-      trading_days: history.length,
-      data_start: history[0]?.date || null,
-      data_end: history.at(-1)?.date || null,
-      captured_at: capturedAt,
-    };
-  });
-  savePortfolioRows(rows);
-  scheduleUpdate();
-}
-
-window.fetch = async function fetchWithIntegratedPortfolioCapture(input, init) {
-  const response = await baseFetch(input, init);
-  if (response.ok && requestPath(input) === "/api/backtest") {
-    response.clone().json().then(captureBacktestResult).catch(() => {});
-  }
-  return response;
-};
-
 function updatePerformanceList() {
   activateResearchWorkspace();
   ensureResultControls();
@@ -657,7 +418,6 @@ function updatePerformanceList() {
   const table = document.querySelector(TABLE_SELECTOR);
   if (table?.tHead?.rows?.[0]) {
     injectScoreColumns(table, stats);
-    renderPortfolioRows(table, stats);
     ensureFormulaDetails();
   }
   renderSummary(stats);
