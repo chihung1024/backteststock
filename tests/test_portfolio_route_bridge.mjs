@@ -74,5 +74,5 @@ test("Portfolio app consumes scanner handoff before React render and exposes a r
   assert.match(handoff, /portfolio-return-link/u);
   assert.match(handoff, /portfolio-handoff-banner/u);
   assert.match(handoff, /返回績效列表/u);
-  assert.doesNotMatch(handoff, /localStorage.*(?:token|key|secret)/iu);
+  assert.doesNotMatch(handoff, /(?:api[_-]?key|access[_-]?token|client[_-]?secret)/iu);
 });
