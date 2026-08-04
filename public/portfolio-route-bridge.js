@@ -326,15 +326,17 @@ function initializePortfolioRouteBridge() {
   restorePortfolioReturn();
 }
 
-window.PortfolioRouteBridge = Object.freeze({
-  createHandoff,
-  selectedPortfolioTickers,
-  restorePortfolioReturn,
-  activateScannerDom,
-});
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  window.PortfolioRouteBridge = Object.freeze({
+    createHandoff,
+    selectedPortfolioTickers,
+    restorePortfolioReturn,
+    activateScannerDom,
+  });
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializePortfolioRouteBridge, { once: true });
-} else {
-  initializePortfolioRouteBridge();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializePortfolioRouteBridge, { once: true });
+  } else {
+    initializePortfolioRouteBridge();
+  }
 }
