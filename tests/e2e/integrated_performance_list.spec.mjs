@@ -25,6 +25,7 @@ const scanRows = [
     trading_days: 1000,
     data_start: "2022-01-03",
     data_end: "2025-12-31",
+    metric_definition_version: "2026-08-01.2",
   },
   {
     ticker: "BBB",
@@ -42,6 +43,7 @@ const scanRows = [
     trading_days: 950,
     data_start: "2022-03-15",
     data_end: "2025-12-31",
+    metric_definition_version: "2026-08-01.2",
   },
 ];
 
@@ -171,8 +173,8 @@ test("Portfolio handoff rejects a ticker below the active coverage threshold", a
       },
       pending: [],
       results: [
-        { ticker: "AAA", status: "ok", retryable: false, trading_days: 1000 },
-        { ticker: "LOW", status: "ok", retryable: false, trading_days: 800 },
+        { ticker: "AAA", status: "ok", retryable: false, trading_days: 1000, metric_definition_version: "2026-08-01.2" },
+        { ticker: "LOW", status: "ok", retryable: false, trading_days: 800, metric_definition_version: "2026-08-01.2" },
       ],
     }));
     localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
@@ -196,6 +198,7 @@ test("Portfolio handoff enforces the twenty-asset workspace limit", async ({ pag
     status: "ok",
     retryable: false,
     trading_days: 1000,
+    metric_definition_version: "2026-08-01.2",
   }));
   await page.addInitScript((items) => {
     localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
