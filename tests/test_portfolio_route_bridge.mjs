@@ -6,17 +6,17 @@ import test from "node:test";
 const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
 
-test("main navigation exposes Portfolio as a normal directly addressable page", async () => {
-  const html = await read("public/index.html");
+test("main navigation is replaced by a normal directly addressable Portfolio link", async () => {
+  const scanner = await read("public/scan-composite-score.js");
 
-  assert.match(html, /id="portfolio-route-link"/u);
-  assert.match(html, /href="\/portfolio\/"/u);
-  assert.match(html, /data-portfolio-route="main"/u);
-  assert.match(html, /portfolio-route\.css/u);
-  assert.match(html, /portfolio-route-bridge\.js/u);
-  assert.match(html, /data-tab="scanner" aria-selected="true"/u);
-  assert.match(html, /id="backtest-panel" class="tab-panel hidden"/u);
-  assert.match(html, /id="scanner-panel" class="tab-panel"/u);
+  assert.match(scanner, /import "\.\/portfolio-route-bridge\.js\?v=20260804\.1"/u);
+  assert.match(scanner, /portfolioLink = document\.createElement\("a"\)/u);
+  assert.match(scanner, /portfolioLink\.id = "portfolio-route-link"/u);
+  assert.match(scanner, /portfolioLink\.href = "\/portfolio\/"/u);
+  assert.match(scanner, /portfolioLink\.dataset\.portfolioRoute = "main"/u);
+  assert.match(scanner, /oldBacktestButton\.replaceWith\(portfolioLink\)/u);
+  assert.match(scanner, /#backtest-panel/u);
+  assert.match(scanner, /#scanner-panel/u);
 });
 
 test("scanner handoff preserves source context and enforces the Portfolio asset limit", async () => {
