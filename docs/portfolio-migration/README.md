@@ -20,7 +20,10 @@
 | PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
 | PR 2 | 已完成 | 自有 Portfolio Ledger、現金流、配息策略、成本、定期／門檻再平衡、fixed-ratio／fixed-debt 槓桿、margin liquidation、完整指標與部分成功服務 |
 | PR 3 | 已完成 | 自有 FastAPI Portfolio v3、Preflight、嚴格 schema、Edge proxy、因子／FX 分離、受約束風格、環境分析與 FRED 降級 |
-| PR 4～PR 7 | 未開始 | 依本文件順序執行 |
+| PR 4 | 已完成 | React + TypeScript `/portfolio/` 獨立專頁、五投組／二十資產、完整設定與九個結果頁籤、儲存分享匯出、390px 響應式驗收 |
+| PR 5 | 已完成 | 主站與 Scanner 正常導覽至 `/portfolio/`，保留選股、日期、Benchmark、覆蓋率、排序、分頁與返回狀態 |
+| PR 6 | 已完成 | 刪除舊 Dialog runtime、`/api/portfolio-lab/*`、原 API 網域與 Pages 偽裝，正式切換自有 Portfolio v3 smoke |
+| PR 7 | 未開始 | 遷移通知、觀察期、外部舊 GitHub Pages／Vercel project／repository 停用與刪除 |
 
 目前版本化契約：
 
@@ -89,7 +92,7 @@ TWD Price Return = TWD Total Return - TWD Distribution Return
 
 - `docs/portfolio-migration/PR2_LEDGER_METRICS.md`
 
-PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前的 Portfolio Lab 介面。
+PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或當時的 Portfolio Lab 介面。
 
 ## PR 3 Portfolio v3 API 契約
 
@@ -97,7 +100,26 @@ PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或目前
 
 - `docs/portfolio-migration/PR3_PORTFOLIO_V3_API.md`
 
-PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。現有舊 Portfolio Lab 路徑仍保留到 PR 6，避免在新全頁式介面完成前破壞正式功能。Macro regime 在缺少必要 rolling 或 YoY 證據的月份保持未分類，不以預設分支虛構環境標籤。
+PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。Macro regime 在缺少必要 rolling 或 YoY 證據的月份保持未分類，不以預設分支虛構環境標籤。舊 Portfolio Lab 路徑與跨專案代理已於 PR 6 完全移除。
+
+## PR 4 全頁式應用契約
+
+`/portfolio/` 可直接開啟、重新整理及分享，使用同源 Portfolio v3 API，主功能不使用 Dialog 或 iframe。完整資產矩陣、手機聚焦編輯、模擬設定、九個結果頁籤、資料稽核、儲存／分享／匯入／匯出及無障礙規則見：
+
+- `docs/portfolio-migration/PR4_FULL_PAGE_APP.md`
+- `docs/portfolio-migration/PR4_ACCEPTANCE.md`
+
+## PR 5 Scanner handoff 契約
+
+主站與 Scanner 以正常頁面導覽進入 `/portfolio/`；選股、日期、Benchmark、資料覆蓋率與返回狀態由版本化 handoff bridge 保存，不依賴舊 Portfolio Lab runtime。
+
+## PR 6 runtime 技術斬斷
+
+正式 runtime 現在只保留 `/portfolio/` 與 `/api/v3/portfolio/*`。退役檔案、禁止字串契約與混合市場 production smoke 見：
+
+- `docs/portfolio-migration/PR6_RUNTIME_CUTOVER.md`
+- `tests/test_portfolio_runtime_cutover.mjs`
+- `scripts/smoke_test_portfolio_v3.mjs`
 
 ## 差異治理
 
