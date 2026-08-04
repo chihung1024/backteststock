@@ -78,3 +78,18 @@ test("only the self-owned Portfolio v3 route remains in edge and deployment smok
   assert.match(deploy, /smoke_test_portfolio_v3\.mjs/);
   assert.doesNotMatch(deploy, /smoke_test_portfolio_lab\.mjs/);
 });
+
+test("Portfolio v3 production smoke validates the actual series response and advanced ledger path", () => {
+  const smoke = readFileSync("scripts/smoke_test_portfolio_v3.mjs", "utf8");
+  assert.match(smoke, /portfolio\.series/);
+  assert.doesNotMatch(smoke, /portfolio\.history|results\[0\]\.history/);
+  assert.match(smoke, /reinvest_distributions:\s*false/);
+  assert.match(smoke, /type:\s*"fixed"/);
+  assert.match(smoke, /frequency:\s*"monthly"/);
+  assert.match(smoke, /transaction_cost_bps:\s*5/);
+  assert.match(smoke, /type:\s*"fixed_ratio"/);
+  assert.match(smoke, /include_events:\s*true/);
+  assert.match(smoke, /include_allocation_history:\s*true/);
+  assert.match(smoke, /ledger_contract_version/);
+  assert.match(smoke, /twd_valuation_contract_version/);
+});
