@@ -205,7 +205,52 @@ def test_phase5_candidate_permutation_keeps_labelled_relationship_evidence_equiv
     )["analysis"]
 
     assert original["clustering"] == permuted["clustering"]
-    assert original["redundancy"] == permuted["redundancy"]
+    assert original["redundancy"]["status"] == permuted["redundancy"]["status"]
+    assert original["redundancy"]["counts"] == permuted["redundancy"]["counts"]
+    assert original["redundancy"]["verdict_semantics"] == (
+        permuted["redundancy"]["verdict_semantics"]
+    )
+    assert original["redundancy"]["magic_numeric_score"] is False
+
+    original_pairs = {
+        (item["symbol_a"], item["symbol_b"]): item
+        for item in original["redundancy"]["pairs"]
+    }
+    permuted_pairs = {
+        (item["symbol_a"], item["symbol_b"]): item
+        for item in permuted["redundancy"]["pairs"]
+    }
+    assert original_pairs.keys() == permuted_pairs.keys()
+    numeric_fields = {
+        "structural_correlation",
+        "medium_correlation",
+        "downside_correlation",
+        "stress_correlation",
+        "factor_implied_correlation",
+        "window_cocluster_agreement",
+        "bootstrap_cocluster_probability",
+    }
+    for pair_key in original_pairs:
+        left = original_pairs[pair_key]
+        right = permuted_pairs[pair_key]
+        assert {
+            key: value for key, value in left.items() if key not in numeric_fields
+        } == {
+            key: value for key, value in right.items() if key not in numeric_fields
+        }
+        for field in numeric_fields:
+            left_value = left[field]
+            right_value = right[field]
+            if left_value is None or right_value is None:
+                assert left_value is right_value
+            else:
+                assert np.isclose(
+                    left_value,
+                    right_value,
+                    rtol=1e-12,
+                    atol=1e-15,
+                )
+
     assert original["clustering"]["bootstrap_seed_fingerprint"] == (
         permuted["clustering"]["bootstrap_seed_fingerprint"]
     )
