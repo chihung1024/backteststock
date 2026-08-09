@@ -11,7 +11,7 @@
 - Phase 1 implementation PR: `#57` — `feat: add reproducible ResearchDatasetV1`
 - Phase 1 base: `863039af803671a8caf1d35074d038136ca2332a`
 - Current phase: **Phase 1 — ResearchDataset**
-- Current state: **VALIDATING**
+- Current state: **VALIDATING — implementation frozen pending final-head gates**
 - Next phase only after Phase 1 closeout: **Phase 2 — Risk Mathematics Core**
 - Governance ruleset: `main-protection`
   - enforcement active; default branch target; bypass empty
@@ -112,7 +112,7 @@ Known Phase 0 limitations retained:
 
 ## Phase 1 — ResearchDataset
 
-**Status: VALIDATING — PR #57**
+**Status: VALIDATING — PR #57; implementation frozen pending final-head gates**
 
 ### Objective
 Create one reproducible framework-neutral research dataset contract over existing audited TWD histories, usable by future Refinery and eventually reusable by Exhaustive only after parity validation.
@@ -132,7 +132,7 @@ Create one reproducible framework-neutral research dataset contract over existin
 - [x] Define/version `ResearchDatasetV1` as `research-dataset-twd-2026-08-09.1`.
 - [x] Add `ResearchDatasetService` that delegates fetching to existing `TWDHistoryService`; no second downloader.
 - [x] Preserve normalized requested order, resolved order and explicit per-symbol `HistoryFailure` objects.
-- [x] Reject a requested symbol that has neither an explicit success nor failure outcome.
+- [x] Enforce XOR outcome integrity: each requested symbol must have exactly one success or failure; neither-outcome and simultaneous success+failure states are rejected.
 - [x] Enforce requested inclusive time-window isolation: native, FX and TWD source series outside `[start, end]` are rejected instead of silently leaking wider/future history into a dataset.
 - [x] Store requested and effective date ranges separately.
 - [x] Build reference calendar and Exhaustive-compatible first/last availability masks.
@@ -145,8 +145,9 @@ Create one reproducible framework-neutral research dataset contract over existin
 - [x] Retain native/FX/original-TWD/aligned-TWD level fingerprints.
 - [x] Add canonical JSON export payload and deterministic SHA-256 dataset hash.
 - [x] Harden canonical serialization: sorted mapping keys, deterministic set/frozenset serialization, NumPy bool/int/float normalization, non-finite numeric values -> JSON `null`.
-- [x] Add `docs/research/RESEARCH_DATASET_V1.md`, including explicit window-isolation semantics.
-- [x] Add tests for membership/failure visibility, coverage/date semantics, actual weekly dates, deterministic/data-sensitive hash, single history fetch, missing outcome rejection, out-of-window history rejection and parity with current Exhaustive preparation.
+- [x] Make export fail closed against stale identity: `export_payload()` recomputes the dataset hash and rejects mutated content that no longer matches the construction-time hash.
+- [x] Add `docs/research/RESEARCH_DATASET_V1.md`, including explicit window-isolation, outcome-integrity and stale-hash export semantics.
+- [x] Add tests for membership/failure visibility, coverage/date semantics, actual weekly dates, deterministic/data-sensitive hash, stale-hash mutation rejection, single history fetch, missing outcome rejection, conflicting outcome rejection, out-of-window history rejection and parity with current Exhaustive preparation.
 - [x] Keep Scanner, Portfolio v3, Worker, UI and `api/exhaustive_optimizer.py` production consumers unchanged.
 - [x] Update this roadmap.
 
@@ -155,12 +156,14 @@ Create one reproducible framework-neutral research dataset contract over existin
 1. `TWDHistoryService` remains the data-source authority; ResearchDataset is an alignment/audit/reproducibility layer, not a downloader.
 2. Current Exhaustive preparation is a **parity oracle only** in Phase 1. No production consumer cutover occurs here.
 3. A partial dataset is valid evidence with `is_complete == false`; a strict consumer must explicitly reject it rather than receive a silently reduced universe.
-4. ResearchDataset coverage is descriptive. Scanner coverage and Exhaustive's current 98% acceptance rule remain separate consumer policies.
-5. Structural weekly dates preserve the last actual observed research date to avoid future-date labelling at mid-week cutoffs.
-6. Daily alignment deliberately calls the existing `align_twd_price_frame()` to guarantee semantic parity. Extracting a more generic shared calendar primitive is deferred until a separately validated consumer migration requires it.
-7. The pure builder independently rejects histories extending outside the requested window even though `ResearchDatasetService` already requests the exact window. This is a deliberate defense against future cached/walk-forward history reuse causing look-ahead leakage.
-8. No covariance/correlation implementation is allowed in Phase 1.
-9. PR #56 added `AI_PROJECT_PLAYBOOK.md` immediately before Phase 1; it changed no code and introduces no conflict. It is now a required handoff reference.
+4. Requested membership is fail-closed: each requested symbol must resolve to exactly one of success/failure, never neither and never both.
+5. ResearchDataset coverage is descriptive. Scanner coverage and Exhaustive's current 98% acceptance rule remain separate consumer policies.
+6. Structural weekly dates preserve the last actual observed research date to avoid future-date labelling at mid-week cutoffs.
+7. Daily alignment deliberately calls the existing `align_twd_price_frame()` to guarantee semantic parity. Extracting a more generic shared calendar primitive is deferred until a separately validated consumer migration requires it.
+8. The pure builder independently rejects histories extending outside the requested window even though `ResearchDatasetService` already requests the exact window. This is a deliberate defense against future cached/walk-forward history reuse causing look-ahead leakage.
+9. `ResearchDataset` keeps pandas/NumPy objects mutable for research ergonomics, but export revalidates the content hash and refuses a stale-hash snapshot. Consumers should rebuild after mutation rather than treat an altered object as the same dataset identity.
+10. No covariance/correlation implementation is allowed in Phase 1.
+11. PR #56 added `AI_PROJECT_PLAYBOOK.md` immediately before Phase 1; it changed no code and introduces no conflict. It is now a required handoff reference.
 
 ### Explicit non-goals
 
@@ -174,14 +177,16 @@ Create one reproducible framework-neutral research dataset contract over existin
 
 ### Validation state
 
-- [x] Earlier PR #57 head passed Python compile/lint/tests, ResearchDataset/Exhaustive parity, Worker/Node, Playwright, D1 and Cloudflare validation before final window-isolation hardening.
+- [x] Earlier PR #57 heads passed Python compile/lint/tests, ResearchDataset/Exhaustive parity, Worker/Node, Playwright, D1 and Cloudflare validation before the last integrity hardening.
 - [x] In-scope self-review fixed deterministic set serialization and invalid synthetic hash test construction.
-- [x] Added explicit missing outcome rejection + test.
-- [x] Added explicit requested-window isolation + test; corrected the synthetic Exhaustive parity history so its observations fall inside the requested interval.
-- [ ] True final-head `validate` after window-isolation/docs/roadmap commits: pending.
-- [ ] Final-head Vercel required check: pending.
+- [x] Added explicit missing-outcome rejection + test.
+- [x] Added explicit requested-window isolation + test; corrected the synthetic Exhaustive parity history so observations fall inside the requested interval.
+- [x] Added conflicting success/failure rejection + test.
+- [x] Added stale dataset-hash export rejection + mutation test.
 - [x] Pre-merge backup verified: `backup-pre-pr57-863039af8036` -> `863039af803671a8caf1d35074d038136ca2332a`.
-- [ ] Independent final diff review.
+- [ ] Final-head `validate` after the final integrity/test/doc/roadmap commits: pending.
+- [ ] Final-head Vercel required check: pending.
+- [ ] Independent final diff review after required checks.
 - [ ] Squash merge with expected final head.
 - [ ] Verify post-merge backup.
 - [ ] Doc-only Phase 1 closeout PR.
@@ -191,7 +196,8 @@ Create one reproducible framework-neutral research dataset contract over existin
 - [x] Contract versioned.
 - [x] Same valid inputs yield deterministic dataset hash; changed valid data changes the hash.
 - [x] Current Exhaustive preparation parity implemented on approved in-window synthetic histories.
-- [x] No silent membership/date mutation; missing outcome and out-of-window histories are rejected.
+- [x] No silent membership/date mutation; membership ambiguity and out-of-window histories are rejected.
+- [x] Stale-hash export is rejected after in-memory mutation.
 - [x] Existing production consumers intentionally unchanged.
 - [ ] Final-head required checks PASS.
 - [ ] Independent review PASS.
@@ -417,18 +423,19 @@ Do not mark a phase `CLOSED` until its exit gate and closeout record are complet
 - Inventoried TWD history/valuation/return-component/calendar and Exhaustive preparation semantics.
 - Added `ResearchDatasetV1`, service, contract docs, deterministic export/hash, daily/weekly/native/FX matrices and audits/fingerprints.
 - Added parity/reproducibility/outcome tests plus explicit requested-window isolation to prevent wider-history look-ahead leakage.
-- Earlier full regression head passed; true final-head validation is pending after the last window/documentation/roadmap commits.
+- Final in-scope integrity review additionally made membership outcomes XOR/fail-closed and made export reject stale hashes after mutation.
+- Implementation is now frozen; only final-head gates/review/merge/closeout remain.
 - No production consumer migration and no Phase 2 risk mathematics started.
 
 # 8. Exact resume point
 
 Current AI / next AI must remain on **Phase 1 only** until closeout:
 
-1. Obtain PR #57 true final head after the latest window/test/doc/roadmap commits.
-2. Verify changed files are limited to `apps/api/app/research/*`, `docs/research/RESEARCH_DATASET_V1.md`, `tests/test_research_dataset.py`, and this roadmap. No Scanner/Portfolio/Exhaustive production consumer should change.
+1. Obtain PR #57 final head after the latest integrity/test/doc/roadmap commits; do not add more functionality unless a required gate reveals an in-scope defect.
+2. Verify changed files remain limited to `apps/api/app/research/*`, `docs/research/RESEARCH_DATASET_V1.md`, `tests/test_research_dataset.py`, and this roadmap. No Scanner/Portfolio/Exhaustive production consumer should change.
 3. Pre-backup is already verified: `backup-pre-pr57-863039af8036` -> `863039af803671a8caf1d35074d038136ca2332a`.
-4. Wait for true final-head `validate` and `Vercel`; investigate failures only inside Phase 1.
-5. Perform independent final diff review. Confirm no covariance, API/UI, selection/sizing or production Exhaustive migration.
+4. Wait for final-head `validate` and `Vercel`; investigate failures only inside Phase 1.
+5. Perform independent final diff review. Confirm XOR membership outcomes, requested-window isolation, deterministic/stale-hash export integrity, Exhaustive parity, and no covariance/API/UI/selection/sizing/production-migration change.
 6. If clean, mark ready and squash merge with expected final head SHA.
 7. Verify `backup-post-pr57-<mergeSHA12>` points to the implementation merge.
 8. Create doc-only `docs/phase1-closeout` PR updating this file with final merge/check/review/backup evidence, known limitations and Phase 2 resume point.
