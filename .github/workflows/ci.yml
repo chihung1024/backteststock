@@ -71,3 +71,72 @@ jobs:
         run: npx wrangler d1 migrations apply backteststock-universe --local
       - name: Validate Cloudflare bundle
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+
+  temporary_wire_phase5_ui:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'phase5/clustering-redundancy'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      EXPECTED_PARENT_SHA: ee7bb0336edf3ae7041e7cb6b00aadfcd9b9ea52
+      TARGET_BRANCH: phase5/clustering-redundancy
+      TRIGGER_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Guard exact branch state
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          parent="$(git rev-parse HEAD^)"
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${current}" = "${TRIGGER_HEAD_SHA}"
+          test "${parent}" = "${EXPECTED_PARENT_SHA}"
+          test "${remote}" = "${current}"
+      - name: Wire Phase 5 read-only UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          results = Path("apps/portfolio-web/src/RefineryResults.tsx")
+          text = results.read_text(encoding="utf-8")
+          import_marker = '} from "./refineryTypes";\n\nconst MAX_FULL_CORRELATION_MATRIX_SYMBOLS'
+          import_replacement = '} from "./refineryTypes";\nimport { RefineryPhase5Results } from "./RefineryPhase5Results";\n\nconst MAX_FULL_CORRELATION_MATRIX_SYMBOLS'
+          if text.count(import_marker) != 1:
+              raise SystemExit("RefineryResults import marker mismatch")
+          text = text.replace(import_marker, import_replacement, 1)
+          render_marker = '      <Correlations response={response} />\n    </div>'
+          render_replacement = '      <Correlations response={response} />\n      <RefineryPhase5Results response={response} />\n    </div>'
+          if text.count(render_marker) != 1:
+              raise SystemExit("RefineryResults render marker mismatch")
+          results.write_text(text.replace(render_marker, render_replacement, 1), encoding="utf-8")
+
+          main = Path("apps/portfolio-web/src/main.tsx")
+          text = main.read_text(encoding="utf-8")
+          css_marker = 'import "./refinery.css";\nimport "./handoff.css";'
+          css_replacement = 'import "./refinery.css";\nimport "./refineryPhase5.css";\nimport "./handoff.css";'
+          if text.count(css_marker) != 1:
+              raise SystemExit("main CSS marker mismatch")
+          main.write_text(text.replace(css_marker, css_replacement, 1), encoding="utf-8")
+          PY
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' apps/portfolio-web/src/RefineryResults.tsx apps/portfolio-web/src/main.tsx | sort)"
+          test "${changed}" = "${expected}"
+      - name: Commit and push UI wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${remote}" = "${TRIGGER_HEAD_SHA}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/portfolio-web/src/RefineryResults.tsx apps/portfolio-web/src/main.tsx
+          git commit -m "feat: wire Phase 5 Refinery evidence panels"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
