@@ -1,6 +1,11 @@
 import worker from "./index.js";
 
 const EXHAUSTIVE_PREPARE_PATH = "/api/optimizer/exhaustive/prepare";
+const REFINERY_V1_PREFIX = "/api/v1/refinery/";
+const REFINERY_V1_ROUTES = new Map([
+  ["preflight", { method: "POST" }],
+  ["analyze", { method: "POST" }],
+]);
 const PORTFOLIO_V3_PREFIX = "/api/v3/portfolio/";
 const PORTFOLIO_V3_ROUTES = new Map([
   ["health", { method: "GET" }],
@@ -9,6 +14,7 @@ const PORTFOLIO_V3_ROUTES = new Map([
   ["backtests", { method: "POST" }],
 ]);
 const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
+const REFINERY_REQUEST_MAX_BYTES = 512 * 1024;
 const PORTFOLIO_REQUEST_MAX_BYTES = 512 * 1024;
 const API_TIMEOUT_MS = 240_000;
 
@@ -80,6 +86,56 @@ async function readBoundedBody(request, maximumBytes, requestId, message) {
     return jsonResponse({ error: message }, 413, requestId);
   }
   return body;
+}
+
+async function proxyRefineryV1(request, env) {
+  const requestId = crypto.randomUUID();
+  const incomingUrl = new URL(request.url);
+  const routeName = incomingUrl.pathname.slice(REFINERY_V1_PREFIX.length);
+  const route = REFINERY_V1_ROUTES.get(routeName);
+  if (!route) return jsonResponse({ error: "找不到 Refinery v1 API 路徑。" }, 404, requestId);
+  if (request.method !== route.method) {
+    return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+  }
+
+  const body = await readBoundedBody(
+    request,
+    REFINERY_REQUEST_MAX_BYTES,
+    requestId,
+    "Refinery v1 請求內容過大。",
+  );
+  if (body instanceof Response) return body;
+
+  const backendOrigin = validatedBackendOrigin(env, requestId);
+  if (backendOrigin instanceof Response) return backendOrigin;
+  const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
+  const headers = safeProxyHeaders(request, requestId, incomingUrl);
+  const clientIp = request.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("x-forwarded-for", clientIp);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    return sanitizedProxyResponse(response, requestId);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return jsonResponse({ error: "Refinery v1 服務回應逾時，請稍後重試。" }, 504, requestId);
+    }
+    console.error("Refinery v1 proxy failure", {
+      requestId,
+      message: String(error),
+    });
+    return jsonResponse({ error: "暫時無法連線至 Refinery v1 服務。" }, 502, requestId);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function proxyPortfolioV3(request, env) {
@@ -184,11 +240,14 @@ async function proxyExhaustivePrepare(request, env) {
   }
 }
 
-export { proxyExhaustivePrepare, proxyPortfolioV3 };
+export { proxyExhaustivePrepare, proxyPortfolioV3, proxyRefineryV1 };
 
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(REFINERY_V1_PREFIX)) {
+      return proxyRefineryV1(request, env);
+    }
     if (url.pathname.startsWith(PORTFOLIO_V3_PREFIX)) {
       return proxyPortfolioV3(request, env);
     }
