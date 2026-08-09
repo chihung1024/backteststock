@@ -30,8 +30,10 @@ def test_vercel_routes_use_deterministic_runtime_entrypoints():
 
     assert "api/index_v2.py" in builds
     assert "api/scan_v2.py" in builds
+    assert "api/refinery_v1.py" in builds
     assert "api/optimizer.py" not in builds
     assert routes["/api/scan"] == "api/scan_v2.py"
+    assert routes["/api/v1/refinery/(.*)"] == "api/refinery_v1.py"
     assert "/api/optimizer/(.*)" not in routes
     assert routes["/api/(.*)"] == "api/index_v2.py"
 

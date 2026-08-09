@@ -38,7 +38,7 @@ jobs:
         run: >-
           python -m compileall -q
           api/index.py api/index_v2.py api/metrics.py api/scan.py api/scan_v2.py
-          api/screener.py api/exhaustive_optimizer.py api/portfolio_v3.py
+          api/screener.py api/exhaustive_optimizer.py api/portfolio_v3.py api/refinery_v1.py
           apps/api/app
           scripts/update_universes.py
       - name: Lint Python
