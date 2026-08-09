@@ -39,7 +39,15 @@ The dataset preserves three distinct concepts:
 
 A partial dataset is valid research data, but `is_complete == false`. A consumer that requires every requested symbol must reject the partial dataset explicitly. It must not silently treat the resolved subset as the original requested universe.
 
+Every requested symbol must have exactly an explicit success or failure outcome. A requested symbol that appears in neither `histories` nor `failures` is rejected by the builder instead of being silently omitted.
+
 ## Date/calendar semantics
+
+### Requested-window isolation
+
+The service requests an inclusive `[start, end]` history interval from `TWDHistoryService`, and the pure builder independently validates that native adjusted close, FX-to-TWD levels, and TWD adjusted levels contain no observations outside that requested interval.
+
+This repeated guard is intentional. A future walk-forward or cached-history caller must not pass a wider history object into a narrower research window and accidentally include pre-window or post-window information. Wider histories must be explicitly sliced/re-fetched before dataset construction; they are not silently accepted or truncated by `ResearchDatasetV1`.
 
 ### Reference calendar
 
@@ -117,7 +125,7 @@ Dataset-level export also carries:
 
 ## Deterministic hash
 
-`dataset_hash` is SHA-256 over a canonical JSON representation of the full exportable dataset excluding the hash field itself. Dictionary keys are sorted, separators are canonical, non-finite numeric values serialize as JSON `null`, and dates are ISO strings.
+`dataset_hash` is SHA-256 over a canonical JSON representation of the full exportable dataset excluding the hash field itself. Dictionary keys are sorted, set/frozenset values are deterministically ordered, NumPy scalar types are normalized, separators are canonical, non-finite numeric values serialize as JSON `null`, and dates are ISO strings.
 
 The hash is intended to answer: "Are these research matrices + metadata exactly the same dataset under the same contract?"
 
@@ -133,7 +141,7 @@ Phase 1 does not expose this export through a public API and does not define ser
 
 Current Exhaustive production preparation remains unchanged in Phase 1.
 
-Parity tests must prove that, for the same complete histories:
+Parity tests prove, for the same complete in-window histories:
 
 - ResearchDataset daily TWD levels equal the current Exhaustive common TWD frame;
 - reference calendar and availability coverage semantics agree;
