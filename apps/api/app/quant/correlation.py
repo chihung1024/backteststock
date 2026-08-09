@@ -111,7 +111,6 @@ def downside_correlation(
         window=None,
         condition="benchmark_negative",
         threshold=0.0,
-        input_observations=len(frame),
     )
 
 
@@ -140,7 +139,6 @@ def stress_correlation(
         window=None,
         condition=f"benchmark_lower_tail_q{quantile:.12g}",
         threshold=threshold,
-        input_observations=len(frame),
     )
 
 
@@ -225,12 +223,20 @@ def _aligned_returns_and_benchmark(
     if not isinstance(benchmark_returns, pd.Series):
         raise TypeError("benchmark_returns must be a pandas Series")
     benchmark = pd.to_numeric(benchmark_returns, errors="coerce").astype(float)
+
+    benchmark_label = object()
     joined = pd.concat(
-        [frame, benchmark.rename("__risk_benchmark__")],
+        [frame, benchmark.rename(benchmark_label)],
         axis=1,
         join="inner",
-    ).replace([np.inf, -np.inf], np.nan).dropna(how="any")
-    return joined[frame.columns], joined["__risk_benchmark__"]
+    )
+    aligned_frame = joined[frame.columns].replace([np.inf, -np.inf], np.nan)
+    aligned_benchmark = joined[benchmark_label].replace([np.inf, -np.inf], np.nan)
+    finite_benchmark = aligned_benchmark.notna()
+    return (
+        aligned_frame.loc[finite_benchmark],
+        aligned_benchmark.loc[finite_benchmark],
+    )
 
 
 def _minimum_observations(value: int) -> int:
