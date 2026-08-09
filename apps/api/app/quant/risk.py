@@ -134,7 +134,7 @@ def effective_dimensions(
     if not math.isfinite(relative_tolerance) or relative_tolerance <= 0.0:
         raise ValueError("relative_tolerance must be positive and finite")
     symmetry_error = float(np.max(np.abs(value - value.T)))
-    tolerance = max(float(np.max(np.abs(value))), 1.0) * relative_tolerance
+    tolerance = _matrix_scale(value) * relative_tolerance
     if symmetry_error > tolerance:
         raise ValueError("matrix is not symmetric within tolerance")
 
@@ -190,4 +190,4 @@ def _validated_weights(weights: np.ndarray) -> np.ndarray:
 
 
 def _matrix_scale(matrix: np.ndarray) -> float:
-    return max(float(np.max(np.abs(matrix))), 1.0)
+    return max(float(np.max(np.abs(matrix))), _NUMERICAL_EPSILON)
