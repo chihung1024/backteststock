@@ -18,7 +18,9 @@ from .models import (
     RefineryRequest,
     RefineryWeightInput,
 )
-from .service import RefineryService
+from .phase5_service import Phase5RefineryService
+
+RefineryService = Phase5RefineryService
 
 __all__ = [
     "REFINERY_API_CONTRACT_VERSION",
@@ -37,5 +39,6 @@ __all__ = [
     "CONDITIONAL_MIN_OBSERVATIONS",
     "RefineryRequest",
     "RefineryWeightInput",
+    "Phase5RefineryService",
     "RefineryService",
 ]
