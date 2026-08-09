@@ -1,5 +1,15 @@
 .refinery-workspace .refinery-phase5-card {
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
+}
+
+.refinery-workspace .refinery-phase5-card .table-scroll {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
 .refinery-workspace .refinery-phase5-summary .summary-metric {
