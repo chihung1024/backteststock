@@ -54,3 +54,220 @@ jobs:
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
+
+  temporary_patch_phase4_closeout:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'docs/phase4-closeout'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      EXPECTED_BASE_SHA: e59c1402011c7e8c940f806e79c9ce4b0da3f47f
+      TARGET_BRANCH: docs/phase4-closeout
+      TRIGGER_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Guard exact branch state
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          parent="$(git rev-parse HEAD^)"
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${current}" = "${TRIGGER_HEAD_SHA}"
+          test "${parent}" = "${EXPECTED_BASE_SHA}"
+          test "${remote}" = "${current}"
+
+      - name: Patch persistent roadmap deterministically
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("to_do_update_list.md")
+          text = path.read_text(encoding="utf-8")
+
+          old_baseline = """- Phase 3 implementation PR: `#61` — `feat: add read-only Portfolio Refinery API`
+          - Phase 3 final implementation head: `4899199a50d01189904ef0842c5d5247afc4d09d`
+          - Phase 3 implementation merge: `6e18726dcc1383e0b839e4bd0bded46e720e2707`
+          - Phase 3 pre backup: `backup-pre-pr61-4cea3b18fdce`
+          - Phase 3 post backup: `backup-post-pr61-6e18726dcc13`
+          - Current phase state: **Phase 3 — PASS; becomes CLOSED when this doc-only closeout merges**
+          - Next implementation phase: **Phase 4 — Refinery Diagnostic UI**"""
+          new_baseline = """- Phase 4 implementation PR: `#63` — `feat: add read-only Portfolio Refinery diagnostic UI`
+          - Phase 4 final implementation head: `4439e4e721f8c93cc77161affbd5f24554de516f`
+          - Phase 4 implementation merge: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`
+          - Phase 4 pre backup: `backup-pre-pr63-17f0dd88aeae`
+          - Phase 4 post backup: `backup-post-pr63-e59c1402011c`
+          - Current phase state: **Phase 4 — PASS; becomes CLOSED when this doc-only closeout merges**
+          - Next implementation phase: **Phase 5 — Clustering & Redundancy**"""
+          if text.count(old_baseline) != 1:
+              raise SystemExit("baseline marker mismatch")
+          text = text.replace(old_baseline, new_baseline, 1)
+
+          old_arch = "- `apps/portfolio-web/` — Portfolio v3 production web source; Phase 4 may add a separate Refinery workspace but must preserve Portfolio workspace behavior."
+          new_arch = "- `apps/portfolio-web/` — Portfolio v3 plus a separate Phase 4 Refinery diagnostic workspace; Portfolio and Refinery persistence/API contracts remain isolated."
+          if text.count(old_arch) != 1:
+              raise SystemExit("architecture marker mismatch")
+          text = text.replace(old_arch, new_arch, 1)
+
+          api_ref = "- `docs/research/REFINERY_API_V1.md`"
+          ui_ref = "- `docs/research/REFINERY_UI_V1.md`"
+          if ui_ref not in text:
+              if text.count(api_ref) != 1:
+                  raise SystemExit("reference marker mismatch")
+              text = text.replace(api_ref, api_ref + "\n" + ui_ref, 1)
+
+          old_phase3_status = "## Phase 3 — Read-only Refinery API\n\n**Status: PASS; CLOSED when this closeout PR merges**"
+          new_phase3_status = "## Phase 3 — Read-only Refinery API\n\n**Status: CLOSED / PASS**"
+          if text.count(old_phase3_status) != 1:
+              raise SystemExit("Phase 3 status marker mismatch")
+          text = text.replace(old_phase3_status, new_phase3_status, 1)
+
+          old_phase3_exit = "- [ ] This doc-only closeout must merge; then Phase 3 is `CLOSED / PASS`."
+          new_phase3_exit = "- [x] Closeout PR `#62` merged as `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`; Phase 3 is `CLOSED / PASS`."
+          if text.count(old_phase3_exit) != 1:
+              raise SystemExit("Phase 3 exit marker mismatch")
+          text = text.replace(old_phase3_exit, new_phase3_exit, 1)
+
+          phase4_and_phase5_intro = r"## Phase 4 — Refinery Diagnostic UI\n.*?## Phase 5 — Clustering & Redundancy\n\n\*\*Status: PLANNED\*\*\n\n"
+          replacement = """## Phase 4 — Refinery Diagnostic UI
+
+**Status: PASS; CLOSED when this closeout PR merges**
+
+### Objective
+Add a separate deterministic read-only Refinery workspace that consumes Phase 3 diagnostics without changing Portfolio v3 behavior or introducing clustering, redundancy verdict, selection, sizing, optimization or OOS recommendation semantics.
+
+### Completed implementation — PR #63
+
+- [x] Added explicit workspace switch between Portfolio backtest and `持股精煉診斷` without iframe/modal shell.
+- [x] Added separate `RefineryWorkspaceModel` and persistence key `backteststock.refinery.workspace.v1`; existing Portfolio persisted model remains separate.
+- [x] Shared Portfolio model/handoff links force Portfolio mode so Scanner/Portfolio handoff behavior is unchanged.
+- [x] Added same-origin Refinery client isolated to `/api/v1/refinery/preflight` and `/api/v1/refinery/analyze`; Portfolio API client remains `/api/v3/portfolio/*` only.
+- [x] Candidate editor supports 2–100 normalized symbols, optional benchmark, optional explicit capital weights, date window and existing Phase 3 EWMA/stress settings.
+- [x] No hidden equal-weight portfolio is fabricated when weights are absent; portfolio risk is explicitly unavailable instead.
+- [x] Preflight is mandatory before analysis and preserves `ready` / `incomplete` / `insufficient_data` fail-closed semantics.
+- [x] Added data/reproducibility evidence, effective observations, structure/effective-dimension summary, Diversification Ratio and covariance stability/estimator-dispersion diagnostics.
+- [x] Added capital weight vs signed component risk contribution only when explicit weights exist; negative risk contribution remains signed rather than being silently converted to positive risk.
+- [x] Added tactical 63D, medium 252D, structural 156W, downside and stress correlation views; unavailable benchmark-conditioned views stay explicitly unavailable.
+- [x] Full matrix rendering is limited to <=20 assets; >20 assets render deterministic top-30 absolute-correlation pairs as presentation only, never as a redundancy verdict.
+- [x] Added responsive/mobile behavior with a 390px no-page-overflow browser gate.
+- [x] Loaded `refinery.css` into the Vite graph after existing Portfolio styles and scoped shared utility selectors under `.refinery-workspace` to prevent cascade into existing Portfolio UI.
+- [x] Added/strengthened focused Portfolio web CI path filters, Portfolio/Refinery source-contract tests and Phase 4 browser acceptance tests.
+- [x] Committed deterministic Vite production assets; final focused gate verifies rebuild parity with `git diff --exit-code -- package-lock.json public/portfolio`.
+- [x] Phase 5+ semantics remain absent: no clustering, redundancy verdict, KEEP/TRIM/REPLACE, marginal experiments, sizing, Exhaustive integration or OOS selection claim.
+
+### Defects found by independent review and root-caused
+
+1. **Stale production bundle** — Phase 4 TypeScript source compiled, but committed `public/portfolio` initially lagged the source. The fix was a deterministic locked-dependency Vite rebuild with generated-path allowlist and race guard; no minified asset was hand-edited.
+2. **Ambiguous Playwright labels** — desktop labels such as `Refinery 持股 1 代碼` also substring-matched the mobile label. E2E selectors were corrected with exact accessible-name matching; production UI was not distorted to satisfy a bad selector.
+3. **Acceptance-gate coverage gap** — formal browser evidence was missing for `incomplete`, `insufficient_data`, explicit-weight signed RC/DR, covariance diagnostics and all five correlation views. A dedicated Phase 4 contract E2E suite was added.
+4. **Focused CI omission** — Refinery E2E and source-contract files were not initially included in the focused Portfolio web workflow. Path filters and the source-contract command were extended so future Refinery-only changes cannot bypass the focused gate.
+5. **Orphan stylesheet** — `refinery.css` existed but was not in the Vite import graph. It is now imported from `main.tsx` after `styles.css`.
+6. **Contract-test substring false positives** — broad regexes incorrectly matched legal identifiers such as `RefineryWorkspaceModel` and `RefineryPreflightResponse`. Tests now guard exact import boundaries/whole legacy identifiers.
+7. **CSS cascade leakage after enabling the stylesheet** — generic names such as `.toggle-row` and `.weight-total` could override existing Portfolio classes because Refinery CSS loads later. Shared Refinery utilities are now scoped beneath `.refinery-workspace`, with a source-contract invariant preventing regression.
+
+### Final Phase 4 evidence
+
+- Implementation PR: `#63`.
+- Base SHA: `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`.
+- Final implementation head: `4439e4e721f8c93cc77161affbd5f24554de516f`.
+- Squash merge: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
+- Final PR-head CI run `31309682808`: PASS — Python **216/216**, Worker **47/47**, score **12/12**, Playwright **39/39**, Vercel config, D1 local migrations and Cloudflare dry-run all PASS.
+- Final PR-head Portfolio web CI run `31309682811`: PASS, including TypeScript/Vite build, Portfolio + Refinery source contracts and deterministic committed-asset parity.
+- Final PR-head Vercel required context: PASS.
+- Final Release Backup Gate on the final PR head: PASS.
+- Independent final audit: PASS, COMMENT review `4891193075`, with no remaining blocking finding.
+- Exact-head squash merge performed with expected head `4439e4e721f8c93cc77161affbd5f24554de516f`.
+- Merge-after-push main CI run `31309999532`: PASS.
+- Merge-after-push Portfolio web CI run `31309999527`: PASS.
+- Production Vercel status for merge SHA: PASS.
+- Production Cloudflare Worker deploy run `31309999511`: PASS, including D1 migrations, Worker/static assets, Russell 2000 smoke and Portfolio v3 smoke.
+- Pre backup: `backup-pre-pr63-17f0dd88aeae` -> `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`.
+- Post backup: `backup-post-pr63-e59c1402011c` -> `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
+- Temporary deterministic-build/roadmap helper workflows are not part of the final implementation diff.
+
+### Known limitations carried forward
+
+1. Phase 4 is diagnosis-only. It does not classify redundancy or tell the user to KEEP/TRIM/REPLACE any holding.
+2. Downside/stress correlation still depends on a usable benchmark; missing/failed benchmark remains explicit unavailable evidence rather than a fabricated zero or fallback.
+3. The >20-asset top-pair summary is a rendering/performance policy only, not a clustering or redundancy methodology.
+4. Phase 3 backend rate limiting remains best-effort/in-process rather than a globally distributed quota.
+5. No factor-implied relationship engine, economic-theme evidence, cluster stability, marginal experiment, sizing or OOS validation exists yet.
+6. No Scanner -> Refinery conversion/handoff is introduced; Portfolio handoff remains the existing contract.
+7. Historical correlation/effective-rank diagnostics are descriptive evidence and must not be promoted into future-performance claims in Phase 5.
+
+### Exit gate
+
+- [x] Separate Refinery workspace/model/storage implemented without overloading Portfolio v3 state.
+- [x] Existing Portfolio and shared handoff behavior preserved/tested.
+- [x] Preflight/analyze UI semantics preserve Phase 3 fail-closed behavior.
+- [x] Explicit-weight signed RC and no-weight unavailable behavior tested.
+- [x] Covariance/effective-dimension/correlation diagnostics rendered and tested.
+- [x] Large-matrix and 390px responsive gates PASS.
+- [x] Focused source-contract/E2E gates protect workspace/API/CSS isolation.
+- [x] Final PR-head CI, Portfolio web CI, Vercel and Release Backup Gates PASS.
+- [x] Independent final audit PASS.
+- [x] PR #63 exact-head squash merge.
+- [x] Post-merge backup verified.
+- [x] Merge-after-push main CI PASS.
+- [x] Production Vercel and Cloudflare deployment/smoke PASS.
+- [ ] This doc-only closeout must merge; then Phase 4 is `CLOSED / PASS`.
+
+---
+
+## Phase 5 — Clustering & Redundancy
+
+**Status: NEXT / NOT STARTED — begin only after this Phase 4 closeout merges**
+
+### Objective
+Add deterministic, traceable clustering and multi-evidence redundancy diagnosis on top of the existing ResearchDataset/Risk Mathematics/Refinery contracts, without crossing into marginal experiments, selection, sizing or future-performance recommendations.
+
+### First actions
+
+- [ ] Query latest protected `main` after this closeout; do not assume `e59c1402...` remains HEAD because closeout adds a documentation commit.
+- [ ] Confirm no unfinished Phase 4 implementation/closeout PR remains.
+- [ ] Read `AI_PROJECT_PLAYBOOK.md`, this roadmap, `REFINERY_API_V1.md`, `REFINERY_UI_V1.md`, ResearchDataset and Risk Mathematics contracts before designing Phase 5.
+- [ ] Freeze a Phase 5 clustering/redundancy methodology contract before runtime implementation; do not implement from UI intuition or a magic aggregate score.
+- [ ] Decide the canonical backend/pure-quant boundary for clustering and factor-implied relationship calculations before adding UI controls; browser code should render evidence, not become a second quantitative authority.
+- [ ] Preserve the Phase 4 UI/API fail-closed and workspace-isolation contracts.
+- [ ] Keep redundancy output descriptive as HIGH / MEDIUM / LOW / UNCERTAIN evidence; no KEEP/TRIM/REPLACE until the later validated selection phase.
+
+### Planned work
+
+"""
+          text, count = re.subn(phase4_and_phase5_intro, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit("Phase 4/5 section marker mismatch")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          changed="$(git diff --name-only)"
+          test "${changed}" = "to_do_update_list.md"
+          git diff --check
+
+      - name: Commit roadmap closeout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- to_do_update_list.md
+          git diff --cached --quiet && { echo "No roadmap change produced"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: record Phase 4 closure and Phase 5 handoff"
+
+      - name: Guard branch race and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${remote}" = "${TRIGGER_HEAD_SHA}"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
