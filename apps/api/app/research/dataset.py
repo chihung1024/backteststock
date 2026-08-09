@@ -1,7 +1,7 @@
 """Reproducible research dataset built from audited TWD asset histories.
 
 Phase 1 intentionally creates a framework-neutral data object without changing
-any production Scanner, Portfolio, or Exhaustive consumer.  The object preserves
+any production Scanner, Portfolio, or Exhaustive consumer. The object preserves
 requested membership and failures, makes calendar/coverage transformations
 explicit, and provides deterministic export/hash semantics for later Portfolio
 Refinery risk research.
@@ -50,7 +50,7 @@ class ResearchDataset:
 
     A dataset may be partial: `requested_symbols` always preserves the normalized
     requested order, while `resolved_symbols` and `failures` make missing assets
-    explicit.  Consumers that require a complete universe must enforce that
+    explicit. Consumers that require a complete universe must enforce that
     policy themselves instead of receiving a silently reduced dataset.
     """
 
@@ -138,6 +138,16 @@ def build_research_dataset(
         for symbol in requested
         if symbol in histories.failures
     }
+    unaccounted = [
+        symbol
+        for symbol in requested
+        if symbol not in histories.histories and symbol not in histories.failures
+    ]
+    if unaccounted:
+        raise ValueError(
+            "research histories contain requested symbols without an explicit "
+            "success/failure outcome: " + ", ".join(unaccounted)
+        )
 
     reference = _reference_calendar(histories.histories, resolved)
     masks = {
@@ -233,14 +243,14 @@ def _coverage_diagnostics(
 
     for symbol in requested:
         if symbol not in resolved:
-            failure = failures.get(symbol)
+            failure = failures[symbol]
             diagnostics[symbol] = {
                 "status": "unavailable",
                 "overall": 0.0,
                 "missing_days": reference_count,
                 "first_available_position": None,
                 "last_available_position": None,
-                "failure_stage": failure.stage if failure else "unknown",
+                "failure_stage": failure.stage,
             }
             continue
         mask = np.asarray(masks[symbol], dtype=bool)
@@ -293,7 +303,7 @@ def _weekly_last_actual(levels: pd.DataFrame) -> pd.DataFrame:
     """Use the last actual research date in each W-FRI period.
 
     We deliberately keep the source observation date rather than replacing it
-    with a future Friday label.  This prevents a mid-week research end date from
+    with a future Friday label. This prevents a mid-week research end date from
     being represented by a timestamp that had not occurred yet.
     """
 
@@ -432,7 +442,11 @@ def _finite_float(value: Any) -> float | None:
 
 
 def _json_safe(value: Any) -> Any:
-    if value is None or isinstance(value, (str, bool, int)):
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, int):
         return value
     if isinstance(value, (float, np.floating)):
         return _finite_float(value)
@@ -447,6 +461,8 @@ def _json_safe(value: Any) -> Any:
             str(key): _json_safe(item)
             for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
         }
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe(item) for item in sorted(value, key=repr)]
+    if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
     return str(value)
