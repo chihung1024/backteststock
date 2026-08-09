@@ -167,18 +167,29 @@ def test_research_dataset_hash_is_deterministic_and_data_sensitive():
     assert first.dataset_hash == second.dataset_hash
 
     changed_histories = dict(first_histories)
-    changed = _history("AAA", dates)
-    changed.valuation.adjusted_close_twd.iloc[-1] *= 1.01
-    changed.valuation.daily_returns.iloc[:] = (
-        changed.valuation.adjusted_close_twd.pct_change(fill_method=None).fillna(0.0)
-    )
-    changed_histories["AAA"] = changed
+    changed_histories["AAA"] = _history("AAA", dates, native_step=1.1)
     third = build_research_dataset(
         _partial(("AAA", "BBB"), changed_histories),
         start=date(2024, 1, 2),
         end=date(2024, 1, 15),
     )
     assert third.dataset_hash != first.dataset_hash
+
+
+def test_research_dataset_rejects_unaccounted_requested_symbol():
+    dates = pd.bdate_range("2024-01-02", periods=5)
+    partial = PartialTWDHistories(
+        requested=("AAA", "MISSING"),
+        histories={"AAA": _history("AAA", dates)},
+        failures={},
+    )
+
+    with pytest.raises(ValueError, match="explicit success/failure"):
+        build_research_dataset(
+            partial,
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 8),
+        )
 
 
 def test_research_dataset_service_fetches_once_and_keeps_history_outcomes():
