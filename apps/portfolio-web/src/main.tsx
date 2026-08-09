@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { applyPortfolioHandoff, installPortfolioHandoffUi } from "./handoff";
 import "./styles.css";
+import "./refinery.css";
 import "./handoff.css";
 
 const root = document.getElementById("root");
