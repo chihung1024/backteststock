@@ -89,8 +89,13 @@ class ResearchDataset:
         return self.daily_levels_twd.index[-1].date()
 
     def export_payload(self) -> dict[str, Any]:
-        """Return a JSON-safe snapshot suitable for durable research export."""
+        """Return a JSON-safe snapshot only when the stored hash still matches."""
 
+        current_hash = _dataset_hash(self)
+        if not self.dataset_hash or current_hash != self.dataset_hash:
+            raise ValueError(
+                "research dataset content changed after hash creation; rebuild the dataset"
+            )
         return _dataset_payload(self, include_hash=True)
 
 
@@ -132,6 +137,17 @@ def build_research_dataset(
         raise TypeError("histories must be PartialTWDHistories")
 
     requested = tuple(histories.requested)
+    overlapping = [
+        symbol
+        for symbol in requested
+        if symbol in histories.histories and symbol in histories.failures
+    ]
+    if overlapping:
+        raise ValueError(
+            "research histories contain requested symbols with both success and "
+            "failure outcomes: " + ", ".join(overlapping)
+        )
+
     resolved = tuple(symbol for symbol in requested if symbol in histories.histories)
     failures = {
         symbol: histories.failures[symbol]
