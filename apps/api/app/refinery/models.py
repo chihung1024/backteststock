@@ -11,7 +11,7 @@ from typing_extensions import Annotated
 from apps.api.app.data.history_service import normalize_symbol
 
 REFINERY_API_CONTRACT_VERSION = "refinery-v1"
-REFINERY_API_SCHEMA_VERSION = "refinery-v1-2026-08-09.1"
+REFINERY_API_SCHEMA_VERSION = "refinery-v1-2026-08-10.2"
 
 MIN_CANDIDATE_SYMBOLS = 2
 MAX_CANDIDATE_SYMBOLS = 100
