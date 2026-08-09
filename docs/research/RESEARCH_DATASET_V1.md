@@ -39,7 +39,7 @@ The dataset preserves three distinct concepts:
 
 A partial dataset is valid research data, but `is_complete == false`. A consumer that requires every requested symbol must reject the partial dataset explicitly. It must not silently treat the resolved subset as the original requested universe.
 
-Every requested symbol must have exactly an explicit success or failure outcome. A requested symbol that appears in neither `histories` nor `failures` is rejected by the builder instead of being silently omitted.
+Every requested symbol must have **exactly one** explicit outcome: success or failure. A requested symbol that appears in neither `histories` nor `failures` is rejected, and a symbol that appears in both is also rejected. The dataset therefore never resolves an ambiguous membership outcome by precedence or silent omission.
 
 ## Date/calendar semantics
 
@@ -131,9 +131,11 @@ The hash is intended to answer: "Are these research matrices + metadata exactly 
 
 Changing a level, failure, audit, requested membership/order, coverage/calendar output, or contract metadata changes the hash.
 
+`ResearchDataset` contains mutable pandas/NumPy objects for efficient research use, so `export_payload()` is deliberately fail-closed: it recomputes the current dataset hash and refuses export when the content no longer matches the hash recorded at construction time. Consumers must rebuild a dataset after mutation instead of exporting changed content with a stale identity.
+
 ## Export
 
-`ResearchDataset.export_payload()` returns a JSON-safe object containing daily/weekly TWD matrices, native/FX returns, audits, coverage, availability masks, methodology versions, and `datasetHash`.
+`ResearchDataset.export_payload()` returns a JSON-safe object containing daily/weekly TWD matrices, native/FX returns, audits, coverage, availability masks, methodology versions, and `datasetHash` **only when the current content still matches the stored hash**.
 
 Phase 1 does not expose this export through a public API and does not define server persistence. Later phases may serialize/compress it for durable user research snapshots after size/security review.
 
