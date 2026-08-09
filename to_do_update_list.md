@@ -1,68 +1,72 @@
 # BacktestStock Development Master Plan
 
-> This file is the persistent handoff index for the BacktestStock / Portfolio Refinery program. Every implementation PR must update this file before the phase or batch is considered complete.
+> Persistent execution/handoff index for `chihung1024/backteststock` and the Portfolio Refinery program. A phase/batch is not complete until this file records its status, evidence, limitations, and exact resume point.
 
 ## 1. Current baseline
 
-- Repository: `chihung1024/backteststock`
-- Current protected branch: `main`
-- Baseline `main` SHA before this roadmap PR: `9135bdd33a46afee4f4a12b9030ca4504114924f`
-- Last completed PR: `#52` — `chore: harden architecture governance before Portfolio Refinery`
-- Last verified pre-merge backup: `backup-pre-pr52-a0c640783dc9`
-- Last verified post-merge backup: `backup-post-pr52-9135bdd33a46`
-- Current governance ruleset: `main-protection`
-  - enforcement: `active`
+- Protected production branch: `main`
+- Current `main` before Phase 0: `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`
+- Last completed PR: `#53` — persistent development master roadmap
+- Last verified pre-merge backup: `backup-pre-pr53-9135bdd33a46`
+- Last verified post-merge backup: `backup-post-pr53-bc8ce721a829`
+- Governance ruleset: `main-protection`
+  - enforcement: active
   - target: default branch
-  - bypass actors: none
-  - branch deletion: blocked
-  - force/non-fast-forward push: blocked
-  - pull request required
-  - allowed merge method: squash only
-  - required checks: `validate` (GitHub Actions), `Vercel`
-- Current program status: **Phase -1 CLOSED / PASS**
-- Next program phase: **Phase 0 — Quant Authority Freeze**
+  - bypass list: empty
+  - deletion: blocked
+  - force/non-fast-forward pushes: blocked
+  - PR required
+  - squash only
+  - required checks: `validate` (GitHub Actions) + `Vercel`
+- Current phase: **Phase 0 — Quant Authority Freeze**
+- Current Phase 0 PR: `#54`
+- Phase 0 state: **VALIDATING**
+- Next phase after Phase 0 closes: **Phase 1 — ResearchDataset**
 
 ## 2. Mandatory execution discipline
 
-These rules apply to every phase below unless a phase explicitly states otherwise.
-
-1. Work in the approved phase order. Do not start a later phase before the current phase exit gate passes.
-2. Avoid unrelated refactors and feature expansion.
-3. Runtime-changing or quantitative-methodology changes must be made on a branch and merged by pull request.
-4. `main` must not be force-pushed or directly used for implementation work.
-5. Use squash merge with expected-head verification where supported.
-6. Use the generic `release-backup` gate for runtime-changing or quantitative-methodology PRs.
-7. Preserve explicit contract/methodology versioning when externally observable semantics change.
-8. No silent ticker deletion, date truncation, calendar substitution, or data-quality fallback.
-9. Keep research/exploration outputs separate from out-of-sample validation claims.
-10. Update this file in every implementation PR with:
-    - work completed;
-    - PR number;
-    - merge SHA;
-    - CI/result evidence;
-    - release backup tags when applicable;
+1. Execute phases in the approved order. Do not start a later phase before the current exit gate passes.
+2. Avoid unrelated refactors or feature expansion.
+3. Implementation and quantitative-methodology work must use a non-`main` branch and PR.
+4. Never force-push or use direct implementation commits on `main`.
+5. Use squash merge and expected-head verification where supported.
+6. Runtime-changing or quantitative-methodology PRs use the generic `release-backup` gate.
+7. Do not silently delete tickers, shorten requested dates, substitute calendars/currencies, backfill future data, or turn unavailable metrics into valid zeroes.
+8. Keep historical search/exploration separate from out-of-sample validation claims.
+9. Preserve explicit methodology/contract versions whenever externally observable semantics change.
+10. Update this file in every implementation PR with all information known before merge.
+11. Because the final squash SHA and post-merge backup do not exist until after merge, every phase-ending implementation PR is followed by a **doc-only closeout PR** that records:
+    - final merge SHA;
+    - post-merge backup tag;
+    - final CI/preview/review result;
     - known limitations;
+    - phase status `CLOSED / PASS` or `FAIL`;
     - exact next resume point.
-11. If a phase fails validation, keep the last valid production behavior and document the failure here before proceeding.
-12. A future AI should read this file first, then the referenced ADRs/docs, before making any project change.
+12. A phase is not `CLOSED` until that closeout record is merged.
+13. If validation fails, preserve the last valid production behavior, record the failure here, and fix only within the current phase.
+14. A future AI must read this file and the referenced authority docs before making changes.
 
-## 3. Architecture boundaries that must remain true
+## 3. Architecture boundaries
 
-- `apps/api/app/data/` is the shared TWD market-data / FX / valuation authority.
-- `apps/api/app/portfolio/` is the Portfolio v3 ledger and path-dependent portfolio-analysis authority.
-- `api/portfolio_v3.py` is the self-owned FastAPI Portfolio v3 production entrypoint.
-- Existing Flask routes remain compatibility surfaces until explicitly retired by a later approved phase.
-- `api/exhaustive_optimizer.py` is a full-period historical research/search engine, not an out-of-sample validation engine.
-- New Portfolio Refinery logic must not be added to legacy `api/index.py` or `api/optimizer.py`.
-- Portfolio v3 keeps its strict production portfolio boundary; Refinery is a separate research/diagnostic domain.
+- `apps/api/app/data/` — shared TWD market-data, FX, return-component and valuation authority.
+- `apps/api/app/portfolio/` — Portfolio v3 ledger and path-dependent portfolio-analysis authority.
+- `api/portfolio_v3.py` — production self-owned FastAPI Portfolio v3 entrypoint.
+- `api/index_v2.py`, `api/scan_v2.py`, `api/screener.py` — current compatibility/production entrypoints as documented.
+- `api/exhaustive_optimizer.py` — full-period historical research/search snapshot path, **not** an OOS validation engine.
+- `apps/portfolio-web/` — Portfolio v3 production web source.
+- New Refinery logic must not be added to legacy `api/index.py` or `api/optimizer.py`.
+- Portfolio v3 retains its strict production portfolio boundary; Refinery is a separate research/diagnostic domain.
 
-Primary architecture references:
+Primary references:
 
 - `docs/PHASE_MINUS1_GOVERNANCE.md`
 - `docs/adr/0001-runtime-and-quant-authority.md`
 - `docs/UNIFIED_TWD_CONTRACT.md`
 - `docs/METRICS_REPRODUCIBILITY.md`
 - `docs/EXHAUSTIVE_OPTIMIZER_V3.md`
+- `docs/quant/METRIC_AUTHORITY.md` (Phase 0 PR #54)
+- `docs/quant/RETURN_SEMANTICS.md` (Phase 0 PR #54)
+- `docs/quant/RISK_MODEL_POLICY.md` (Phase 0 PR #54)
 
 ---
 
@@ -72,106 +76,152 @@ Primary architecture references:
 
 **Status: CLOSED / PASS**
 
-### Objective
-Establish repository governance and one current architecture source of truth before new quantitative work.
+Completed:
 
-### Completed work
-- [x] Align root README with the deployed Cloudflare + Vercel Flask compatibility + FastAPI Portfolio v3 architecture.
-- [x] Align `apps/api/README.md` with completed Portfolio v3 FastAPI cutover.
-- [x] Align deployment runbook and production smoke description.
-- [x] Add explicit runtime inventory and classification.
-- [x] Add ADR 0001 for runtime and quantitative authority boundaries.
-- [x] Retire superseded PR19 and PR38 one-off backup workflows.
-- [x] Preserve the generic `.github/workflows/release-backups.yml` unchanged.
-- [x] Create and activate repository ruleset `main-protection`.
-- [x] Protect default branch from deletion and force/non-fast-forward push.
-- [x] Require PRs and squash-only merge.
-- [x] Require `validate` and `Vercel` status checks.
-- [x] Confirm bypass list is empty.
+- [x] Align documentation with deployed Cloudflare + Vercel compatibility + FastAPI Portfolio v3 architecture.
+- [x] Add runtime inventory and ADR 0001.
+- [x] Retire superseded PR19/PR38 one-off backup workflows.
+- [x] Keep generic Release Backup Gates as canonical backup mechanism.
+- [x] Create and activate `main-protection` ruleset.
+- [x] Block branch deletion and force/non-fast-forward pushes.
+- [x] Require PRs, squash-only merge, `validate`, and `Vercel`.
+- [x] Confirm bypass list empty.
 
-### Validation / evidence
-- PR: `#52`
-- Merge SHA: `9135bdd33a46afee4f4a12b9030ca4504114924f`
-- PR CI: passed
-- Vercel preview: passed
+Evidence:
+
+- PR `#52`
+- Merge `9135bdd33a46afee4f4a12b9030ca4504114924f`
+- CI: PASS
+- Vercel: PASS
 - Pre backup: `backup-pre-pr52-a0c640783dc9`
 - Post backup: `backup-post-pr52-9135bdd33a46`
-- GitHub API: `main` reports protected; ruleset `main-protection` reports enforcement `active`.
+- GitHub API verified ruleset active and `main` protected.
 
-### Known limitations
-- Classic branch-protection API fields may not mirror repository ruleset internals; the repository ruleset itself is the governance source of truth.
+---
 
-### Exit gate
-- [x] Governance protection active.
-- [x] Architecture documentation matches production runtime.
-- [x] No runtime/quantitative behavior change in Phase -1.
+## Continuity governance — persistent master roadmap
+
+**Status: CLOSED / PASS**
+
+- [x] Add root `to_do_update_list.md`.
+- [x] Require future implementation/closeout records.
+
+Evidence:
+
+- PR `#53`
+- Merge `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`
+- CI: PASS
+- Vercel: PASS
+- Pre backup: `backup-pre-pr53-9135bdd33a46`
+- Post backup: `backup-post-pr53-bc8ce721a829`
 
 ---
 
 ## Phase 0 — Quant Authority Freeze
 
-**Status: NEXT / NOT STARTED**
+**Status: VALIDATING — PR #54**
 
 ### Objective
-Prevent Scanner/legacy metrics, Portfolio v3 metrics, and future Refinery metrics from becoming three independent quantitative authorities.
+Prevent current Scanner/simple-value metrics, Portfolio v3 ledger metrics, Exhaustive exact metrics, legacy compatibility formulas, optimizer proxies, and future Refinery calculations from being confused as equivalent authorities.
 
-### Planned work
-- [ ] Inventory every current metric implementation and caller.
-- [ ] Document canonical return semantics and calculation contexts.
-- [ ] Define which quantities are genuinely shared primitives versus context-specific portfolio metrics.
-- [ ] Add `docs/quant/METRIC_AUTHORITY.md`.
-- [ ] Add `docs/quant/RETURN_SEMANTICS.md`.
-- [ ] Add `docs/quant/RISK_MODEL_POLICY.md`.
-- [ ] Build fixed synthetic parity fixtures covering CAGR, volatility, Sharpe, Sortino, beta, alpha, MDD, and historical tail risk where contexts are equivalent.
-- [ ] Compare `api/metrics.py` and `apps/api/app/portfolio/metrics.py` under identical return-series assumptions.
-- [ ] Record every intentional semantic difference; do not force parity across genuinely different contexts.
-- [ ] Define the future canonical shared quantitative primitive layer under `apps/api/app/quant/` without prematurely migrating production callers.
-- [ ] Add regression tests proving no production output changes in this phase unless an explicitly approved defect is found.
-- [ ] Update this master plan with results and exact Phase 1 entry conditions.
+### Work completed in PR #54
+
+- [x] Inventory current metric implementations and major production callers.
+- [x] Classify `api/metrics.py` as production simple-value metric authority.
+- [x] Classify `apps/api/app/portfolio/metrics.py` as Portfolio v3 path-dependent ledger metric authority.
+- [x] Classify `public/exhaustive-optimizer-core.js::simulateExactPortfolio()` as exact Exhaustive historical-search metric engine.
+- [x] Classify `api/index.py::calculate_metrics()` and `api/scan.py::calculate_metrics()` as legacy compatibility implementations, not current production metric authorities.
+- [x] Classify `public/optimizer-worker.js::proxyMetrics()` as a selection/search heuristic, not exact performance metrics.
+- [x] Document canonical return semantics and context boundaries.
+- [x] Add `docs/quant/METRIC_AUTHORITY.md`.
+- [x] Add `docs/quant/RETURN_SEMANTICS.md`.
+- [x] Add `docs/quant/RISK_MODEL_POLICY.md`.
+- [x] Define future shared primitive namespace conceptually under `apps/api/app/quant/` without migrating production callers.
+- [x] Add `tests/fixtures/quant_authority_v1.json` shared golden fixture.
+- [x] Add Python parity tests for `api.metrics` and equivalent no-flow Portfolio v3 ledger metrics.
+- [x] Add JavaScript parity test for Exhaustive exact metrics using the same fixture.
+- [x] Add the JavaScript parity test to existing CI scripts.
+- [x] Freeze shared definitions for arithmetic return, 252-day annualization, daily RF conversion, sample volatility, arithmetic Sharpe, lower-partial-moment Sortino, beta, Jensen alpha, and MDD.
+- [x] Record Portfolio v3 historical daily VaR/CVaR semantics.
+- [x] Record intentional context differences instead of forcing false parity.
+- [x] Update this master roadmap.
+
+### Important Phase 0 findings
+
+1. **CAGR day-count difference exists and is intentionally not changed in PR #54**:
+   - `api/metrics.py` and Exhaustive exact: `365.25` days/year.
+   - Portfolio v3 ledger metrics: `365.2425` days/year.
+   - Golden fixture records both results. Any later unification requires an explicit versioned migration.
+2. `api.metrics` with a benchmark intentionally computes its simple-value metrics on common price dates; Portfolio v3 computes standalone ledger performance independently and aligns the benchmark only for relative metrics. Parity is required only when calendars/contexts are actually equivalent.
+3. Legacy `api/scan.py` uses older CAGR-based Sharpe/Sortino/alpha semantics; production `/api/scan` routes to `api/scan_v2.py`, whose shared service uses `api.metrics`.
+4. Exhaustive backend prepares a signed TWD price snapshot; exact combination metrics are calculated in the browser engine.
+5. Optimizer proxy MDD and related proxy quantities are approximations for search acceleration and must never be promoted to exact performance metrics.
 
 ### Explicit non-goals
+
+- No production metric formula changes.
 - No Portfolio Refinery API/UI.
-- No covariance or clustering implementation.
-- No broad production metric refactor before parity is proven.
-- No optimizer behavior changes.
+- No ResearchDataset implementation.
+- No covariance/clustering implementation.
+- No optimizer behavior change.
+
+### Validation state
+
+- [x] Python compile/lint reached PASS in initial PR #54 CI run.
+- [x] New Python parity tests reached PASS in initial PR #54 CI run.
+- [x] New Node/Exhaustive parity test reached PASS in initial PR #54 CI run.
+- [x] Existing Worker/score tests reached PASS in initial PR #54 CI run.
+- [x] Portfolio web CI: PASS on initial PR #54 head.
+- [ ] Full CI final head: pending after this roadmap update.
+- [ ] Vercel required check: pending final head.
+- [ ] Pre-merge release backup: verify final PR base/head state.
+- [ ] Independent diff review.
+- [ ] Squash merge with expected head.
+- [ ] Post-merge backup verification.
+- [ ] Phase 0 doc-only closeout PR.
 
 ### Exit gate
-- [ ] Metric authority document accepted.
-- [ ] Shared-vs-context-specific metric definitions frozen.
-- [ ] Parity fixtures and tests pass.
-- [ ] Any differences are explicitly documented and reviewed.
-- [ ] Production behavior remains stable.
+
+- [x] Metric authority boundaries documented.
+- [x] Shared-vs-context-specific definitions frozen.
+- [x] Golden parity fixtures implemented.
+- [x] Known differences explicitly documented rather than silently normalized.
+- [ ] Final-head required checks pass.
+- [ ] Independent review passes.
+- [ ] PR #54 merged and post-backup verified.
+- [ ] Closeout record merged; then Phase 0 becomes `CLOSED / PASS`.
 
 ---
 
 ## Phase 1 — ResearchDataset
 
-**Status: PLANNED**
+**Status: PLANNED / BLOCKED UNTIL PHASE 0 CLOSEOUT**
 
 ### Objective
-Create one reproducible research data object used by future Refinery and, after parity validation, Exhaustive research paths.
+Create one reproducible research dataset contract consumed by future Refinery and, only after parity, Exhaustive research paths.
 
 ### Planned work
-- [ ] Define `ResearchDatasetV1` contract.
-- [ ] Include requested symbols and order.
-- [ ] Include requested and effective date ranges.
-- [ ] Include TWD price levels and daily TWD returns.
-- [ ] Include native returns and FX returns where available.
-- [ ] Include scanner/data coverage separately from matrix/effective observation coverage.
-- [ ] Include per-symbol corporate-action and FX audit metadata.
-- [ ] Include price/data fingerprints and methodology contract versions.
-- [ ] Include dataset-level deterministic hash.
-- [ ] Preserve explicit partial failures; never silently delete failed tickers.
-- [ ] Define synchronized weekly research returns for structural cross-market analysis.
-- [ ] Build parity tests against the current exhaustive snapshot/data-preparation path.
-- [ ] Do not switch Exhaustive production consumption until parity passes.
-- [ ] Define optional exportable research snapshot for reproducibility.
 
-### Exit gate
-- [ ] Dataset contract versioned.
-- [ ] Same inputs produce deterministic hashes.
-- [ ] Exhaustive preparation parity established on golden fixtures.
-- [ ] No silent membership/date changes.
+- [ ] Define/version `ResearchDatasetV1`.
+- [ ] Preserve requested symbol order and explicit per-symbol failures.
+- [ ] Store requested/effective date ranges.
+- [ ] Store TWD levels/daily returns.
+- [ ] Store native and FX return components where available.
+- [ ] Separate scanner coverage from matrix coverage/effective observations.
+- [ ] Carry corporate-action and FX audit metadata.
+- [ ] Carry source/methodology versions and per-series fingerprints.
+- [ ] Add deterministic dataset hash.
+- [ ] Define synchronized weekly TWD research returns for structural cross-market analysis.
+- [ ] Build golden parity against current Exhaustive snapshot/data preparation.
+- [ ] Do not switch Exhaustive production consumption until parity passes.
+- [ ] Define optional exportable research snapshot for durable reproducibility.
+
+Exit gate:
+
+- [ ] Contract versioned.
+- [ ] Same input yields deterministic hash.
+- [ ] Exhaustive preparation parity passes.
+- [ ] No silent membership/date mutation.
 
 ---
 
@@ -182,45 +232,25 @@ Create one reproducible research data object used by future Refinery and, after 
 ### Objective
 Implement validated pure quantitative primitives for portfolio structure analysis.
 
-### Planned work
+Planned work:
+
 - [ ] Covariance estimator interface.
 - [ ] Sample covariance diagnostic estimator.
-- [ ] Ledoit-Wolf shrinkage estimator with reference parity validation.
-- [ ] EWMA covariance sensitivity estimator.
-- [ ] Symmetry validation.
-- [ ] PSD/eigenvalue validation.
-- [ ] Condition-number / instability diagnostics.
-- [ ] Effective observation counts.
-- [ ] Estimator-dispersion diagnostics.
-- [ ] Portfolio volatility.
-- [ ] Marginal risk contribution (MRC).
-- [ ] Signed component risk contribution (RC).
-- [ ] Diversification Ratio.
-- [ ] Weight-effective holdings `1/sum(w^2)`.
-- [ ] Gross risk-contribution equivalent holdings using normalized `abs(RC)` with signed RC retained separately.
-- [ ] Correlation effective rank.
-- [ ] Covariance effective rank.
-- [ ] Tactical daily correlation.
-- [ ] Medium-horizon daily correlation.
-- [ ] Structural synchronized weekly correlation.
-- [ ] Downside/stress correlation with minimum-observation guardrails.
-- [ ] Confidence/observation metadata.
-- [ ] Mathematical invariant tests.
-- [ ] Metamorphic tests.
-- [ ] Golden numerical fixtures.
+- [ ] Ledoit-Wolf shrinkage estimator with reference parity.
+- [ ] EWMA sensitivity estimator.
+- [ ] Symmetry, PSD/eigenvalue, condition-number and estimator-dispersion diagnostics.
+- [ ] Effective observation metadata.
+- [ ] Portfolio volatility, MRC, signed RC, Diversification Ratio.
+- [ ] Weight-effective holdings.
+- [ ] Gross risk-contribution equivalent holdings while retaining signed RC.
+- [ ] Correlation effective rank and covariance effective rank.
+- [ ] Tactical daily, medium daily, structural synchronized-weekly correlations.
+- [ ] Downside/stress correlation with minimum-observation and uncertainty guards.
+- [ ] Golden numerical fixtures, mathematical invariants, metamorphic tests.
 
-### Required invariants
-- [ ] Covariance symmetric within tolerance.
-- [ ] Portfolio variance non-negative within numerical tolerance.
-- [ ] `sum(RC) == portfolio volatility` within tolerance.
-- [ ] Asset-order permutation does not change portfolio-level results.
-- [ ] Duplicate identical assets do not create artificial diversification.
-- [ ] Valid hedge behavior is preserved; negative signed RC is not hidden.
+Required invariants include covariance symmetry, non-negative variance within tolerance, `sum(RC)=portfolio volatility`, permutation invariance, no fake diversification from duplicate assets, and preserved negative hedge RC.
 
-### Exit gate
-- [ ] Reference parity and invariants pass.
-- [ ] Numerical edge cases documented.
-- [ ] No API/UI yet.
+Exit gate: reference parity + invariants pass; no API/UI yet.
 
 ---
 
@@ -228,30 +258,16 @@ Implement validated pure quantitative primitives for portfolio structure analysi
 
 **Status: PLANNED**
 
-### Objective
-Expose diagnosis-only Portfolio Refinery analysis without recommendation semantics.
+- [ ] Separate Refinery/research namespace; do not overload Portfolio v3 ledger contract.
+- [ ] `preflight` and `analyze` only.
+- [ ] Approved candidate-pool boundary target: up to 100 symbols.
+- [ ] Strict request/history/computation/rate/response-size guards.
+- [ ] Explicit per-symbol failures; no silent membership changes.
+- [ ] Return structure/risk diagnosis, covariance diagnostics, effective dimensions, data quality, reproducibility.
+- [ ] Fixed Worker allowlist.
+- [ ] Security/performance tests.
 
-### Planned work
-- [ ] Create separate Refinery/research API namespace; do not overload Portfolio v3 ledger contract.
-- [ ] `preflight` endpoint.
-- [ ] `analyze` endpoint.
-- [ ] Up to approved candidate-pool boundary (target design: 100 symbols).
-- [ ] Strict request-size and history-period guards.
-- [ ] Dedicated computation/rate guard.
-- [ ] Explicit per-symbol failure reporting.
-- [ ] No silent membership modification.
-- [ ] Response: summary, capital/risk weights, diversification, correlations, covariance diagnostics, effective dimensions, data quality, reproducibility metadata.
-- [ ] Fixed Worker allowlist routes.
-- [ ] Performance/response-size tests.
-- [ ] Security and abuse tests.
-
-### Explicit non-goals
-- No BUY/SELL/TRIM/REPLACE recommendations.
-- No sizing.
-
-### Exit gate
-- [ ] API contract frozen and versioned.
-- [ ] Full CI/security/performance gates pass.
+Non-goal: no BUY/SELL/TRIM/REPLACE or sizing.
 
 ---
 
@@ -259,25 +275,18 @@ Expose diagnosis-only Portfolio Refinery analysis without recommendation semanti
 
 **Status: PLANNED**
 
-### Objective
-Add a dedicated read-only Portfolio Refinery workspace without overloading existing Portfolio result tabs.
-
-### Planned work
-- [ ] Separate `RefineryWorkspaceModel` from `PortfolioWorkspaceModel`.
-- [ ] Separate persisted state/schema version.
-- [ ] Add workspace switch: portfolio backtest vs holding refinement.
-- [ ] Portfolio structure summary.
+- [ ] Separate `RefineryWorkspaceModel` and persisted schema from Portfolio workspace.
+- [ ] Workspace switch: Portfolio backtest / holding refinement.
+- [ ] Structure summary.
 - [ ] Capital weight vs signed risk contribution.
-- [ ] Effective-holdings diagnostics.
+- [ ] Effective holdings/risk dimensions.
 - [ ] Diversification Ratio.
 - [ ] Tactical/structural/downside/stress correlation views.
-- [ ] Data-confidence and effective-observation display.
-- [ ] Covariance-estimator stability display.
-- [ ] Large-matrix rendering/performance guard.
+- [ ] Data confidence/effective observations.
+- [ ] Covariance stability diagnostics.
+- [ ] Large-matrix rendering guard.
 
-### Exit gate
-- [ ] Read-only diagnosis is understandable and deterministic.
-- [ ] Existing Portfolio UI behavior unchanged.
+Exit gate: deterministic read-only diagnosis; existing Portfolio UI unchanged.
 
 ---
 
@@ -285,26 +294,16 @@ Add a dedicated read-only Portfolio Refinery workspace without overloading exist
 
 **Status: PLANNED**
 
-### Objective
-Detect repeated risk exposures without collapsing the result into a single opaque score.
-
-### Planned work
-- [ ] Hierarchical clustering with correlation distance.
-- [ ] Average linkage default.
-- [ ] Complete-linkage sensitivity comparison.
-- [ ] Multi-window cluster stability.
-- [ ] Bootstrap same-cluster stability.
+- [ ] Correlation-distance hierarchical clustering.
+- [ ] Average linkage default; complete-linkage sensitivity.
+- [ ] Multi-window and bootstrap cluster stability.
 - [ ] Asset-level factor diagnostics where valid.
-- [ ] Prefer factor-implied covariance/correlation over simple beta-vector cosine as the primary factor-overlap statistic.
+- [ ] Prefer factor-implied covariance/correlation to simple beta-vector cosine for factor-overlap evidence.
 - [ ] Treat U.S. Fama-French factors as secondary evidence outside U.S. equities.
-- [ ] Add economic-theme overlay only as traceable read-only metadata in this phase.
-- [ ] Redundancy evidence stack: price, downside, stress, factor, theme, confidence.
-- [ ] Verdict classes: HIGH / MEDIUM / LOW / UNCERTAIN.
-- [ ] Do not introduce a magic 0-100 redundancy score.
-
-### Exit gate
-- [ ] Cluster/redundancy results stable on controlled fixtures.
-- [ ] Uncertainty is visible when samples are insufficient.
+- [ ] Economic-theme overlay remains traceable/read-only in this phase.
+- [ ] Evidence stack: price, downside, stress, factor, theme, confidence.
+- [ ] Verdicts: HIGH / MEDIUM / LOW / UNCERTAIN.
+- [ ] No magic 0–100 redundancy score.
 
 ---
 
@@ -312,25 +311,13 @@ Detect repeated risk exposures without collapsing the result into a single opaqu
 
 **Status: PLANNED**
 
-### Objective
-Quantify portfolio changes caused by explicit remove/add/replace counterfactuals.
-
-### Planned work
-- [ ] Remove-One experiment.
-- [ ] Add-One experiment.
-- [ ] Replace-One experiment.
-- [ ] Explicit funding policy for every experiment:
-  - pro-rata survivors;
-  - cash;
-  - cluster champion;
-  - selected replacement.
-- [ ] Recompute volatility, CVaR diagnostics, DR, effective counts/ranks, risk concentration, and cluster exposure.
-- [ ] Preserve historical/diagnostic semantics; do not imply future alpha.
-- [ ] Add clear before/after decomposition.
-
-### Exit gate
-- [ ] Counterfactual funding assumptions are never implicit.
-- [ ] Results reproduce from dataset + policy + version metadata.
+- [ ] Remove-One.
+- [ ] Add-One.
+- [ ] Replace-One.
+- [ ] Every experiment must state funding policy: pro-rata survivors / cash / cluster champion / selected replacement.
+- [ ] Recompute volatility, CVaR diagnostics, DR, effective counts/ranks, risk/cluster concentration.
+- [ ] Clear before/after decomposition.
+- [ ] Historical diagnostic semantics only; no implied future alpha.
 
 ---
 
@@ -338,27 +325,18 @@ Quantify portfolio changes caused by explicit remove/add/replace counterfactuals
 
 **Status: PLANNED**
 
-### Objective
-Separate historical search from genuine out-of-sample evidence.
-
-### Planned work
-- [ ] Trial registry for every model/policy configuration tested.
+- [ ] Trial registry for every model/policy configuration.
 - [ ] Fixed-candidate-universe anchored walk-forward V1.
 - [ ] Training-only refinement/selection.
 - [ ] Never-seen forward evaluation windows.
 - [ ] Turnover and transaction-cost accounting.
-- [ ] Compare original vs refined portfolios on OOS metrics.
-- [ ] Track number of trials and selection breadth.
-- [ ] Add Probabilistic/Deflated Sharpe diagnostics where appropriate.
-- [ ] Evaluate PBO/CSCV only if the research grid becomes large enough to justify it.
-- [ ] Clearly label fixed-universe survivorship limitation.
+- [ ] OOS original-vs-refined comparison.
+- [ ] Track trial count/selection breadth.
+- [ ] Probabilistic/Deflated Sharpe where appropriate.
+- [ ] PBO/CSCV only if search grid is large enough to justify it.
+- [ ] Explicit fixed-universe survivorship limitation.
 
-### Explicit non-goals
-- No claim of point-in-time Universe validity before Phase 11 data exists.
-
-### Exit gate
-- [ ] Training and OOS boundaries are mechanically enforced.
-- [ ] Research trial history is reproducible.
+Non-goal: no point-in-time Universe claim before Phase 11.
 
 ---
 
@@ -366,23 +344,15 @@ Separate historical search from genuine out-of-sample evidence.
 
 **Status: PLANNED**
 
-### Objective
-Convert validated structural and marginal evidence into a stable selection policy.
-
-### Planned work
-- [ ] Define cluster tournament policy.
-- [ ] Greedy selection with full marginal recomputation after each addition.
+- [ ] Cluster tournament policy.
+- [ ] Greedy selection with marginal utility recomputed after each addition.
 - [ ] Pairwise swap search.
-- [ ] Replacement hurdle / hysteresis to reduce churn.
-- [ ] Stop based on diminishing marginal benefit rather than a hard-coded optimal holding count.
-- [ ] Generate N-vs-efficiency curve.
-- [ ] Record selection frequency across OOS windows.
+- [ ] Replacement hurdle/hysteresis.
+- [ ] Stop on diminishing marginal benefit, not hard-coded holding count.
+- [ ] N-vs-efficiency curve.
+- [ ] OOS selection-frequency/stability reporting.
 - [ ] Only after validation expose KEEP / TRIM / REPLACE semantics.
-- [ ] Keep historical price-derived alpha explicitly labeled as historical proxy unless forward information is valid.
-
-### Exit gate
-- [ ] Selection policy improves or preserves predefined OOS objectives with acceptable turnover.
-- [ ] No full-period search result is promoted directly to recommendation.
+- [ ] Historical price-derived alpha remains labelled historical proxy unless forward data are valid.
 
 ---
 
@@ -390,24 +360,19 @@ Convert validated structural and marginal evidence into a stable selection polic
 
 **Status: PLANNED**
 
-### Objective
-Compare robust allocation methods after constituent selection has been validated.
+Compare under the same OOS framework:
 
-### Planned work
-- [ ] Equal weight baseline.
+- [ ] Equal weight.
 - [ ] Inverse volatility.
 - [ ] Equal Risk Contribution.
 - [ ] HRP benchmark.
 - [ ] Ledoit-Wolf minimum variance.
 - [ ] Constrained risk budget.
-- [ ] User-configurable capital/risk/cluster constraints.
-- [ ] Deterministic optimizer settings/multi-start where needed.
-- [ ] Safe fallback when numerical optimization fails.
-- [ ] OOS comparison of CAGR, vol, Sharpe, Sortino, MDD, Calmar, CVaR, turnover, DR, effective ranks.
-- [ ] Do not designate HRP or any optimizer as default winner before evidence.
+- [ ] User-visible capital/risk/cluster constraints.
+- [ ] Deterministic optimizer/multi-start policy and safe fallback.
+- [ ] OOS CAGR, vol, Sharpe, Sortino, MDD, Calmar, CVaR, turnover, DR and effective-rank comparison.
 
-### Exit gate
-- [ ] Sizing recommendation is based on OOS evidence, not in-sample fit.
+No method, including HRP, is the default winner before evidence.
 
 ---
 
@@ -415,19 +380,12 @@ Compare robust allocation methods after constituent selection has been validated
 
 **Status: PLANNED**
 
-### Objective
-Allow Refinery to reduce the search space before Exhaustive optimization without leaking future information.
-
-### Planned work
-- [ ] Training window: ResearchDataset -> Refinery -> candidate reduction -> Exhaustive search.
+- [ ] Training window only: ResearchDataset -> Refinery -> candidate reduction -> Exhaustive search.
 - [ ] Freeze selected portfolio/policy before OOS evaluation.
-- [ ] Never run full-period Refinery + Exhaustive and present the winner as forward evidence.
-- [ ] Track combination count/trial count for multiple-testing diagnostics.
-- [ ] Benchmark refined/exhaustive pipeline against simpler non-exhaustive baselines.
-
-### Exit gate
-- [ ] Mechanically enforced training/OOS separation.
-- [ ] No leakage through candidate preparation, tuning, or validation.
+- [ ] Never present full-period Refinery + Exhaustive winner as forward evidence.
+- [ ] Track trial/combination counts for multiple-testing diagnostics.
+- [ ] Benchmark against simpler non-exhaustive policies.
+- [ ] Mechanically enforce training/OOS separation for candidate preparation, tuning and evaluation.
 
 ---
 
@@ -435,86 +393,79 @@ Allow Refinery to reduce the search space before Exhaustive optimization without
 
 **Status: PLANNED**
 
-### Objective
-Add genuinely historical constituent/fundamental information so the platform can test alpha-oriented selection without look-ahead or survivorship shortcuts.
-
-### Planned work
 - [ ] Point-in-time Universe membership with effective dates.
-- [ ] Historical delisting/membership handling as data permits.
+- [ ] Historical delisting/membership handling as data permit.
 - [ ] Point-in-time fundamentals.
-- [ ] Point-in-time analyst/revision data if a valid licensed source is available.
+- [ ] Point-in-time analyst/revision data only from valid/licensed source.
 - [ ] Revenue/EPS/FCF/ROIC/balance-sheet/valuation dimensions.
 - [ ] Traceable economic-factor taxonomy with source/effective date/confidence.
-- [ ] Never allow current fundamentals to enter historical backtests.
-- [ ] Re-run walk-forward validation with true time-valid information.
+- [ ] Never inject current fundamentals into historical backtests.
+- [ ] Re-run walk-forward with time-valid information.
 
-### Exit gate
-- [ ] Data provenance and effective dates are sufficient to substantiate point-in-time claims.
+Exit gate: provenance/effective dates support actual point-in-time claims.
 
 ---
 
 # 5. Cross-phase validation matrix
 
-Every applicable PR should report these categories explicitly.
-
 | Validation | Requirement |
 | --- | --- |
-| Existing regression suite | Must pass |
-| Python lint/compile/tests | Must pass when Python touched |
-| Worker tests | Must pass when routing/proxy touched |
-| Portfolio web type/build/source-contract tests | Must pass when Portfolio web touched |
-| Browser E2E | Must pass for user-flow changes |
-| Vercel config/preview | Must pass when deployment surface is affected |
-| D1 migration validation | Must pass when D1 touched |
-| Cloudflare dry-run | Must pass when Worker/static deployment touched |
-| Quant golden fixtures | Required from Phase 0/2 as applicable |
-| Mathematical invariants/metamorphic tests | Required from Phase 2 onward as applicable |
+| Existing regression suite | Pass |
+| Python compile/lint/tests | Pass when Python touched |
+| Worker/Node tests | Pass when JS/routing/optimizer touched |
+| Portfolio web type/build/source-contract tests | Pass when Portfolio web touched |
+| Browser E2E | Pass for user-flow changes and full regression gate |
+| Vercel required check | Pass |
+| D1 migration validation | Pass when D1 touched / full CI requires it |
+| Cloudflare dry-run | Pass when Worker/static deployment touched / full CI requires it |
+| Quant golden fixtures | Required from Phase 0 onward where applicable |
+| Mathematical invariants/metamorphic tests | Required from Phase 2 onward |
 | OOS/walk-forward evidence | Required for recommendation claims from Phase 7 onward |
-| Pre/post Release backup | Required for runtime/quant methodology PRs |
+| Pre/post Release backup | Required for runtime/quant-methodology PRs |
 | Independent diff review | Required before merge |
-| `to_do_update_list.md` update | Required before phase/batch completion |
+| `to_do_update_list.md` update | Required in implementation PR and phase closeout |
 
 # 6. Status vocabulary
 
-Use only these status labels for phases/tasks where practical:
+Use: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `VALIDATING`, `PASS`, `FAIL`, `CLOSED`, `DEFERRED`.
 
-- `NOT STARTED`
-- `IN PROGRESS`
-- `BLOCKED`
-- `VALIDATING`
-- `PASS`
-- `FAIL`
-- `CLOSED`
-- `DEFERRED`
-
-Do not mark a phase `CLOSED` until its explicit exit gate has passed.
+Do not mark a phase `CLOSED` until its exit gate and closeout record are complete.
 
 # 7. Execution log
 
-## 2026-08-09 — Phase -1 completed
+## 2026-08-09 — Phase -1 / PR #52
 
-- Completed governance and architecture hardening in PR `#52`.
-- Merged with squash to `main` SHA `9135bdd33a46afee4f4a12b9030ca4504114924f`.
-- Full PR CI passed.
-- Vercel preview passed.
-- Pre/post Release backups verified.
-- Repository ruleset `main-protection` created and activated after PR #52.
-- GitHub API verified the ruleset targets the default branch, has no bypass actors, blocks deletion/non-fast-forward pushes, requires PRs, permits squash only, and requires `validate` + `Vercel` checks.
-- Phase -1 status changed to `CLOSED / PASS`.
-- Next implementation phase: Phase 0 — Quant Authority Freeze.
+- Governance and architecture hardening completed.
+- Squash merge: `9135bdd33a46afee4f4a12b9030ca4504114924f`.
+- CI/Vercel PASS; pre/post backups verified.
+- `main-protection` later activated and API-verified.
 
-## 2026-08-09 — Persistent master roadmap requested
+## 2026-08-09 — Persistent roadmap / PR #53
 
-- Added requirement that every future implementation PR update this file with result evidence and the exact resume point.
-- This roadmap PR is documentation/governance continuity only; it does not modify runtime or quantitative behavior.
+- Added root persistent execution/handoff index.
+- Squash merge: `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`.
+- CI/Vercel PASS; pre/post backups verified.
 
-# 8. Current resume point for the next AI
+## 2026-08-09 — Phase 0 / PR #54
 
-1. Read this file completely.
-2. Read `docs/PHASE_MINUS1_GOVERNANCE.md` and `docs/adr/0001-runtime-and-quant-authority.md`.
-3. Confirm the latest `main` SHA and that `main-protection` is still active.
-4. Confirm there is no unfinished earlier-phase PR.
-5. Start **Phase 0 — Quant Authority Freeze** only.
-6. First Phase 0 action should be inventory/retrieval of existing metric implementations and their callers before changing code.
-7. Do **not** begin ResearchDataset, covariance, Refinery API/UI, clustering, selection, sizing, or Exhaustive integration until the corresponding earlier exit gates pass.
-8. Update this file in the Phase 0 PR before marking Phase 0 complete.
+- Inventory identified five semantic classes: production simple-value, Portfolio ledger, Exhaustive exact, legacy compatibility, optimizer proxy.
+- Added three authority/semantics/risk-policy docs.
+- Added one shared cross-language golden fixture.
+- Added Python simple-value/Portfolio parity tests and JS Exhaustive exact parity test.
+- Preserved the existing 365.25 vs 365.2425 CAGR difference as an explicit versioned finding rather than silently modifying production.
+- Initial PR head reached PASS for Python tests, Node/Worker tests, score tests, and Portfolio web CI; final-head full CI/Vercel still required after this roadmap commit.
+- PR #54 remains `VALIDATING`; no Phase 1 work has started.
+
+# 8. Exact resume point
+
+Current AI / next AI must:
+
+1. Stay on **Phase 0 only**.
+2. Wait for PR #54 final-head `validate` and `Vercel` checks.
+3. Verify the PR #54 pre-merge backup points to the current protected `main` base.
+4. Independently inspect the final diff; reject any production-formula/API/UI/covariance/clustering change.
+5. If clean, mark ready and squash merge with expected head SHA.
+6. Verify the PR #54 post-merge backup points to the merge SHA.
+7. Open a **doc-only Phase 0 closeout PR** updating this file with final merge SHA, post-backup tag, review/CI evidence, known limitations, `Phase 0 CLOSED / PASS`, and `Phase 1` as the next resume point.
+8. Only after that closeout PR merges may Phase 1 — ResearchDataset begin.
+9. Do **not** start covariance, Refinery API/UI, clustering, selection, sizing, or Exhaustive integration early.
