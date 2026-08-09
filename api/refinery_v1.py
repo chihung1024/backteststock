@@ -35,7 +35,10 @@ from apps.api.app.refinery import (  # noqa: E402
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 REFINERY_PREFIX = "/api/v1/refinery/"
 
@@ -100,7 +103,9 @@ def _secure_response(response: Response, request_id: str) -> Response:
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=()"
+    )
     response.headers["X-Refinery-API-Schema-Version"] = REFINERY_API_SCHEMA_VERSION
     response.headers["X-Request-Id"] = request_id
     return response
@@ -157,6 +162,17 @@ def _client_key(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     fallback = request.client.host if request.client else "unknown"
     return forwarded.split(",")[0].strip() or fallback
+
+
+def _upstream_failure(exc: RuntimeError, *, request_id: str) -> Response:
+    logger.warning("Refinery upstream failure request_id=%s: %s", request_id, exc)
+    return _error_response(
+        502,
+        "upstream_failure",
+        "Refinery market-data service is temporarily unavailable.",
+        request_id=request_id,
+        retryable=True,
+    )
 
 
 @app.middleware("http")
@@ -236,13 +252,7 @@ async def preflight(payload: RefineryRequest, request: Request) -> Response:
             request_id=request_id,
         )
     except RuntimeError as exc:
-        return _error_response(
-            502,
-            "upstream_failure",
-            str(exc),
-            request_id=request_id,
-            retryable=True,
-        )
+        return _upstream_failure(exc, request_id=request_id)
 
 
 @app.post("/api/v1/refinery/analyze")
@@ -259,13 +269,7 @@ async def analyze(payload: RefineryRequest, request: Request) -> Response:
             request_id=request_id,
         )
     except RuntimeError as exc:
-        return _error_response(
-            502,
-            "upstream_failure",
-            str(exc),
-            request_id=request_id,
-            retryable=True,
-        )
+        return _upstream_failure(exc, request_id=request_id)
 
 
 @app.exception_handler(RequestValidationError)
