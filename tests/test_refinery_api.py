@@ -109,7 +109,9 @@ def test_refinery_api_rejects_declared_oversized_request(monkeypatch) -> None:
     assert response.json()["error"]["code"] == "request_too_large"
 
 
-def test_refinery_api_fails_closed_when_serialized_response_is_too_large(monkeypatch) -> None:
+def test_refinery_api_fails_closed_when_serialized_response_is_too_large(
+    monkeypatch,
+) -> None:
     class HugeService(FakeRefineryService):
         def analyze(self, payload):
             return {"data": "x" * (MAX_RESPONSE_BYTES + 1)}
@@ -138,6 +140,23 @@ def test_refinery_api_rate_limit_is_explicit(monkeypatch) -> None:
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "rate_limit"
     assert second.json()["error"]["retryable"] is True
+
+
+def test_refinery_api_sanitizes_upstream_runtime_failure(monkeypatch) -> None:
+    secret = "internal-provider-detail-do-not-expose"
+
+    class FailingService(FakeRefineryService):
+        def preflight(self, payload):
+            raise RuntimeError(secret)
+
+    client = _client(monkeypatch, FailingService())
+    response = client.post("/api/v1/refinery/preflight", json=_payload())
+
+    assert response.status_code == 502
+    body = response.json()
+    assert body["error"]["code"] == "upstream_failure"
+    assert body["error"]["retryable"] is True
+    assert secret not in response.text
 
 
 def test_refinery_api_rejects_future_end_date_without_calling_service(monkeypatch) -> None:
