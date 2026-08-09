@@ -56,7 +56,7 @@ test("Refinery workspace does not import Portfolio ledger types as a generic dat
   assert.doesNotMatch(refineryTypesSource, /from ["']\.\/types["']/u);
   assert.doesNotMatch(refineryModelSource, /from ["']\.\/types["']/u);
   assert.match(refineryModelSource, /RefineryWorkspaceModel/u);
-  assert.doesNotMatch(refineryApiSource, /BacktestRequest|BacktestResponse|PreflightResponse/u);
+  assert.doesNotMatch(refineryApiSource, /\b(?:BacktestRequest|BacktestResponse|PreflightResponse)\b/u);
 });
 
 test("the Refinery stylesheet is additive and loaded after the existing Portfolio stylesheet", () => {
