@@ -214,8 +214,8 @@ test("Refinery workspace persists independently and shared Portfolio links force
   await expect(page.getByRole("button", { name: /投資組合回測/ })).toHaveClass(/active/u);
   await page.getByRole("button", { name: /持股精煉診斷/ }).click();
   await expect(page.getByTestId("refinery-workspace")).toBeVisible();
-  await page.getByLabel("Refinery 持股 1 代碼").fill("AAPL");
-  await page.getByLabel("Refinery 持股 2 代碼").fill("MSFT");
+  await page.getByLabel("Refinery 持股 1 代碼", { exact: true }).fill("AAPL");
+  await page.getByLabel("Refinery 持股 2 代碼", { exact: true }).fill("MSFT");
 
   const stored = await page.evaluate(({ refineryKey, activeKey }) => ({
     refinery: localStorage.getItem(refineryKey),
@@ -227,7 +227,7 @@ test("Refinery workspace persists independently and shared Portfolio links force
 
   await page.reload();
   await expect(page.getByTestId("refinery-workspace")).toBeVisible();
-  await expect(page.getByLabel("Refinery 持股 1 代碼")).toHaveValue("AAPL");
+  await expect(page.getByLabel("Refinery 持股 1 代碼", { exact: true })).toHaveValue("AAPL");
 
   await page.goto("/portfolio/?model=invalid-but-present");
   await expect(page.getByRole("heading", { name: "投資組合研究工作區" })).toBeVisible();
@@ -243,8 +243,8 @@ test("Refinery preflight then analyze keeps portfolio risk unavailable when weig
   await mockRefinery(page, symbols);
   await page.goto("/portfolio/");
   await page.getByRole("button", { name: /持股精煉診斷/ }).click();
-  await page.getByLabel("Refinery 持股 1 代碼").fill(symbols[0]);
-  await page.getByLabel("Refinery 持股 2 代碼").fill(symbols[1]);
+  await page.getByLabel("Refinery 持股 1 代碼", { exact: true }).fill(symbols[0]);
+  await page.getByLabel("Refinery 持股 2 代碼", { exact: true }).fill(symbols[1]);
 
   await page.getByRole("button", { name: "資料預檢" }).click();
   await expect(page.getByRole("heading", { name: "Refinery 資料預檢" })).toBeVisible();
