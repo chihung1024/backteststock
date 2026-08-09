@@ -5,10 +5,10 @@
 ## 1. Current baseline
 
 - Protected production branch: `main`
-- Current `main` before Phase 0: `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`
-- Last completed PR: `#53` — persistent development master roadmap
-- Last verified pre-merge backup: `backup-pre-pr53-9135bdd33a46`
-- Last verified post-merge backup: `backup-post-pr53-bc8ce721a829`
+- Phase 0 implementation merge SHA: `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`
+- Last completed implementation PR: `#54` — Quant Authority Freeze
+- Last verified pre-merge backup: `backup-pre-pr54-bc8ce721a829`
+- Last verified post-merge backup: `backup-post-pr54-68cbd58d570c`
 - Governance ruleset: `main-protection`
   - enforcement: active
   - target: default branch
@@ -18,10 +18,8 @@
   - PR required
   - squash only
   - required checks: `validate` (GitHub Actions) + `Vercel`
-- Current phase: **Phase 0 — Quant Authority Freeze**
-- Current Phase 0 PR: `#54`
-- Phase 0 state: **VALIDATING**
-- Next phase after Phase 0 closes: **Phase 1 — ResearchDataset**
+- Current phase state: **Phase 0 — CLOSED / PASS after this doc-only closeout merges**
+- Next implementation phase: **Phase 1 — ResearchDataset**
 
 ## 2. Mandatory execution discipline
 
@@ -36,13 +34,13 @@
 9. Preserve explicit methodology/contract versions whenever externally observable semantics change.
 10. Update this file in every implementation PR with all information known before merge.
 11. Because the final squash SHA and post-merge backup do not exist until after merge, every phase-ending implementation PR is followed by a **doc-only closeout PR** that records:
-    - final merge SHA;
+    - final implementation merge SHA;
     - post-merge backup tag;
     - final CI/preview/review result;
     - known limitations;
     - phase status `CLOSED / PASS` or `FAIL`;
     - exact next resume point.
-12. A phase is not `CLOSED` until that closeout record is merged.
+12. A phase is not `CLOSED` until that closeout record is merged. The closeout PR's own squash SHA does not require another recursive closeout; the next AI must query the current `main` SHA before starting work.
 13. If validation fails, preserve the last valid production behavior, record the failure here, and fix only within the current phase.
 14. A future AI must read this file and the referenced authority docs before making changes.
 
@@ -64,9 +62,9 @@ Primary references:
 - `docs/UNIFIED_TWD_CONTRACT.md`
 - `docs/METRICS_REPRODUCIBILITY.md`
 - `docs/EXHAUSTIVE_OPTIMIZER_V3.md`
-- `docs/quant/METRIC_AUTHORITY.md` (Phase 0 PR #54)
-- `docs/quant/RETURN_SEMANTICS.md` (Phase 0 PR #54)
-- `docs/quant/RISK_MODEL_POLICY.md` (Phase 0 PR #54)
+- `docs/quant/METRIC_AUTHORITY.md`
+- `docs/quant/RETURN_SEMANTICS.md`
+- `docs/quant/RISK_MODEL_POLICY.md`
 
 ---
 
@@ -119,12 +117,12 @@ Evidence:
 
 ## Phase 0 — Quant Authority Freeze
 
-**Status: VALIDATING — PR #54**
+**Status: CLOSED / PASS after this doc-only closeout merges**
 
 ### Objective
 Prevent current Scanner/simple-value metrics, Portfolio v3 ledger metrics, Exhaustive exact metrics, legacy compatibility formulas, optimizer proxies, and future Refinery calculations from being confused as equivalent authorities.
 
-### Work completed in PR #54
+### Completed work — PR #54
 
 - [x] Inventory current metric implementations and major production callers.
 - [x] Classify `api/metrics.py` as production simple-value metric authority.
@@ -146,62 +144,60 @@ Prevent current Scanner/simple-value metrics, Portfolio v3 ledger metrics, Exhau
 - [x] Record intentional context differences instead of forcing false parity.
 - [x] Update this master roadmap.
 
-### Important Phase 0 findings
+### Phase 0 findings retained as contract
 
-1. **CAGR day-count difference exists and is intentionally not changed in PR #54**:
+1. **CAGR day-count difference remains intentionally unchanged**:
    - `api/metrics.py` and Exhaustive exact: `365.25` days/year.
    - Portfolio v3 ledger metrics: `365.2425` days/year.
-   - Golden fixture records both results. Any later unification requires an explicit versioned migration.
-2. `api.metrics` with a benchmark intentionally computes its simple-value metrics on common price dates; Portfolio v3 computes standalone ledger performance independently and aligns the benchmark only for relative metrics. Parity is required only when calendars/contexts are actually equivalent.
+   - Golden fixture records both. Any unification requires an explicit versioned migration.
+2. `api.metrics` with a benchmark computes simple-value metrics on common price dates; Portfolio v3 computes standalone ledger performance independently and aligns the benchmark only for relative metrics. Parity is required only when calendars/contexts are actually equivalent.
 3. Legacy `api/scan.py` uses older CAGR-based Sharpe/Sortino/alpha semantics; production `/api/scan` routes to `api/scan_v2.py`, whose shared service uses `api.metrics`.
-4. Exhaustive backend prepares a signed TWD price snapshot; exact combination metrics are calculated in the browser engine.
+4. Exhaustive backend prepares a signed TWD price snapshot; exact combination metrics are calculated in the browser exact engine.
 5. Optimizer proxy MDD and related proxy quantities are approximations for search acceleration and must never be promoted to exact performance metrics.
 
-### Explicit non-goals
+### Final validation / evidence
 
-- No production metric formula changes.
-- No Portfolio Refinery API/UI.
-- No ResearchDataset implementation.
-- No covariance/clustering implementation.
-- No optimizer behavior change.
+- Implementation PR: `#54`
+- Implementation merge SHA: `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`
+- Final-head SHA before merge: `c9e3f330e8b7be19817961bff24802f3c1c51895`
+- Final-head `validate`: PASS, including Python compile/lint/tests, new Python parity tests, JavaScript/Worker tests including Exhaustive parity, score tests, Playwright E2E, Vercel-config validation, local D1 migrations and Cloudflare dry-run.
+- Portfolio web CI: PASS.
+- Vercel required check: PASS.
+- Independent final diff review: PASS; changed scope restricted to quant docs, tests/fixture, test-script registration and this roadmap; no production formula/API/UI/risk/optimizer runtime modification.
+- Pre backup: `backup-pre-pr54-bc8ce721a829` -> `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`.
+- Post backup: `backup-post-pr54-68cbd58d570c` -> `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`.
 
-### Validation state
+### Known limitations carried forward
 
-- [x] Python compile/lint reached PASS in initial PR #54 CI run.
-- [x] New Python parity tests reached PASS in initial PR #54 CI run.
-- [x] New Node/Exhaustive parity test reached PASS in initial PR #54 CI run.
-- [x] Existing Worker/score tests reached PASS in initial PR #54 CI run.
-- [x] Portfolio web CI: PASS on initial PR #54 head.
-- [ ] Full CI final head: pending after this roadmap update.
-- [ ] Vercel required check: pending final head.
-- [ ] Pre-merge release backup: verify final PR base/head state.
-- [ ] Independent diff review.
-- [ ] Squash merge with expected head.
-- [ ] Post-merge backup verification.
-- [ ] Phase 0 doc-only closeout PR.
+- The 365.25 vs 365.2425 CAGR year-length difference is documented but not normalized.
+- Phase 0 defines the future `apps/api/app/quant/` boundary conceptually; production callers are intentionally not migrated yet.
+- The shared golden fixture is a short synthetic formula/parity fixture, not an economic performance benchmark.
+- Phase 0 does not create ResearchDataset, covariance, clustering, Refinery API/UI, selection or sizing functionality.
 
 ### Exit gate
 
 - [x] Metric authority boundaries documented.
 - [x] Shared-vs-context-specific definitions frozen.
-- [x] Golden parity fixtures implemented.
+- [x] Golden parity fixtures implemented and passing.
 - [x] Known differences explicitly documented rather than silently normalized.
-- [ ] Final-head required checks pass.
-- [ ] Independent review passes.
-- [ ] PR #54 merged and post-backup verified.
-- [ ] Closeout record merged; then Phase 0 becomes `CLOSED / PASS`.
+- [x] Final-head required checks passed.
+- [x] Independent review passed.
+- [x] PR #54 merged with expected-head squash.
+- [x] Post-merge backup verified.
+- [x] This doc-only closeout records final evidence; Phase 0 becomes `CLOSED / PASS` when it merges.
 
 ---
 
 ## Phase 1 — ResearchDataset
 
-**Status: PLANNED / BLOCKED UNTIL PHASE 0 CLOSEOUT**
+**Status: NEXT / NOT STARTED — begin only after this Phase 0 closeout merges**
 
 ### Objective
 Create one reproducible research dataset contract consumed by future Refinery and, only after parity, Exhaustive research paths.
 
 ### Planned work
 
+- [ ] Inventory current TWD history, calendar, return-component, coverage, fingerprint and Exhaustive snapshot-preparation code before writing the new contract.
 - [ ] Define/version `ResearchDatasetV1`.
 - [ ] Preserve requested symbol order and explicit per-symbol failures.
 - [ ] Store requested/effective date ranges.
@@ -215,13 +211,15 @@ Create one reproducible research dataset contract consumed by future Refinery an
 - [ ] Build golden parity against current Exhaustive snapshot/data preparation.
 - [ ] Do not switch Exhaustive production consumption until parity passes.
 - [ ] Define optional exportable research snapshot for durable reproducibility.
+- [ ] Update this master roadmap with Phase 1 implementation evidence and exact resume point.
 
 Exit gate:
 
 - [ ] Contract versioned.
 - [ ] Same input yields deterministic hash.
-- [ ] Exhaustive preparation parity passes.
+- [ ] Exhaustive preparation parity passes on approved fixtures.
 - [ ] No silent membership/date mutation.
+- [ ] Existing production behavior remains stable until an explicitly validated migration.
 
 ---
 
@@ -446,26 +444,28 @@ Do not mark a phase `CLOSED` until its exit gate and closeout record are complet
 - Squash merge: `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`.
 - CI/Vercel PASS; pre/post backups verified.
 
-## 2026-08-09 — Phase 0 / PR #54
+## 2026-08-09 — Phase 0 implementation / PR #54
 
 - Inventory identified five semantic classes: production simple-value, Portfolio ledger, Exhaustive exact, legacy compatibility, optimizer proxy.
 - Added three authority/semantics/risk-policy docs.
-- Added one shared cross-language golden fixture.
-- Added Python simple-value/Portfolio parity tests and JS Exhaustive exact parity test.
+- Added one shared cross-language synthetic golden fixture.
+- Added Python simple-value/Portfolio parity tests and JavaScript Exhaustive exact parity test.
 - Preserved the existing 365.25 vs 365.2425 CAGR difference as an explicit versioned finding rather than silently modifying production.
-- Initial PR head reached PASS for Python tests, Node/Worker tests, score tests, and Portfolio web CI; final-head full CI/Vercel still required after this roadmap commit.
-- PR #54 remains `VALIDATING`; no Phase 1 work has started.
+- Final-head required CI and Vercel checks passed.
+- Independent final diff review passed.
+- Squash merged to `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`.
+- Pre/post backups verified: `backup-pre-pr54-bc8ce721a829`, `backup-post-pr54-68cbd58d570c`.
+- No production metric formula/API/UI/risk/optimizer runtime implementation was changed.
 
 # 8. Exact resume point
 
-Current AI / next AI must:
+After this doc-only closeout PR merges:
 
-1. Stay on **Phase 0 only**.
-2. Wait for PR #54 final-head `validate` and `Vercel` checks.
-3. Verify the PR #54 pre-merge backup points to the current protected `main` base.
-4. Independently inspect the final diff; reject any production-formula/API/UI/covariance/clustering change.
-5. If clean, mark ready and squash merge with expected head SHA.
-6. Verify the PR #54 post-merge backup points to the merge SHA.
-7. Open a **doc-only Phase 0 closeout PR** updating this file with final merge SHA, post-backup tag, review/CI evidence, known limitations, `Phase 0 CLOSED / PASS`, and `Phase 1` as the next resume point.
-8. Only after that closeout PR merges may Phase 1 — ResearchDataset begin.
-9. Do **not** start covariance, Refinery API/UI, clustering, selection, sizing, or Exhaustive integration early.
+1. Query and record mentally the latest protected `main` SHA; do not assume the Phase 0 implementation SHA is still HEAD because the closeout itself adds one documentation commit.
+2. Confirm no open earlier-phase implementation PR remains.
+3. Begin **Phase 1 — ResearchDataset** only.
+4. First Phase 1 action: inventory/retrieve the existing `TWDHistoryService`, TWD valuation/calendar/return-component helpers, coverage/fingerprint logic, and `api/exhaustive_optimizer.py` snapshot preparation before changing code.
+5. Define `ResearchDatasetV1` contract and parity fixtures before migrating any production consumer.
+6. Do not switch Exhaustive to the new dataset until parity passes.
+7. Do not begin covariance, Refinery API/UI, clustering, selection, sizing or Exhaustive/Refinery integration early.
+8. Update this file inside the Phase 1 implementation PR, then perform the same doc-only closeout after Phase 1 implementation merges.
