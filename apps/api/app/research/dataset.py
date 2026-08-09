@@ -149,6 +149,9 @@ def build_research_dataset(
             "success/failure outcome: " + ", ".join(unaccounted)
         )
 
+    for symbol in resolved:
+        _validate_history_window(histories.histories[symbol], start=start, end=end)
+
     reference = _reference_calendar(histories.histories, resolved)
     masks = {
         symbol: _availability_mask(
@@ -203,6 +206,41 @@ def build_research_dataset(
     )
     dataset.dataset_hash = _dataset_hash(dataset)
     return dataset
+
+
+def _validate_history_window(
+    history: TWDAssetHistory,
+    *,
+    start: date,
+    end: date,
+) -> None:
+    """Reject pre/post-window observations instead of silently leaking them.
+
+    `ResearchDatasetService` already asks the history service for the exact
+    inclusive research interval. The pure builder repeats this invariant so a
+    future caller cannot reuse a wider history object and accidentally introduce
+    data from before/after the requested research window.
+    """
+
+    series_by_name = {
+        "native_adjusted_close": history.native_adjusted_close,
+        "fx_to_twd": history.fx_to_twd,
+        "adjusted_close_twd": history.adjusted_close_twd,
+    }
+    for name, series in series_by_name.items():
+        if series.empty:
+            continue
+        index = pd.DatetimeIndex(pd.to_datetime(series.index))
+        if index.tz is not None:
+            index = index.tz_convert(None)
+        first = index.min().date()
+        last = index.max().date()
+        if first < start or last > end:
+            raise ValueError(
+                f"research history {history.symbol} {name} contains observations "
+                f"outside requested inclusive window {start.isoformat()}..{end.isoformat()}: "
+                f"{first.isoformat()}..{last.isoformat()}"
+            )
 
 
 def _reference_calendar(
