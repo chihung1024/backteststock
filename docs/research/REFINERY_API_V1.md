@@ -39,6 +39,8 @@ Optional:
 
 No equal-weight assumption is made when `weights` is omitted. Portfolio-specific volatility/MRC/RC/DR/weight-effective metrics are then returned as unavailable, while structural covariance/correlation diagnostics may still be produced.
 
+If explicit weights are accepted within the ±0.05 percentage-point total tolerance, the raw percentages and raw input total remain visible in the request echo, while the vector passed to Phase 2 risk mathematics is **proportionally normalized to exact unit sum**. This is a mechanical numerical normalization that preserves all relative weights; it is not a sizing or optimization policy.
+
 `end_date` may not be in the future. `start_date < end_date`. The requested span is capped at 15 × 366 calendar days as a Phase 3 resource budget, not as a claim about the statistically optimal history length.
 
 Taiwan numeric shorthand and all symbol normalization reuse `apps.api.app.data.history_service.normalize_symbol`; the Refinery must not create a second ticker-normalization rule.
@@ -78,6 +80,8 @@ The Refinery does not implement a downloader. `TWDHistoryService` remains the ma
 
 `preflight` is diagnostic and may return a partial dataset with explicit per-symbol failures.
 
+For a partial candidate dataset, preflight observation/complete-case counts are descriptive evidence over the **resolved symbols only**. They do not redefine requested membership, and they never make a partial candidate set eligible for formal analysis.
+
 `analyze` must never silently remove a failed candidate and calculate a smaller portfolio/universe as if the request had succeeded.
 
 If any **candidate** is unresolved:
@@ -85,6 +89,7 @@ If any **candidate** is unresolved:
 - HTTP response remains a deterministic diagnostic response;
 - top-level status is `incomplete`;
 - requested/resolved/failure evidence is returned;
+- resolved-evidence sample counts may be returned for diagnostics;
 - `analysis` is `null`.
 
 A failed optional benchmark does not invalidate candidate structural analysis. Instead, benchmark-conditioned downside/stress results are explicitly unavailable with the benchmark failure evidence retained.
@@ -118,6 +123,7 @@ The response includes:
 - API contract/schema versions;
 - ResearchDataset and Risk Mathematics contract versions;
 - normalized candidate symbols, benchmark, dates and explicit weight state;
+- raw explicit weight input total and normalization policy when weights are supplied;
 - candidate dataset hash and optional benchmark dataset hash;
 - requested/resolved membership;
 - per-symbol failures with stage/detail/retryable;
@@ -165,6 +171,7 @@ These remain structural diagnostics and are not labelled an exact number of inde
 
 ### Portfolio risk, only when explicit weights were supplied
 
+- proportionally normalized unit-sum weights used by Phase 2 risk mathematics;
 - annualized portfolio variance and volatility;
 - marginal risk contribution;
 - signed component risk contribution;
@@ -242,14 +249,16 @@ Before merge:
 1. request normalization/uniqueness/date/weight/resource tests pass;
 2. one-fetch candidate/benchmark separation is tested;
 3. candidate partial data blocks formal analysis without silent deletion;
-4. benchmark failure only disables conditional diagnostics;
-5. no-weight request does not fabricate equal weights;
-6. covariance/risk outputs match Phase 2 primitives on synthetic fixtures;
-7. deterministic repeated requests over the same injected dataset produce identical payloads;
-8. request and response size guards pass;
-9. rate-limit/error/security-header tests pass;
-10. Worker allowlist/wrong-method/oversize/header-sanitization tests pass;
-11. Vercel route/deployment-contract tests pass;
-12. existing Portfolio/Scanner/Exhaustive behavior remains unchanged;
-13. full CI/Vercel/backup/independent diff review pass;
-14. `to_do_update_list.md` records final evidence before merge and a doc-only closeout follows.
+4. partial preflight sample counts remain descriptive resolved-evidence statistics only;
+5. benchmark failure only disables conditional diagnostics;
+6. no-weight request does not fabricate equal weights;
+7. accepted weight-total tolerance is proportionally normalized and traceable;
+8. covariance/risk outputs match Phase 2 primitives on synthetic fixtures;
+9. deterministic repeated requests over the same injected dataset produce identical payloads;
+10. request and response size guards pass;
+11. rate-limit/error/security-header tests pass;
+12. Worker allowlist/wrong-method/oversize/header-sanitization tests pass;
+13. Vercel route/deployment-contract tests pass;
+14. existing Portfolio/Scanner/Exhaustive behavior remains unchanged;
+15. full CI/Vercel/backup/independent diff review pass;
+16. `to_do_update_list.md` records final evidence before merge and a doc-only closeout follows.
