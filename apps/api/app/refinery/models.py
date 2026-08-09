@@ -125,11 +125,20 @@ class RefineryRequest(BaseModel):
         return tuple(values)
 
     @property
+    def weight_input_total_percent(self) -> float | None:
+        if self.weights is None:
+            return None
+        return float(sum(item.weight_percent for item in self.weights))
+
+    @property
     def weight_vector(self) -> tuple[float, ...] | None:
         if self.weights is None:
             return None
-        by_symbol = {item.symbol: item.weight_percent / 100.0 for item in self.weights}
-        return tuple(by_symbol[symbol] for symbol in self.symbols)
+        by_symbol = {item.symbol: float(item.weight_percent) for item in self.weights}
+        total = sum(by_symbol.values())
+        if total <= 0.0:
+            raise ValueError("weight total must be positive")
+        return tuple(by_symbol[symbol] / total for symbol in self.symbols)
 
 
 def _validated_symbol(value: str) -> str:
