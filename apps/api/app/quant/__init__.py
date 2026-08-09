@@ -45,6 +45,15 @@ from .covariance import (
     ledoit_wolf_covariance,
     sample_covariance,
 )
+from .factors import (
+    DEFAULT_FACTOR_MIN_MONTHS,
+    RISK_FREE_COLUMN,
+    US_FACTOR_COLUMNS,
+    FactorExposure,
+    FactorImpliedRelationship,
+    factor_implied_relationship,
+    fit_us_factor_exposure,
+)
 from .risk import (
     EffectiveDimensionResult,
     RiskContributionResult,
@@ -70,6 +79,9 @@ __all__ = [
     "STABILITY_WINDOWS_WEEKS",
     "BOOTSTRAP_REPLICATES",
     "BOOTSTRAP_BLOCK_WEEKS",
+    "US_FACTOR_COLUMNS",
+    "RISK_FREE_COLUMN",
+    "DEFAULT_FACTOR_MIN_MONTHS",
     "CorrelationResult",
     "MultiHorizonCorrelation",
     "ClusterGroup",
@@ -80,6 +92,8 @@ __all__ = [
     "MultiWindowClusterStability",
     "PairBootstrapProbability",
     "BootstrapClusterStability",
+    "FactorExposure",
+    "FactorImpliedRelationship",
     "CovarianceDiagnostics",
     "CovarianceEstimate",
     "EstimatorDispersion",
@@ -94,6 +108,8 @@ __all__ = [
     "multi_window_cluster_stability",
     "bootstrap_cluster_stability",
     "circular_block_bootstrap_indices",
+    "factor_implied_relationship",
+    "fit_us_factor_exposure",
     "covariance_diagnostics",
     "estimator_dispersion",
     "ewma_covariance",
