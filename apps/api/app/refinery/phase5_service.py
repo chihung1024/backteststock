@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import replace
 from typing import Any, Mapping
 
+import numpy as np
 import pandas as pd
 
 from apps.api.app.quant import (
@@ -47,6 +51,9 @@ class Phase5RefineryService(_BaseRefineryService):
                 "clustering_stability_windows_weeks": list(STABILITY_WINDOWS_WEEKS),
                 "clustering_bootstrap_replicates": BOOTSTRAP_REPLICATES,
                 "clustering_bootstrap_block_weeks": BOOTSTRAP_BLOCK_WEEKS,
+                "clustering_bootstrap_seed_source": (
+                    "canonical_structural_weekly_fingerprint_sha256"
+                ),
                 "factor_source": FRENCH_FACTOR_SOURCE,
                 "factor_scope": "U.S.-factor co-movement diagnostic",
                 "factor_minimum_monthly_observations": DEFAULT_FACTOR_MIN_MONTHS,
@@ -60,14 +67,24 @@ class Phase5RefineryService(_BaseRefineryService):
         structural = _correlation_result_from_payload(
             payload["correlations"]["structural_weekly"]
         )
+        canonical_seed_fingerprint = _structural_bootstrap_fingerprint(
+            prepared.weekly_returns
+        )
+        phase5_dataset = replace(
+            prepared.candidate_dataset,
+            dataset_hash=canonical_seed_fingerprint,
+        )
         payload.update(
             build_phase5_relationships(
-                candidate_dataset=prepared.candidate_dataset,
+                candidate_dataset=phase5_dataset,
                 weekly_returns=prepared.weekly_returns,
                 structural_correlation=structural,
                 correlation_payloads=payload["correlations"],
                 factor_provider=self._factor_provider,
             )
+        )
+        payload["clustering"]["bootstrap_seed_fingerprint"] = (
+            canonical_seed_fingerprint
         )
         return payload
 
@@ -94,3 +111,25 @@ def _correlation_result_from_payload(payload: Mapping[str, Any]) -> CorrelationR
             else None
         ),
     )
+
+
+def _structural_bootstrap_fingerprint(weekly_returns: pd.DataFrame) -> str:
+    frame = weekly_returns.copy()
+    frame.columns = [str(column) for column in frame.columns]
+    frame = frame.reindex(columns=sorted(frame.columns))
+    payload = {
+        "columns": list(frame.columns),
+        "dates": [pd.Timestamp(value).date().isoformat() for value in frame.index],
+        "values": [
+            [float(value) if np.isfinite(value) else None for value in row]
+            for row in frame.to_numpy(dtype=float)
+        ],
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
