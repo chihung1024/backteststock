@@ -176,6 +176,22 @@ def test_research_dataset_hash_is_deterministic_and_data_sensitive():
     assert third.dataset_hash != first.dataset_hash
 
 
+def test_research_dataset_export_rejects_mutated_content_with_stale_hash():
+    dates = pd.bdate_range("2024-01-02", periods=5)
+    dataset = build_research_dataset(
+        _partial(("AAA",), {"AAA": _history("AAA", dates)}),
+        start=date(2024, 1, 2),
+        end=date(2024, 1, 8),
+    )
+    original_hash = dataset.dataset_hash
+
+    dataset.daily_levels_twd.iloc[-1, 0] *= 1.01
+
+    assert dataset.dataset_hash == original_hash
+    with pytest.raises(ValueError, match="content changed after hash creation"):
+        dataset.export_payload()
+
+
 def test_research_dataset_rejects_unaccounted_requested_symbol():
     dates = pd.bdate_range("2024-01-02", periods=5)
     partial = PartialTWDHistories(
@@ -185,6 +201,29 @@ def test_research_dataset_rejects_unaccounted_requested_symbol():
     )
 
     with pytest.raises(ValueError, match="explicit success/failure"):
+        build_research_dataset(
+            partial,
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 8),
+        )
+
+
+def test_research_dataset_rejects_conflicting_success_and_failure_outcomes():
+    dates = pd.bdate_range("2024-01-02", periods=5)
+    partial = PartialTWDHistories(
+        requested=("AAA",),
+        histories={"AAA": _history("AAA", dates)},
+        failures={
+            "AAA": HistoryFailure(
+                symbol="AAA",
+                stage="download",
+                detail="synthetic conflicting outcome",
+                retryable=True,
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="both success and failure outcomes"):
         build_research_dataset(
             partial,
             start=date(2024, 1, 2),
