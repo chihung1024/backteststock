@@ -9,8 +9,13 @@ import {
   toApiRequest,
   validateModel,
 } from "./model";
+import {
+  ACTIVE_WORKSPACE_STORAGE_KEY,
+} from "./refineryModel";
+import { RefineryWorkspace } from "./RefineryWorkspace";
 import { ResultsDashboard } from "./ResultsDashboard";
 import { SettingsPanels } from "./SettingsPanels";
+import type { WorkspaceKind } from "./refineryTypes";
 import type {
   BacktestResponse,
   Locale,
@@ -53,6 +58,18 @@ function loadInitialModel(): WorkspaceModel {
     return saved ? migrateModel(JSON.parse(saved) as unknown) : createDefaultModel();
   } catch {
     return createDefaultModel();
+  }
+}
+
+function loadInitialWorkspaceKind(): WorkspaceKind {
+  const parameters = new URLSearchParams(window.location.search);
+  if (parameters.has("model") || parameters.has("handoff")) return "portfolio";
+  try {
+    return window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY) === "refinery"
+      ? "refinery"
+      : "portfolio";
+  } catch {
+    return "portfolio";
   }
 }
 
@@ -137,6 +154,7 @@ function PreflightSummary({ response }: { response: PreflightResponse }) {
 }
 
 export default function App() {
+  const [workspaceKind, setWorkspaceKindState] = useState<WorkspaceKind>(loadInitialWorkspaceKind);
   const [model, setModelState] = useState<WorkspaceModel>(loadInitialModel);
   const [theme, setTheme] = useState<Theme>(() => (window.localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"));
   const [locale, setLocale] = useState<Locale>(() => (window.localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "zh-TW"));
@@ -167,6 +185,19 @@ export default function App() {
     setMessage("");
   }
 
+  function setWorkspaceKind(next: WorkspaceKind) {
+    if (next === workspaceKind) return;
+    activeController.current?.abort();
+    activeController.current = null;
+    setBusy(null);
+    setWorkspaceKindState(next);
+    try {
+      window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, next);
+    } catch {
+      // Active-workspace persistence is best-effort only.
+    }
+  }
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem(THEME_KEY, theme);
@@ -176,6 +207,19 @@ export default function App() {
     document.documentElement.lang = locale === "en" ? "en" : "zh-Hant";
     window.localStorage.setItem(LOCALE_KEY, locale);
   }, [locale]);
+
+  useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    if (parameters.has("model") || parameters.has("handoff")) {
+      setWorkspaceKindState("portfolio");
+      return;
+    }
+    try {
+      window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, workspaceKind);
+    } catch {
+      // Active-workspace persistence is best-effort only.
+    }
+  }, [workspaceKind]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -289,12 +333,12 @@ export default function App() {
             <span className="brand-mark">B</span>
             <span><strong>BacktestStock</strong><small>Portfolio Research</small></span>
           </a>
-          <nav className="header-actions" aria-label="Portfolio 工作區操作">
-            <span className={`service-state ${health}`}><i />{health === "online" ? "服務正常" : health === "checking" ? "檢查服務" : "服務離線"}</span>
-            <button type="button" onClick={saveModel}>儲存</button>
-            <button type="button" onClick={() => void shareModel()}>分享</button>
-            <button type="button" onClick={() => fileInputRef.current?.click()}>匯入</button>
-            <button type="button" onClick={exportModel}>匯出模型</button>
+          <nav className="header-actions" aria-label="研究工作區操作">
+            {workspaceKind === "portfolio" && <span className={`service-state ${health}`}><i />{health === "online" ? "服務正常" : health === "checking" ? "檢查服務" : "服務離線"}</span>}
+            {workspaceKind === "portfolio" && <button type="button" onClick={saveModel}>儲存</button>}
+            {workspaceKind === "portfolio" && <button type="button" onClick={() => void shareModel()}>分享</button>}
+            {workspaceKind === "portfolio" && <button type="button" onClick={() => fileInputRef.current?.click()}>匯入</button>}
+            {workspaceKind === "portfolio" && <button type="button" onClick={exportModel}>匯出模型</button>}
             <button type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label="切換明暗模式">{theme === "dark" ? "淺色" : "深色"}</button>
             <button type="button" onClick={() => setLocale((current) => current === "zh-TW" ? "en" : "zh-TW")} aria-label="切換語言">{locale === "zh-TW" ? "EN" : "繁中"}</button>
           </nav>
@@ -303,55 +347,84 @@ export default function App() {
       </header>
 
       <main id="portfolio-main" className="app-main">
-        <section className="hero">
-          <div>
-            <p className="eyebrow">DAILY TWD · AUDITABLE LEDGER · SELF-OWNED API</p>
-            <h1>投資組合研究工作區</h1>
-            <p>同時比較最多五組投資組合，完整處理現金流、配息、再平衡、交易成本、槓桿與資料稽核。這是一個可直接開啟與重新整理的獨立專頁，不是彈出視窗。</p>
-          </div>
-          <div className="hero-actions">
-            <button type="button" className="secondary" onClick={() => setModelState(createExampleModel())}>載入範例</button>
-            <button type="button" className="secondary danger-text" onClick={() => { setModelState(createDefaultModel()); setPreflight(null); setResponse(null); setMessage("已重設為空白模型。 "); }}>重設</button>
-          </div>
-        </section>
+        <nav className="workspace-switch" aria-label="研究工作區">
+          <button
+            type="button"
+            className={workspaceKind === "portfolio" ? "active" : ""}
+            aria-current={workspaceKind === "portfolio" ? "page" : undefined}
+            onClick={() => setWorkspaceKind("portfolio")}
+          >
+            <span>Portfolio Backtest</span>
+            <strong>投資組合回測</strong>
+          </button>
+          <button
+            type="button"
+            className={workspaceKind === "refinery" ? "active" : ""}
+            aria-current={workspaceKind === "refinery" ? "page" : undefined}
+            onClick={() => setWorkspaceKind("refinery")}
+          >
+            <span>Holding Refinery</span>
+            <strong>持股精煉診斷</strong>
+          </button>
+        </nav>
 
-        <section className="model-summary" aria-label="目前模型摘要">
-          <span><strong>{activePortfolioCount}</strong> 組有效投組</span>
-          <span><strong>{uniqueSymbols}</strong> 項唯一資產</span>
-          <span><strong>{model.startDate}</strong> → <strong>{model.endDate}</strong></span>
-          <span>每日 TWD 估值</span>
-          <span>{model.rebalancing.frequency === "none" ? "不定期再平衡" : `${model.rebalancing.frequency} 再平衡`}</span>
-          <span>{model.leverage.type === "none" ? "無槓桿" : "槓桿啟用"}</span>
-        </section>
+        {workspaceKind === "portfolio" ? (
+          <>
+            <section className="hero">
+              <div>
+                <p className="eyebrow">DAILY TWD · AUDITABLE LEDGER · SELF-OWNED API</p>
+                <h1>投資組合研究工作區</h1>
+                <p>同時比較最多五組投資組合，完整處理現金流、配息、再平衡、交易成本、槓桿與資料稽核。這是一個可直接開啟與重新整理的獨立專頁，不是彈出視窗。</p>
+              </div>
+              <div className="hero-actions">
+                <button type="button" className="secondary" onClick={() => setModelState(createExampleModel())}>載入範例</button>
+                <button type="button" className="secondary danger-text" onClick={() => { setModelState(createDefaultModel()); setPreflight(null); setResponse(null); setMessage("已重設為空白模型。 "); }}>重設</button>
+              </div>
+            </section>
 
-        {issues.length > 0 && (
-          <div className="validation-summary" role="alert" tabIndex={-1} ref={validationRef}>
-            <strong>設定檢查</strong>
-            <ul>{issues.map((issue, index) => <li key={`${issue.field}-${index}`}>{issue.message}</li>)}</ul>
-          </div>
+            <section className="model-summary" aria-label="目前模型摘要">
+              <span><strong>{activePortfolioCount}</strong> 組有效投組</span>
+              <span><strong>{uniqueSymbols}</strong> 項唯一資產</span>
+              <span><strong>{model.startDate}</strong> → <strong>{model.endDate}</strong></span>
+              <span>每日 TWD 估值</span>
+              <span>{model.rebalancing.frequency === "none" ? "不定期再平衡" : `${model.rebalancing.frequency} 再平衡`}</span>
+              <span>{model.leverage.type === "none" ? "無槓桿" : "槓桿啟用"}</span>
+            </section>
+
+            {issues.length > 0 && (
+              <div className="validation-summary" role="alert" tabIndex={-1} ref={validationRef}>
+                <strong>設定檢查</strong>
+                <ul>{issues.map((issue, index) => <li key={`${issue.field}-${index}`}>{issue.message}</li>)}</ul>
+              </div>
+            )}
+            {error && <div className="notice error" role="alert"><strong>無法執行</strong><p>{error}</p></div>}
+            {message && <div className="notice info" aria-live="polite"><p>{message}</p></div>}
+
+            <AllocationEditor model={model} setModel={setModel} />
+            <SettingsPanels model={model} setModel={setModel} />
+            {preflight && <PreflightSummary response={preflight} />}
+            <div ref={resultsRef}>
+              {response && <ResultsDashboard response={response} preflight={preflight} onExportJson={() => downloadFile("portfolio-results.json", JSON.stringify(response, null, 2), "application/json;charset=utf-8")} onExportCsv={() => downloadFile("portfolio-results.csv", resultsCsv(response), "text/csv;charset=utf-8")} />}
+            </div>
+          </>
+        ) : (
+          <RefineryWorkspace />
         )}
-        {error && <div className="notice error" role="alert"><strong>無法執行</strong><p>{error}</p></div>}
-        {message && <div className="notice info" aria-live="polite"><p>{message}</p></div>}
-
-        <AllocationEditor model={model} setModel={setModel} />
-        <SettingsPanels model={model} setModel={setModel} />
-        {preflight && <PreflightSummary response={preflight} />}
-        <div ref={resultsRef}>
-          {response && <ResultsDashboard response={response} preflight={preflight} onExportJson={() => downloadFile("portfolio-results.json", JSON.stringify(response, null, 2), "application/json;charset=utf-8")} onExportCsv={() => downloadFile("portfolio-results.csv", resultsCsv(response), "text/csv;charset=utf-8")} />}
-        </div>
       </main>
 
-      <footer className="run-bar" aria-label="回測執行列">
-        <div>
-          <strong>{issues.length ? `${issues.length} 項設定需修正` : "設定可執行"}</strong>
-          <span>{busy ? (busy === "preflight" ? "正在預檢資料" : "正在執行回測") : "先預檢資料，再執行完整回測"}</span>
-        </div>
-        <div className="run-actions">
-          {busy && <button type="button" className="secondary" onClick={cancelRun}>取消</button>}
-          <button type="button" className="secondary" disabled={Boolean(busy) || issues.length > 0} onClick={() => void preflightModel()}>{busy === "preflight" ? "預檢中…" : "資料預檢"}</button>
-          <button type="button" className="primary" disabled={Boolean(busy) || issues.length > 0} onClick={() => void backtestModel()}>{busy === "backtest" ? "回測中…" : "執行回測"}</button>
-        </div>
-      </footer>
+      {workspaceKind === "portfolio" && (
+        <footer className="run-bar" aria-label="回測執行列">
+          <div>
+            <strong>{issues.length ? `${issues.length} 項設定需修正` : "設定可執行"}</strong>
+            <span>{busy ? (busy === "preflight" ? "正在預檢資料" : "正在執行回測") : "先預檢資料，再執行完整回測"}</span>
+          </div>
+          <div className="run-actions">
+            {busy && <button type="button" className="secondary" onClick={cancelRun}>取消</button>}
+            <button type="button" className="secondary" disabled={Boolean(busy) || issues.length > 0} onClick={() => void preflightModel()}>{busy === "preflight" ? "預檢中…" : "資料預檢"}</button>
+            <button type="button" className="primary" disabled={Boolean(busy) || issues.length > 0} onClick={() => void backtestModel()}>{busy === "backtest" ? "回測中…" : "執行回測"}</button>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
