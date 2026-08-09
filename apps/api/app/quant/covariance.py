@@ -184,7 +184,7 @@ def covariance_diagnostics(
         raise ValueError("relative_tolerance must be positive and finite")
 
     symmetry_error = float(np.max(np.abs(matrix - matrix.T)))
-    scale = max(float(np.max(np.abs(matrix))), 1.0)
+    scale = max(float(np.max(np.abs(matrix))), _NUMERICAL_EPSILON)
     tolerance = relative_tolerance * scale
     symmetric = (matrix + matrix.T) / 2.0
     eigenvalues = np.linalg.eigvalsh(symmetric)
@@ -192,7 +192,7 @@ def covariance_diagnostics(
     max_eigenvalue = float(eigenvalues[-1])
     is_psd = min_eigenvalue >= -tolerance
     numerical_rank = int(np.sum(eigenvalues > tolerance))
-    if min_eigenvalue <= tolerance or max_eigenvalue <= _NUMERICAL_EPSILON:
+    if min_eigenvalue <= tolerance or max_eigenvalue <= tolerance:
         condition_number = math.inf
     else:
         condition_number = float(max_eigenvalue / min_eigenvalue)
