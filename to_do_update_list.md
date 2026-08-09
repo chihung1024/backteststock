@@ -5,13 +5,13 @@
 ## 1. Current baseline
 
 - Protected production branch: `main`
-- Phase 2 implementation PR: `#59` — `feat: add validated risk mathematics core`
-- Phase 2 final implementation head: `9cd00609bcbdde210bdc024fa224016ca3dda6d3`
-- Phase 2 implementation merge: `724075ddbb0383f7889e4b622a95a57769d5558c`
-- Phase 2 pre backup: `backup-pre-pr59-666c561c0abf`
-- Phase 2 post backup: `backup-post-pr59-724075ddbb03`
-- Current phase state: **Phase 2 — PASS; becomes CLOSED when this doc-only closeout merges**
-- Next implementation phase: **Phase 3 — Read-only Refinery API**
+- Phase 3 start/main SHA: `4cea3b18fdce7db5e464196172f59930abf6b7d9`
+- Active implementation PR: `#61` — `feat: add read-only Portfolio Refinery API`
+- Phase 3 base SHA: `4cea3b18fdce7db5e464196172f59930abf6b7d9`
+- Phase 3 pre backup: `backup-pre-pr61-4cea3b18fdce`
+- Latest pre-roadmap-update Phase 3 head: `ecb4a04364c38822637f571238f17d82951bbf7c`; query PR #61 again before final review because this roadmap update creates a newer head.
+- Current phase state: **Phase 3 — VALIDATING / PR #61**
+- Next implementation phase after Phase 3 closeout only: **Phase 4 — Refinery Diagnostic UI**
 - Governance ruleset: `main-protection`
   - enforcement active; default branch target; bypass empty
   - deletion and force/non-fast-forward pushes blocked
@@ -35,6 +35,7 @@
 13. The closeout PR does not recursively require another closeout; the next AI queries current `main` before work.
 14. If validation fails, preserve last valid production behavior and fix only inside the current phase.
 15. A golden fixture is not an authority merely because it is committed; where practical, its provenance must be independently anchored to a reference implementation or separately derived invariant.
+16. Partial research evidence may be reported, but formal analysis must never silently redefine requested membership by dropping failed candidates.
 
 ## 3. Architecture boundaries
 
@@ -42,6 +43,8 @@
 - `apps/api/app/portfolio/` — Portfolio v3 ledger/path-dependent analysis authority.
 - `apps/api/app/research/` — additive research-domain data/services beginning with `ResearchDatasetV1`; it must not become a second downloader.
 - `apps/api/app/quant/` — pure validated quantitative primitives; no API/UI/selection/sizing side effects.
+- `apps/api/app/refinery/` — read-only Refinery request/service boundary beginning in Phase 3; may compose ResearchDataset + Risk Mathematics but must not absorb Portfolio v3 ledger logic or later selection/sizing policy.
+- `api/refinery_v1.py` — dedicated Phase 3 FastAPI entrypoint for `/api/v1/refinery/*`.
 - `api/portfolio_v3.py` — production FastAPI Portfolio v3 entrypoint.
 - `api/index_v2.py`, `api/scan_v2.py`, `api/screener.py` — current compatibility/production entrypoints as documented.
 - `api/exhaustive_optimizer.py` — full-period historical research/search snapshot path, not an OOS validation engine.
@@ -62,6 +65,7 @@ Primary references:
 - `docs/quant/RISK_MODEL_POLICY.md`
 - `docs/quant/RISK_MATHEMATICS_V1.md`
 - `docs/research/RESEARCH_DATASET_V1.md`
+- `docs/research/REFINERY_API_V1.md`
 
 ---
 
@@ -151,141 +155,159 @@ Create one reproducible framework-neutral research dataset contract over existin
 
 ## Phase 2 — Risk Mathematics Core
 
-**Status: PASS; CLOSED when this closeout PR merges**
+**Status: CLOSED / PASS**
 
 ### Objective
 Implement validated pure quantitative primitives for portfolio structure analysis. Phase 2 is a mathematics/test layer only; no Refinery API/UI, clustering, selection or sizing.
 
-### Completed implementation — PR #59
+### Completed implementation / evidence
 
-- [x] Added framework-neutral `apps/api/app/quant/` package.
-- [x] Added unbiased sample covariance (`ddof=1`) as diagnostic/reference estimator.
-- [x] Added NumPy Ledoit-Wolf spherical-target shrinkage matching `sklearn.covariance.ledoit_wolf`, including centered, one-feature and `p > n` cases.
-- [x] Added explicit caller-decay EWMA covariance sensitivity estimator.
-- [x] Added covariance symmetry, PSD, eigenvalue, numerical-rank and condition-number diagnostics.
-- [x] Added scale-normalized pairwise estimator-dispersion diagnostics.
-- [x] Added portfolio variance/volatility, MRC, **signed** RC and Diversification Ratio.
-- [x] Added weight-effective holdings and separate gross-RC equivalent holdings without hiding signed hedge RC.
-- [x] Added entropy effective rank and participation ratio for correlation/covariance; neither is labelled as exact independent bets.
-- [x] Added tactical 63D, medium 252D and structural 156W correlation primitives with explicit caller minimum-observation policies.
-- [x] Added downside and benchmark-tail stress correlation with fail-closed insufficient-sample status.
-- [x] Corrected conditional sample accounting so condition-ineligible rows are not mislabeled as dropped observations; incomplete eligible rows remain visible as drops.
-- [x] Removed benchmark-column-name collision risk using an internal collision-proof alignment label.
-- [x] Hardened covariance/risk tolerance calculations so they scale with matrix magnitude instead of an artificial `1.0` floor.
-- [x] Added numerical golden, reference-parity, invariant and metamorphic tests.
-- [x] Kept Scanner, Portfolio v3, Exhaustive, Worker, UI and all production consumers unchanged.
-- [x] `requirements.txt` unchanged; `scikit-learn==1.9.0` is dev/test-only as a reference oracle.
+- Implementation PR `#59`, final head `9cd00609bcbdde210bdc024fa224016ca3dda6d3`, squash merge `724075ddbb0383f7889e4b622a95a57769d5558c`.
+- Closeout PR `#60`, merge `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
+- Contract/version: `risk-math-twd-2026-08-09.1`.
+- Added sample/Ledoit-Wolf/EWMA covariance, numerical diagnostics, estimator dispersion, portfolio variance/volatility/MRC/signed RC/DR, effective counts/ranks and guarded multi-horizon/downside/stress correlation.
+- NumPy Ledoit-Wolf is independently anchored to scikit-learn; scikit-learn remains dev/test-only.
+- Initial CI exposed three incorrect manually seeded golden expected values; NumPy/scikit-learn re-derivation proved fixture wrong and implementation correct. Fixture provenance was then independently anchored rather than modifying production mathematics to fit bad expected values.
+- Final PR-head `validate`, Vercel, Release Backup Gates, independent diff review and merge-after-push `main` CI PASS.
+- Pre: `backup-pre-pr59-666c561c0abf`.
+- Post: `backup-post-pr59-724075ddbb03`.
+- GitHub author self-approval limitation documented via COMMENT review `4890745183`; no branch-protection requirement was bypassed.
 
-### First CI failure — root cause and disposition
+### Known limitations carried forward
 
-Initial head `bfcb771e69bf26397018bafef303d4279e46903f` failed only three newly added golden assertions while dependency install, pip consistency, compile and Ruff passed; Python result was **190 passed / 3 failed**.
-
-Independent re-derivation showed the manually seeded `tests/fixtures/risk_math_v1.json` expected values were wrong. `sample_covariance()` matched `numpy.cov(..., ddof=1)`, and the NumPy Ledoit-Wolf implementation matched scikit-learn reference tests. Production mathematics was therefore **not modified to fit an incorrect fixture**.
-
-Disposition:
-
-- corrected the golden fixture to independently derived values;
-- added a guard test that anchors the fixture itself directly to NumPy sample covariance and scikit-learn Ledoit-Wolf covariance/shrinkage;
-- added small-scale covariance/risk tolerance metamorphic tests;
-- added conditional-sample metadata and benchmark-name-collision tests.
-
-Retained governance lesson: a committed golden fixture is not an authority until its provenance is independently validated.
-
-### Final Phase 2 evidence
-
-- Implementation PR: `#59`.
-- Base SHA: `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`.
-- Final implementation head: `9cd00609bcbdde210bdc024fa224016ca3dda6d3`.
-- Squash merge: `724075ddbb0383f7889e4b622a95a57769d5558c`.
-- Changed-file scope: 10 files only — pure `quant/` primitives, methodology doc, dev-only reference dependency, fixture/tests and this roadmap; no production consumer file changed.
-- Final PR-head `validate` run `31300252676`: PASS, including Python/reference/invariant tests, JS/Worker/score tests, Playwright E2E, Vercel config, D1 local migration and Cloudflare dry-run.
-- Final PR-head Vercel required context: PASS.
-- Final Release Backup Gate: PASS.
-- Independent final diff review: PASS and recorded on PR #59 as COMMENT review `4890745183`.
-- GitHub platform limitation: the PR author cannot APPROVE their own PR (`422 Review Can not approve your own pull request`). No ruleset requires an approving external account, and no branch-protection requirement was bypassed; the review was therefore recorded as COMMENT rather than fabricating an approval.
-- Merge-after-push `main` CI run `31300503126`: PASS.
-- Pre backup: `backup-pre-pr59-666c561c0abf` -> `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`.
-- Post backup: `backup-post-pr59-724075ddbb03` -> `724075ddbb0383f7889e4b622a95a57769d5558c`.
-
-### Phase 2 known limitations carried forward
-
-1. `apps/api/app/quant/` is intentionally not wired to a public Refinery API yet.
-2. No existing Scanner/Portfolio/Exhaustive consumer migrated to the new risk primitives.
-3. Correlation minimum-observation thresholds remain caller policy; Phase 2 does not pretend one universal statistical threshold exists.
-4. EWMA decay remains explicit caller policy; no hidden universal decay constant exists.
-5. Effective rank/participation ratio are structural diagnostics, not proof of an exact number of independent economic bets.
-6. No clustering, factor overlap, marginal experiments, recommendation labels, sizing or OOS claim exists yet.
-7. `scikit-learn` is intentionally dev/test-only; production NumPy implementation remains independently tested against it.
-
-### Exit gate
-
-- [x] Methodology contract/version frozen: `risk-math-twd-2026-08-09.1`.
-- [x] Reference estimator parity passes.
-- [x] Golden provenance independently anchored.
-- [x] Mathematical invariants/metamorphic tests pass.
-- [x] No API/UI or later-phase logic added.
-- [x] Final `validate` PASS.
-- [x] Final Vercel PASS.
-- [x] Final scope review / independent diff review PASS.
-- [x] PR #59 merged by exact expected-head squash.
-- [x] Post-merge backup verified.
-- [x] Merge-after-push `main` CI PASS.
-- [ ] This doc-only closeout must merge; then Phase 2 is `CLOSED / PASS`.
+1. Correlation minimum-observation thresholds remain caller policy.
+2. EWMA decay remains caller policy.
+3. Effective rank/participation ratio are structural diagnostics, not proof of exact independent economic bets.
+4. No clustering, factor overlap, marginal experiments, recommendation labels, sizing or OOS claim exists yet.
 
 ---
 
 ## Phase 3 — Read-only Refinery API
 
-**Status: NEXT / NOT STARTED — begin only after this Phase 2 closeout merges**
+**Status: VALIDATING — implementation PR #61 open as Draft**
 
 ### Objective
-Expose Phase 1 ResearchDataset + Phase 2 risk mathematics through a separate, deterministic, read-only Refinery research API without altering Portfolio v3 ledger semantics or exposing recommendation/sizing behavior.
+Expose Phase 1 ResearchDataset + Phase 2 Risk Mathematics through a separate deterministic read-only research API without changing Portfolio v3 ledger semantics or exposing clustering/selection/sizing/recommendation behavior.
 
-### First actions
+### Completed design/inventory
 
-- [ ] Query latest protected `main` SHA after this closeout; do not assume `724075dd...` remains HEAD because this closeout adds a documentation commit.
-- [ ] Confirm no unfinished Phase 2 implementation/closeout PR remains.
-- [ ] Read `AI_PROJECT_PLAYBOOK.md`, this roadmap, `RESEARCH_DATASET_V1.md`, `RISK_MATHEMATICS_V1.md`, runtime/quant ADRs and current Worker/API security contracts.
-- [ ] Inventory current FastAPI/Flask/Worker routing, CORS/allowlist, request/response-size, timeout/rate/computation guards and error-envelope conventions before writing endpoints.
-- [ ] Define/version a separate Refinery API contract before implementation.
+- [x] Queried latest protected `main`; Phase 3 base is `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
+- [x] Confirmed no unfinished Phase 2 PR remained before Phase 3 start.
+- [x] Read AI playbook, roadmap, ResearchDataset/Risk Mathematics contracts, ADRs, Worker routing/security, Vercel routes and current API/resource conventions before endpoint implementation.
+- [x] Identified existing edge budgets: general API 256 KiB, Portfolio v3 512 KiB, Exhaustive prepare 3 MiB, 240s API timeout. Refinery was assigned an explicit separate 512 KiB request budget rather than inheriting Exhaustive's exception.
+- [x] Defined `docs/research/REFINERY_API_V1.md` before implementation.
+- [x] Frozen contract identifiers: `refinery-v1` / `refinery-v1-2026-08-09.1`.
 
-### Planned work
+### Implemented in PR #61
 
-- [ ] Separate Refinery/research namespace; do not overload Portfolio v3 ledger contract.
-- [ ] Read-only `preflight` and `analyze` endpoints only.
-- [ ] Approved candidate-pool target: up to 100 requested symbols, subject to explicit resource guards.
-- [ ] Explicit request/history/computation/rate/response-size limits.
-- [ ] Preserve requested membership and explicit per-symbol failures; no silent ticker deletion.
-- [ ] Surface ResearchDataset identity, effective dates, coverage/data-quality evidence and methodology versions.
-- [ ] Surface Ledoit-Wolf/sample/EWMA covariance diagnostics, estimator dispersion, portfolio vol/MRC/signed RC/DR/effective counts/ranks and guarded multi-horizon/downside/stress correlation.
-- [ ] Fixed Worker route allowlist and security tests.
-- [ ] Deterministic serialization and performance tests.
-- [ ] Update this roadmap and use the same implementation + doc-only closeout governance.
+- [x] Added separate `apps/api/app/refinery/` request/service boundary.
+- [x] Added dedicated FastAPI entrypoint `api/refinery_v1.py`; Refinery is not embedded in Portfolio v3 or legacy Flask handlers.
+- [x] Added dedicated Vercel route `/api/v1/refinery/(.*)` before the legacy catch-all.
+- [x] Added fixed Worker allowlist for exactly `POST preflight` and `POST analyze`; unknown paths/wrong methods fail closed.
+- [x] Candidate request contract: 2–100 unique normalized symbols, explicit dates, optional explicit benchmark, optional exact candidate weights, explicit EWMA decay/stress quantile.
+- [x] Reuses existing `normalize_symbol()` including Taiwan numeric shorthand; no second symbol-normalization rule.
+- [x] No benchmark default is fabricated; missing benchmark explicitly disables downside/stress diagnostics.
+- [x] No equal-weight default is fabricated; portfolio variance/MRC/RC/DR/weight-effective diagnostics are unavailable if weights are omitted.
+- [x] Explicit weights must cover every candidate exactly once and total 100% within ±0.05 percentage point. Accepted tolerance is mechanically normalized proportionally to exact unit sum for Phase 2 risk math; raw weights/raw total and normalization policy remain visible.
+- [x] Performs one authoritative `TWDHistoryService.histories_partial()` fetch for candidates plus optional distinct benchmark.
+- [x] Builds separate candidate and benchmark ResearchDataset views from the same audited batch so benchmark choice cannot alter candidate complete-case covariance/correlation samples.
+- [x] `preflight` may expose partial data/failure evidence; partial complete-case counts are descriptive over resolved evidence only.
+- [x] Any unresolved **candidate** forces status `incomplete` and `analysis=null`; no silent reduced-universe risk calculation.
+- [x] Benchmark failure preserves candidate structural analysis and disables only conditional correlations with explicit unavailable state/failure evidence.
+- [x] Candidate-complete but short history returns `insufficient_data`; no false precision.
+- [x] Ledoit-Wolf annualized covariance is primary formal risk estimator; sample/EWMA remain diagnostics/sensitivity.
+- [x] Exposes covariance numerical diagnostics/dispersion, structural effective dimensions, optional explicit-weight portfolio risk and guarded tactical/medium/structural/downside/stress correlation views.
+- [x] Public response omits raw price arrays and full ResearchDataset exports.
+- [x] Canonical deterministic JSON, 4 MiB response bound, 512 KiB request bounds, no-store/security headers and best-effort general/analyze rate limits implemented.
+- [x] Worker strips authorization/cookies and backend-identifying headers; dedicated route bypasses generic edge cache.
+- [x] Runtime upstream failures are logged server-side but client receives a generic stable `upstream_failure` rather than raw provider/internal exception text.
+- [x] CI compile list, Worker test suite and Vercel deployment contract updated for dedicated Refinery entrypoint/route.
 
-### Explicit non-goals
+### Phase 3 tests implemented
 
-- No BUY/SELL/KEEP/TRIM/REPLACE semantics.
-- No stock selection or sizing.
-- No clustering/redundancy engine.
+- [x] Symbol normalization/duplicate/resource/date/weight contract tests.
+- [x] Weight tolerance proportional-normalization test.
+- [x] One-fetch candidate/benchmark separation test.
+- [x] Benchmark invariance test for candidate dataset/covariance/effective/correlation structural views.
+- [x] Candidate partial-data fail-closed test.
+- [x] Benchmark-failure conditional-only degradation test.
+- [x] No-weights/no-equal-weight test.
+- [x] Direct Phase 2 risk wiring parity test.
+- [x] Repeated injected-data deterministic payload test.
+- [x] Canonical/security-header/validation/body-size/response-size/rate-limit/upstream-error API tests.
+- [x] Worker route allowlist/method/body/header sanitization/no-cache tests.
+- [x] Vercel route/build contract test.
+
+### First CI failure — root cause and disposition
+
+Initial PR #61 CI run `31301415964` reached Python tests after dependency install, pip consistency, compile and Ruff all PASS. Python result was **210 passed / 1 failed**; later Node/E2E/deployment steps were skipped only because the Python job failed.
+
+The failing test was `test_incomplete_candidate_blocks_formal_analysis_without_silent_deletion`.
+
+Root cause:
+
+- the service had already correctly classified a candidate dataset with a failed symbol as `incomplete`;
+- but before returning diagnostic preflight evidence, `_finite_complete_case()` still selected `request.symbols` from a DataFrame containing only `resolved_symbols`, causing a pandas `KeyError` for the failed candidate;
+- this was a mismatch between **partial evidence accounting** and **formal requested-membership semantics**, not a reason to remove the failed candidate.
+
+Disposition:
+
+- complete-case evidence counts now use `candidate_dataset.resolved_symbols`;
+- requested/resolved/failure membership remains explicit;
+- status remains `incomplete` and formal `analysis` remains `null` whenever any candidate is unresolved;
+- zero-resolved-symbol evidence is handled as an empty frame rather than another indexing failure;
+- no reduced-universe calculation was introduced.
+
+### Additional same-scope hardening found during review
+
+1. Weight total tolerance originally allowed e.g. 99.99%, while Phase 2 requires unit-sum weights. Accepted raw weights now preserve proportions but normalize mechanically to exact unit sum; this is explicit in contract/payload/tests and is not sizing.
+2. Raw `RuntimeError` text was initially returned for an upstream failure. It is now logged server-side and replaced with a generic client error to prevent provider/internal-detail leakage.
+
+### Current validation evidence
+
+- Pre backup verified: `backup-pre-pr61-4cea3b18fdce` -> `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
+- Release Backup Gates have repeatedly PASSed on later heads.
+- Portfolio web CI on pre-roadmap head `ecb4a04364c38822637f571238f17d82951bbf7c`: PASS.
+- Full `validate` run `31301739846` on pre-roadmap head `ecb4a04364c38822637f571238f17d82951bbf7c`: **PASS** — dependencies/pip check, compile, Ruff, all Python tests, JS syntax, Worker tests, score tests, Playwright E2E, Vercel config validation, D1 local migration and Cloudflare dry-run all succeeded.
+- Vercel required context for that pre-roadmap head was still pending when this roadmap update was prepared.
+- This roadmap update creates a new PR head, therefore the previous PASS is evidence only, **not final-head authorization to merge**.
+- Final current-head `validate`, Vercel, final changed-file scope review and independent diff review remain required after this commit.
+
+### Explicit non-goals preserved
+
+- No UI.
+- No clustering/redundancy engine or verdicts.
+- No BUY/SELL/KEEP/TRIM/REPLACE.
+- No selection or sizing.
+- No HRP/ERC/minimum-variance optimizer.
 - No Leave-One-Out/Add-One/Replace-One.
 - No Exhaustive integration.
-- No OOS recommendation claim.
-- No Portfolio v3 contract migration.
+- No OOS/walk-forward claim.
+- No Portfolio v3 ledger migration.
 
 ### Exit gate
 
-- [ ] API contract/version frozen and documented.
-- [ ] Preflight/analyze deterministic and fail-closed.
-- [ ] Security/resource guards verified.
-- [ ] Existing production regression suite PASS.
-- [ ] Required CI/Vercel/review/pre-post backup PASS.
-- [ ] Doc-only Phase 3 closeout merged.
+- [x] API contract/version frozen and documented.
+- [x] Separate Refinery runtime/edge route defined.
+- [x] Preflight/analyze deterministic/fail-closed behavior implemented.
+- [x] Candidate/benchmark sample isolation implemented/tested.
+- [x] Request/response/rate/error/security guards implemented/tested.
+- [x] First CI defect root-caused without silent candidate deletion.
+- [x] Pre-roadmap implementation head passed full `validate`.
+- [ ] Query new current PR head after this roadmap commit.
+- [ ] Final current-head `validate` PASS.
+- [ ] Final current-head Vercel required context PASS.
+- [ ] Final changed-file scope + independent diff review PASS.
+- [ ] PR #61 expected-head squash merge.
+- [ ] Post-merge backup verified.
+- [ ] Merge-after-push `main` CI PASS.
+- [ ] Doc-only Phase 3 closeout merged; only then Phase 3 becomes `CLOSED / PASS`.
 
 ---
 
 ## Phase 4 — Refinery Diagnostic UI
 
-**Status: PLANNED**
+**Status: PLANNED — DO NOT START until Phase 3 closeout is merged**
 
 - [ ] Separate `RefineryWorkspaceModel` and persisted schema from Portfolio workspace.
 - [ ] Workspace switch: Portfolio backtest / holding refinement.
@@ -416,6 +438,7 @@ Exit gate: provenance/effective dates support actual point-in-time claims.
 | Cloudflare dry-run | Pass when Worker/static deployment touched / full CI requires it |
 | Quant golden/parity fixtures | Required from Phase 0 onward where applicable |
 | Mathematical invariants/metamorphic tests | Required from Phase 2 onward |
+| API security/resource/fail-closed tests | Required from Phase 3 onward |
 | OOS/walk-forward evidence | Required for recommendation claims from Phase 7 onward |
 | Pre/post Release backup | Required for runtime/quant-methodology PRs |
 | Independent diff review | Required before merge; COMMENT evidence is acceptable when GitHub forbids self-approval and branch protection does not require another approver |
@@ -455,29 +478,37 @@ Do not mark a phase `CLOSED` until its exit gate and closeout record are complet
 - Implementation squash merge `7cf3fdcfa248d47a036419213da0acce594ada7c`; pre/post backups and final gates PASS.
 - Closeout PR #58 merged `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`; Phase 1 CLOSED / PASS.
 
-## 2026-08-09 — Phase 2 / PR #59 + closeout
+## 2026-08-09 — Phase 2 / PR #59 + closeout #60
 
-- Added pure Risk Mathematics V1 without production consumer integration.
-- Initial CI exposed three incorrect golden expected values; independent NumPy/scikit-learn derivation proved the implementation correct and fixture wrong.
-- Corrected/anchored the fixture instead of changing production mathematics to satisfy bad expectations.
-- Added numerical-scale and conditional-sample hardening tests.
-- Final implementation head `9cd00609bcbdde210bdc024fa224016ca3dda6d3` passed `validate`, Vercel and Release Backup Gates.
-- Independent final diff review PASS; GitHub self-approval limitation documented via COMMENT review `4890745183`.
-- Expected-head squash merge `724075ddbb0383f7889e4b622a95a57769d5558c`.
-- Pre/post backups verified: `backup-pre-pr59-666c561c0abf`, `backup-post-pr59-724075ddbb03`.
-- Merge-after-push `main` CI `31300503126` PASS.
-- This doc-only closeout transitions Phase 2 to CLOSED / PASS when merged.
+- Added pure Risk Mathematics V1 without recommendation/selection/sizing logic.
+- Incorrect golden fixture root-caused and independently re-anchored instead of changing valid mathematics.
+- Implementation squash merge `724075ddbb0383f7889e4b622a95a57769d5558c`; final gates/backups PASS.
+- Closeout PR #60 merged `4cea3b18fdce7db5e464196172f59930abf6b7d9`; Phase 2 CLOSED / PASS.
+
+## 2026-08-09 — Phase 3 / PR #61 — VALIDATING
+
+- Defined read-only Refinery V1 contract before implementation.
+- Added dedicated FastAPI/Vercel/Worker route boundary and ResearchDataset + Risk Mathematics composition.
+- Initial CI run `31301415964`: 210 Python tests passed / 1 failed after compile/Ruff PASS. Root cause was partial candidate evidence-count indexing requested membership rather than resolved evidence.
+- Fixed evidence counting while preserving fail-closed formal membership; no silent candidate deletion.
+- Added proportional unit-sum normalization for accepted explicit-weight total tolerance and sanitized upstream runtime errors.
+- Pre-roadmap head `ecb4a04364c38822637f571238f17d82951bbf7c` passed full `validate` run `31301739846`; Portfolio web CI and Release Backup Gates also PASS.
+- Pre backup verified: `backup-pre-pr61-4cea3b18fdce`.
+- Current state: this roadmap commit creates a newer head; rerun final-head gates, then independent review/merge only if all remain PASS.
 
 # 8. Exact resume point
 
-After this doc-only Phase 2 closeout merges:
+Current task remains **Phase 3 — Read-only Refinery API / PR #61**.
 
-1. Query the latest protected `main` SHA; do not assume the Phase 2 implementation SHA is still HEAD because this closeout itself adds one documentation commit.
-2. Confirm no open unfinished Phase 2 implementation/closeout PR remains.
-3. Begin **Phase 3 — Read-only Refinery API only**.
-4. First read `AI_PROJECT_PLAYBOOK.md`, this file, `docs/research/RESEARCH_DATASET_V1.md`, `docs/quant/RISK_MATHEMATICS_V1.md`, `docs/quant/RISK_MODEL_POLICY.md`, `docs/quant/METRIC_AUTHORITY.md`, `docs/quant/RETURN_SEMANTICS.md`, and runtime/Worker security documentation.
-5. Inventory the current FastAPI/Flask/Worker routing and all request/response-size, timeout, rate, computation, CORS/allowlist and error-envelope guards before writing endpoints.
-6. Define a separate versioned Refinery API contract and resource budget before implementation.
-7. Implement read-only `preflight` and `analyze` over ResearchDataset + Risk Mathematics only. Preserve requested membership and explicit failures; no silent dropping.
-8. Do not add UI, clustering, selection, sizing, recommendation labels, Exhaustive integration or OOS claims in Phase 3.
-9. Update this file within the Phase 3 implementation PR, then complete the same doc-only closeout process before Phase 4.
+1. Query PR #61 current head after this roadmap commit; do not reuse `ecb4a043...` as final head.
+2. Wait for/check latest `validate`; if it fails, inspect exact evidence and fix only the demonstrated Phase 3 contract/implementation defect.
+3. Verify latest current-head Vercel required context is `success`.
+4. Verify Release Backup Gate remains PASS and `backup-pre-pr61-4cea3b18fdce` still points to Phase 3 base/main.
+5. Verify final changed-file scope contains only dedicated Refinery backend/edge/deployment contract/tests/docs/CI wiring/roadmap; no Portfolio UI, clustering, selection, sizing or Exhaustive logic.
+6. Independently review the final diff, specifically requested-vs-resolved partial semantics, candidate/benchmark sample isolation, no hidden equal weights, weight normalization traceability, response exposure, route/resource/security guards and Phase 2 wiring.
+7. Only after all gates PASS: mark PR #61 Ready and squash merge using the exact current head SHA.
+8. Verify `backup-post-pr61-<merge-sha-prefix>` points exactly to the merge SHA.
+9. Verify merge-after-push `main` CI.
+10. Create a doc-only Phase 3 closeout PR recording final implementation head/merge/checks/review/pre-post backups/limitations and exact Phase 4 resume point.
+11. Phase 3 becomes `CLOSED / PASS` only after that closeout merges.
+12. **Do not start Phase 4 before step 11.**
