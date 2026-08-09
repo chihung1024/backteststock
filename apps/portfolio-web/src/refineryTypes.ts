@@ -91,7 +91,7 @@ export interface RefineryBaseResponse {
   endpoint: "preflight" | "analyze";
   status: "ready" | "incomplete" | "insufficient_data" | "ok" | string;
   request: RefineryRequestEcho;
-  methodology: Record<string, string | number | boolean | null>;
+  methodology: Record<string, string | number | boolean | number[] | null>;
   dataset: RefineryDatasetEvidence;
   eligibility: RefineryEligibility;
 }
@@ -160,6 +160,160 @@ export type RefineryCorrelationKey =
   | "downside"
   | "stress";
 
+export interface RefineryClusterMerge {
+  node_id: number;
+  left: number;
+  right: number;
+  distance: number;
+  count: number;
+}
+
+export interface RefineryClusterGroup {
+  cluster_id: string;
+  members: string[];
+}
+
+export interface RefineryHierarchyEvidence {
+  method: string;
+  cut_distance: number;
+  symbols: string[];
+  merges: RefineryClusterMerge[];
+  clusters: RefineryClusterGroup[];
+  cluster_by_symbol: Record<string, string>;
+}
+
+export interface RefineryClusterSummary {
+  cluster_id: string;
+  members: string[];
+  member_count: number;
+  structural_correlation: {
+    minimum: number;
+    mean: number;
+    maximum: number;
+  } | null;
+  bootstrap_stability: number | null;
+  bootstrap_stability_status: string;
+  complete_linkage_agreement: boolean | null;
+}
+
+export interface RefineryClusterWindowEvidence {
+  window_weeks: number;
+  status: string;
+  input_observations: number;
+  observations: number;
+}
+
+export interface RefineryClusterPairAgreement {
+  symbol_a: string;
+  symbol_b: string;
+  available_windows: number;
+  same_cluster_windows: number;
+  agreement: number | null;
+}
+
+export interface RefineryBootstrapPairEvidence {
+  symbol_a: string;
+  symbol_b: string;
+  probability: number | null;
+}
+
+export interface RefineryClusteringEvidence {
+  contract_version: string;
+  primary_linkage: string;
+  sensitivity_linkage: string;
+  flat_cut_distance: number;
+  stability_windows_weeks: number[];
+  bootstrap_replicates: number;
+  bootstrap_block_weeks: number;
+  status: string;
+  reason: string | null;
+  primary: RefineryHierarchyEvidence | null;
+  sensitivity: RefineryHierarchyEvidence | null;
+  multi_window: {
+    windows: RefineryClusterWindowEvidence[];
+    pair_agreements: RefineryClusterPairAgreement[];
+  } | null;
+  bootstrap: {
+    status: string;
+    requested_replicates: number;
+    usable_replicates: number;
+    unusable_replicates: number;
+    block_weeks: number;
+    observations: number;
+    seed: number;
+    pair_probabilities: RefineryBootstrapPairEvidence[];
+  } | null;
+  clusters: RefineryClusterSummary[];
+  bootstrap_seed_fingerprint?: string;
+}
+
+export type RefineryRedundancyVerdict = "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
+export type RefineryEvidenceConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export interface RefineryRedundancyPair {
+  symbol_a: string;
+  symbol_b: string;
+  verdict: RefineryRedundancyVerdict;
+  confidence: RefineryEvidenceConfidence;
+  structural_correlation: number | null;
+  medium_correlation: number | null;
+  downside_correlation: number | null;
+  stress_correlation: number | null;
+  factor_implied_correlation: number | null;
+  same_average_cluster: boolean;
+  same_complete_cluster: boolean;
+  available_stability_windows: number;
+  window_cocluster_agreement: number | null;
+  bootstrap_cocluster_probability: number | null;
+  correlation_status: Record<string, string>;
+}
+
+export interface RefineryRedundancyEvidence {
+  status: string;
+  verdict_semantics: string;
+  magic_numeric_score: boolean;
+  counts: Record<RefineryRedundancyVerdict, number>;
+  pairs: RefineryRedundancyPair[];
+}
+
+export interface RefineryFactorAssetEvidence {
+  status: string;
+  quote_currency: string | null;
+  observations: number;
+  start?: string | null;
+  end?: string | null;
+  intercept_monthly?: number | null;
+  r_squared: number | null;
+  betas: Record<string, number> | null;
+}
+
+export interface RefineryFactorRelationships {
+  source: string;
+  scope: string;
+  return_currency: string;
+  minimum_monthly_observations: number;
+  status: string;
+  factor_sample: {
+    observations: number;
+    start: string | null;
+    end: string | null;
+    fingerprint_sha256: string;
+  } | null;
+  assets: Record<string, RefineryFactorAssetEvidence>;
+  systematic_relationship: {
+    status: string;
+    factor_observations: number;
+    matrix: RefineryCorrelationMatrix | null;
+  } | null;
+}
+
+export interface RefineryThemeRelationships {
+  status: string;
+  source: string | null;
+  taxonomy_version: string | null;
+  relationships: unknown;
+}
+
 export interface RefineryAnalysis {
   symbols: string[];
   covariance: {
@@ -178,6 +332,10 @@ export interface RefineryAnalysis {
   };
   portfolio: RefineryPortfolioRisk;
   correlations: Record<RefineryCorrelationKey, RefineryCorrelationView>;
+  clustering?: RefineryClusteringEvidence;
+  redundancy?: RefineryRedundancyEvidence;
+  factor_relationships?: RefineryFactorRelationships;
+  theme_relationships?: RefineryThemeRelationships;
 }
 
 export interface RefineryAnalyzeResponse extends RefineryBaseResponse {
