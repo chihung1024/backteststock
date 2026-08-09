@@ -107,8 +107,15 @@ class RefineryService:
                 end=request.end_date,
             )
 
-        daily = _finite_complete_case(candidate_dataset.daily_returns_twd, request.symbols)
-        weekly = _finite_complete_case(candidate_dataset.weekly_returns_twd, request.symbols)
+        resolved_symbols = candidate_dataset.resolved_symbols
+        daily = _finite_complete_case(
+            candidate_dataset.daily_returns_twd,
+            resolved_symbols,
+        )
+        weekly = _finite_complete_case(
+            candidate_dataset.weekly_returns_twd,
+            resolved_symbols,
+        )
         reasons: list[str] = []
         if not candidate_dataset.is_complete:
             reasons.append("candidate_membership_incomplete")
@@ -172,6 +179,12 @@ class RefineryService:
                         }
                         for item in request.weights
                     ]
+                    if request.weights is not None
+                    else None
+                ),
+                "weight_input_total_percent": request.weight_input_total_percent,
+                "weight_normalization": (
+                    "proportional_to_unit_sum"
                     if request.weights is not None
                     else None
                 ),
@@ -287,13 +300,18 @@ class RefineryService:
         correlation_payloads = {
             "tactical_daily": _correlation_payload(correlations.tactical_daily),
             "medium_daily": _correlation_payload(correlations.medium_daily),
-            "structural_weekly": _correlation_payload(correlations.structural_weekly),
+            "structural_weekly": _correlation_payload(
+                correlations.structural_weekly
+            ),
         }
         correlation_payloads.update(self._conditional_correlations(prepared))
 
         covariance_dimension = effective_dimensions(ledoit_wolf.covariance)
         medium_dimension = None
-        if correlations.medium_daily.status == "ok" and correlations.medium_daily.matrix is not None:
+        if (
+            correlations.medium_daily.status == "ok"
+            and correlations.medium_daily.matrix is not None
+        ):
             medium_dimension = effective_dimensions(
                 correlations.medium_daily.matrix.to_numpy(dtype=float)
             )
@@ -391,7 +409,10 @@ class RefineryService:
                 "benchmark_not_supplied",
             )
             return {"downside": unavailable, "stress": dict(unavailable)}
-        if benchmark_dataset is None or benchmark_symbol in benchmark_dataset.failures:
+        if (
+            benchmark_dataset is None
+            or benchmark_symbol in benchmark_dataset.failures
+        ):
             unavailable = _unavailable_correlation(
                 "unavailable_benchmark_failed",
                 "benchmark_unavailable",
@@ -423,13 +444,26 @@ def _subset_histories(
     symbols = tuple(requested)
     return PartialTWDHistories(
         requested=symbols,
-        histories={symbol: batch.histories[symbol] for symbol in symbols if symbol in batch.histories},
-        failures={symbol: batch.failures[symbol] for symbol in symbols if symbol in batch.failures},
+        histories={
+            symbol: batch.histories[symbol]
+            for symbol in symbols
+            if symbol in batch.histories
+        },
+        failures={
+            symbol: batch.failures[symbol]
+            for symbol in symbols
+            if symbol in batch.failures
+        },
     )
 
 
-def _finite_complete_case(frame: pd.DataFrame, symbols: Iterable[str]) -> pd.DataFrame:
+def _finite_complete_case(
+    frame: pd.DataFrame,
+    symbols: Iterable[str],
+) -> pd.DataFrame:
     ordered = list(symbols)
+    if not ordered:
+        return pd.DataFrame(dtype=float)
     if frame.empty:
         return pd.DataFrame(columns=ordered, dtype=float)
     selected = frame.loc[:, ordered].replace([np.inf, -np.inf], np.nan)
@@ -463,7 +497,9 @@ def _effective_dimension_payload(value: Any) -> dict[str, Any]:
     return {
         "entropy_effective_rank": _finite_or_none(value.entropy_effective_rank),
         "participation_ratio": _finite_or_none(value.participation_ratio),
-        "positive_eigenvalues": [_finite_or_none(item) for item in value.positive_eigenvalues],
+        "positive_eigenvalues": [
+            _finite_or_none(item) for item in value.positive_eigenvalues
+        ],
     }
 
 
