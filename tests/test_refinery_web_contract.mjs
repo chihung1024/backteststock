@@ -15,6 +15,7 @@ const portfolioApiSource = read("apps/portfolio-web/src/api.ts");
 const refineryApiSource = read("apps/portfolio-web/src/refineryApi.ts");
 const refineryModelSource = read("apps/portfolio-web/src/refineryModel.ts");
 const refineryTypesSource = read("apps/portfolio-web/src/refineryTypes.ts");
+const refineryCssSource = read("apps/portfolio-web/src/refinery.css");
 const handoffSource = read("apps/portfolio-web/src/handoff.ts");
 const mainSource = read("apps/portfolio-web/src/main.tsx");
 
@@ -64,6 +65,13 @@ test("the Refinery stylesheet is additive and loaded after the existing Portfoli
   const refineryCssIndex = mainSource.indexOf('import "./refinery.css"');
   assert.ok(portfolioCssIndex >= 0);
   assert.ok(refineryCssIndex > portfolioCssIndex);
+});
+
+test("Refinery utility selectors stay scoped away from existing Portfolio classes", () => {
+  assert.doesNotMatch(
+    refineryCssSource,
+    /(?:^|\n)\.(?:autosave-indicator|summary-metric|summary-chip|mobile-row-heading|toggle-row|weight-total|signed-negative|muted-inline|workspace-hint)(?=[\s.#:{,]|$)/u,
+  );
 });
 
 test("Phase 4 workspace remains a direct page without iframe or modal shell", () => {
