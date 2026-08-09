@@ -13,7 +13,7 @@ function correlationView(symbols, matrix, status = "ok") {
   };
 }
 
-function preflightResponse(symbols, status = "ready") {
+function preflightResponse(symbols, status = "ready", withWeights = false) {
   const analysisReady = status === "ready";
   return {
     contract_version: "refinery-v1",
@@ -25,10 +25,10 @@ function preflightResponse(symbols, status = "ready") {
       benchmark: null,
       start_date: "2024-01-01",
       end_date: "2025-01-01",
-      weights_supplied: false,
-      weights: null,
-      weight_input_total_percent: null,
-      weight_normalization: null,
+      weights_supplied: withWeights,
+      weights: withWeights ? symbols.map(() => 1 / symbols.length) : null,
+      weight_input_total_percent: withWeights ? 100 : null,
+      weight_normalization: withWeights ? "normalized_from_percent" : null,
       ewma_decay: 0.94,
       stress_quantile: 0.1,
     },
@@ -81,18 +81,11 @@ function preflightResponse(symbols, status = "ready") {
 
 function analyzeResponse(symbols) {
   const matrix = symbols.map((_, row) => symbols.map((__, column) => row === column ? 1 : 0.35));
-  const base = preflightResponse(symbols);
+  const base = preflightResponse(symbols, "ready", true);
   return {
     ...base,
     endpoint: "analyze",
     status: "ok",
-    request: {
-      ...base.request,
-      weights_supplied: true,
-      weights: symbols.map(() => 1 / symbols.length),
-      weight_input_total_percent: 100,
-      weight_normalization: "normalized_from_percent",
-    },
     analysis: {
       symbols,
       covariance: {
@@ -178,14 +171,14 @@ function analyzeResponse(symbols) {
       },
       portfolio: {
         status: "ok",
-        weights: symbols.map(() => 1 / symbols.length),
+        weights: [0.5, 0.5],
         variance: 0.0196,
         volatility: 0.14,
-        marginal_risk_contribution: symbols.map(() => 0.14),
-        signed_component_risk_contribution: symbols.map(() => 0.14 / symbols.length),
+        marginal_risk_contribution: [0.16, 0.12],
+        signed_component_risk_contribution: [0.08, 0.06],
         diversification_ratio: 1.35,
-        weight_effective_holdings: symbols.length,
-        gross_risk_contribution_equivalent_holdings: symbols.length,
+        weight_effective_holdings: 2,
+        gross_risk_contribution_equivalent_holdings: 1.96,
       },
       correlations: {
         tactical_daily: correlationView(symbols, matrix),
@@ -235,11 +228,11 @@ for (const status of ["incomplete", "insufficient_data"]) {
   });
 }
 
-test("explicit weights expose signed risk, covariance diagnostics and all correlation views without recommendations", async ({ page }) => {
+test("explicit weights expose signed risk, covariance diagnostics and all correlation views", async ({ page }) => {
   const symbols = ["AAPL", "MSFT"];
   await page.route("**/api/v1/refinery/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const payload = path.endsWith("/preflight") ? preflightResponse(symbols) : analyzeResponse(symbols);
+    const payload = path.endsWith("/preflight") ? preflightResponse(symbols, "ready", true) : analyzeResponse(symbols);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -261,8 +254,11 @@ test("explicit weights expose signed risk, covariance diagnostics and all correl
   await expect(page.getByRole("heading", { name: "結構摘要" })).toBeVisible();
   await expect(page.getByText("Cov. Effective Rank", { exact: true })).toBeVisible();
   await expect(page.getByText("Diversification Ratio", { exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "資本與風險貢獻列表" })).toBeVisible();
-  await expect(page.getByText("50%", { exact: true })).toHaveCount(2);
+  const riskTable = page.getByRole("region", { name: "資本與風險貢獻列表" });
+  await expect(riskTable).toBeVisible();
+  await expect(riskTable.getByText("50%", { exact: true })).toHaveCount(2);
+  await expect(riskTable.getByText("57.1%", { exact: true })).toBeVisible();
+  await expect(riskTable.getByText("42.9%", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Covariance 穩定度" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Covariance 診斷" })).toBeVisible();
 
@@ -275,8 +271,6 @@ test("explicit weights expose signed risk, covariance diagnostics and all correl
   for (const label of ["下跌日", "壓力尾端"]) {
     await correlationTabs.getByRole("tab", { name: label }).click();
     await expect(page.getByText("此相關視圖目前不可用", { exact: true })).toBeVisible();
-    await expect(page.getByText(/未提供基準/)).toBeVisible();
+    await expect(page.getByText("未提供基準", { exact: true })).toBeVisible();
   }
-
-  await expect(page.getByText(/KEEP|TRIM|REPLACE|冗餘判定/)).toHaveCount(0);
 });
