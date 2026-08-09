@@ -61,6 +61,17 @@ test("Phase 5 CSS keeps every concrete class selector inside the Refinery worksp
   }
 });
 
+test("Phase 5 wide tables remain contained by their own horizontal scroll region", () => {
+  assert.match(
+    phase5CssSource,
+    /\.refinery-workspace \.refinery-phase5-card \.table-scroll\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;/su,
+  );
+  assert.match(
+    phase5CssSource,
+    /\.refinery-workspace \.refinery-phase5-card\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/su,
+  );
+});
+
 test("large Phase 5 evidence tables have explicit presentation-only DOM guards", () => {
   assert.match(phase5Source, /MAX_REDUNDANCY_ROWS = 80/u);
   assert.match(phase5Source, /slice\(0, MAX_REDUNDANCY_ROWS\)/u);
