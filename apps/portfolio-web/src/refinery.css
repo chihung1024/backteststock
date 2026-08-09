@@ -110,7 +110,7 @@
   min-width: min(330px, 100%);
 }
 
-.autosave-indicator {
+.refinery-workspace .autosave-indicator {
   flex-basis: 100%;
   color: var(--ref-muted);
   font-size: 0.78rem;
@@ -164,7 +164,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.summary-metric {
+.refinery-workspace .summary-metric {
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--ref-border);
@@ -172,20 +172,20 @@
   background: var(--ref-surface-muted);
 }
 
-.summary-metric span,
-.summary-metric small {
+.refinery-workspace .summary-metric span,
+.refinery-workspace .summary-metric small {
   display: block;
   color: var(--ref-muted);
 }
 
-.summary-metric span {
+.refinery-workspace .summary-metric span {
   margin-bottom: 5px;
   font-size: 0.73rem;
   font-weight: 700;
   letter-spacing: 0.03em;
 }
 
-.summary-metric strong {
+.refinery-workspace .summary-metric strong {
   display: block;
   overflow: hidden;
   color: var(--ref-text);
@@ -193,12 +193,12 @@
   text-overflow: ellipsis;
 }
 
-.summary-metric small {
+.refinery-workspace .summary-metric small {
   margin-top: 3px;
   font-size: 0.72rem;
 }
 
-.summary-chip {
+.refinery-workspace .summary-chip {
   white-space: nowrap;
   color: var(--ref-muted);
   font-size: 0.82rem;
@@ -244,7 +244,7 @@
   font-weight: 700;
 }
 
-.mobile-row-heading {
+.refinery-workspace .mobile-row-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -265,7 +265,7 @@
   margin-top: 12px;
 }
 
-.toggle-row {
+.refinery-workspace .toggle-row {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -275,18 +275,18 @@
   cursor: pointer;
 }
 
-.weight-total {
+.refinery-workspace .weight-total {
   color: var(--ref-muted);
   font-size: 0.86rem;
   font-weight: 700;
 }
 
-.weight-total.valid {
+.refinery-workspace .weight-total.valid {
   color: var(--ref-accent);
 }
 
-.weight-total.invalid,
-.signed-negative {
+.refinery-workspace .weight-total.invalid,
+.refinery-workspace .signed-negative {
   color: var(--ref-negative) !important;
 }
 
@@ -400,8 +400,8 @@
   min-width: 0;
 }
 
-.muted-inline,
-.workspace-hint {
+.refinery-workspace .muted-inline,
+.refinery-workspace .workspace-hint {
   color: var(--ref-muted);
 }
 
@@ -501,7 +501,7 @@
     min-width: 0;
   }
 
-  .autosave-indicator {
+  .refinery-workspace .autosave-indicator {
     text-align: left;
   }
 
