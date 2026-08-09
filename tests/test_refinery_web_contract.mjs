@@ -54,7 +54,8 @@ test("shared model and scanner handoff links force the Portfolio workspace", () 
 
 test("Refinery workspace does not import Portfolio ledger types as a generic data bag", () => {
   assert.doesNotMatch(refineryTypesSource, /from ["']\.\/types["']/u);
-  assert.doesNotMatch(refineryModelSource, /WorkspaceModel/u);
+  assert.doesNotMatch(refineryModelSource, /from ["']\.\/types["']/u);
+  assert.match(refineryModelSource, /RefineryWorkspaceModel/u);
   assert.doesNotMatch(refineryApiSource, /BacktestRequest|BacktestResponse|PreflightResponse/u);
 });
 
