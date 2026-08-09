@@ -70,6 +70,8 @@ Every covariance estimator accepts a positive explicit `annualization` multiplie
 - numerical rank;
 - condition number (`inf` for singular/near-singular matrices).
 
+The diagnostic tolerance is **relative to the covariance matrix magnitude**. Small-unit covariance matrices must not inherit an artificial absolute floor of `1.0`; PSD/rank/condition diagnostics are required to remain consistent under positive unit rescaling within floating-point limits.
+
 `estimator_dispersion()` reports scale-normalized pairwise Frobenius distance among covariance estimators so later UI can expose model sensitivity instead of presenting one estimate as exact truth.
 
 ## 3. Portfolio risk decomposition
@@ -132,7 +134,7 @@ participation ratio    = (sum λ)^2 / sum(λ^2)
 
 Both are reported because they summarize concentration differently. Neither is labelled as a definitive "number of independent bets".
 
-A matrix of perfect duplicate assets has effective dimension ~1; identity correlation has full dimension equal to asset count.
+A matrix of perfect duplicate assets has effective dimension ~1; identity correlation has full dimension equal to asset count. Effective-dimension results are also required to be invariant to positive matrix rescaling within floating-point limits.
 
 ## 5. Correlation policy
 
@@ -141,8 +143,8 @@ Phase 2 separates time horizons rather than forcing one daily matrix to answer e
 Initial lookback constants:
 
 ```text
-TACTICAL_DAILY_WINDOW   = 63
-MEDIUM_DAILY_WINDOW     = 252
+TACTICAL_DAILY_WINDOW    = 63
+MEDIUM_DAILY_WINDOW      = 252
 STRUCTURAL_WEEKLY_WINDOW = 156
 ```
 
@@ -164,7 +166,11 @@ Correlation functions report:
 - stress threshold when applicable;
 - status.
 
-They do not silently emit a matrix when sample evidence is inadequate.
+For unconditional correlation, `input_observations` is the requested/windowed candidate row count before asset complete-case filtering. For downside/stress correlation, it is the number of rows that are **eligible under the benchmark condition** after benchmark alignment/finite-value validation but before asset complete-case filtering. `dropped_observations` therefore counts invalid/missing asset rows inside the eligible conditional sample; rows that simply do not satisfy the downside/stress condition are not mislabelled as dropped data.
+
+The internal benchmark alignment uses a collision-proof temporary label, so an asset column named like an implementation-reserved benchmark field cannot corrupt conditional correlation.
+
+Correlation functions do not silently emit a matrix when sample evidence is inadequate.
 
 Statuses include:
 
@@ -182,7 +188,7 @@ Minimum observations are caller policy, not a hidden constant in the pure math l
 
 ### Stress
 
-`stress_correlation()` computes the benchmark lower-tail threshold from aligned finite observations and selects returns `<= threshold` for an explicit quantile in `(0, 0.5)`.
+`stress_correlation()` computes the benchmark lower-tail threshold from aligned finite benchmark observations and selects returns `<= threshold` for an explicit quantile in `(0, 0.5)`.
 
 If the selected conditional sample is smaller than the caller-supplied minimum, status is `insufficient_observations` and `matrix=None`. The system must not output false decimal precision from a tiny tail sample.
 
@@ -191,15 +197,18 @@ If the selected conditional sample is smaller than the caller-supplied minimum, 
 Tests must enforce:
 
 1. Ledoit-Wolf NumPy implementation matches scikit-learn reference covariance and shrinkage.
-2. Covariance diagnostics expose singularity/PSD/symmetry rather than hiding it.
-3. `sum(RC) == portfolio volatility` for non-zero-volatility portfolios.
-4. Asset-order permutation leaves portfolio risk unchanged and only permutes per-asset RC.
-5. Negative signed hedge RC remains negative.
-6. Perfect duplicate assets do not manufacture effective risk dimensions.
-7. Identity correlation has full effective dimension.
-8. Conditional correlation fails closed when samples are insufficient.
-9. Complete-case drops are explicitly counted.
-10. Golden fixture results remain stable unless the methodology contract is intentionally versioned.
+2. The golden fixture itself is independently anchored to NumPy sample covariance and scikit-learn Ledoit-Wolf reference values.
+3. Covariance diagnostics expose singularity/PSD/symmetry rather than hiding it.
+4. Covariance diagnostics and effective dimensions preserve their classification under positive unit rescaling within floating-point limits.
+5. `sum(RC) == portfolio volatility` for non-zero-volatility portfolios.
+6. Asset-order permutation leaves portfolio risk unchanged and only permutes per-asset RC.
+7. Negative signed hedge RC remains negative.
+8. Perfect duplicate assets do not manufacture effective risk dimensions.
+9. Identity correlation has full effective dimension.
+10. Conditional correlation fails closed when samples are insufficient.
+11. Conditional sample accounting distinguishes condition-ineligible rows from actual incomplete-data drops.
+12. Complete-case drops are explicitly counted.
+13. Golden fixture results remain stable unless the methodology contract is intentionally versioned.
 
 ## 9. Explicit non-goals
 
