@@ -1,58 +1,56 @@
-name: Temporary Phase 4 closeout patch
+name: Portfolio web CI
 
 on:
-  push:
-    branches:
-      - "docs/phase4-closeout"
+  pull_request:
     paths:
+      - "apps/portfolio-web/**"
+      - "public/portfolio/**"
+      - "tests/e2e/portfolio_full_page.spec.mjs"
+      - "tests/e2e/refinery_workspace.spec.mjs"
+      - "tests/e2e/refinery_contract.spec.mjs"
+      - "tests/test_portfolio_web_contract.mjs"
+      - "tests/test_portfolio_route_bridge.mjs"
+      - "tests/test_refinery_web_contract.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/portfolio-web-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/portfolio-web/**"
+      - "public/portfolio/**"
+      - "tests/e2e/portfolio_full_page.spec.mjs"
+      - "tests/e2e/refinery_workspace.spec.mjs"
+      - "tests/e2e/refinery_contract.spec.mjs"
+      - "tests/test_portfolio_web_contract.mjs"
+      - "tests/test_portfolio_route_bridge.mjs"
+      - "tests/test_refinery_web_contract.mjs"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: portfolio-web-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  patch:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          ref: docs/phase4-closeout
-          fetch-depth: 0
-
-      - name: Guard exact parent and branch head
-        shell: bash
-        run: |
-          set -euo pipefail
-          current="$(git rev-parse HEAD)"
-          parent="$(git rev-parse HEAD^)"
-          remote="$(git ls-remote origin refs/heads/docs/phase4-closeout | awk '{print $1}')"
-          test "${current}" = "${GITHUB_SHA}"
-          test "${parent}" = "443ba4159bdac54e6b033475c9cf83a459f65032"
-          test "${remote}" = "${current}"
-
-      - name: Patch roadmap
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -c "import base64,zlib; exec(zlib.decompress(base64.b64decode('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')).decode('utf-8'))"
-          test "$(git diff --name-only)" = "to_do_update_list.md"
-          git diff --check
-
-      - name: Commit roadmap
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add -- to_do_update_list.md
-          git diff --cached --quiet && { echo "No roadmap change produced"; exit 1; }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "docs: record Phase 4 closure and Phase 5 handoff"
-
-      - name: Guard race and push
-        shell: bash
-        run: |
-          set -euo pipefail
-          remote="$(git ls-remote origin refs/heads/docs/phase4-closeout | awk '{print $1}')"
-          test "${remote}" = "${GITHUB_SHA}"
-          git push origin HEAD:refs/heads/docs/phase4-closeout
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Type-check and build Portfolio app
+        run: npm run check:portfolio
+      - name: Test Portfolio and Refinery source contracts
+        run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
+      - name: Verify committed production assets
+        run: git diff --exit-code -- package-lock.json public/portfolio
