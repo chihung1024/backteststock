@@ -192,6 +192,18 @@ def test_research_dataset_rejects_unaccounted_requested_symbol():
         )
 
 
+def test_research_dataset_rejects_history_outside_requested_window():
+    dates = pd.bdate_range("2024-01-02", periods=6)  # includes Jan 9
+    partial = _partial(("AAA",), {"AAA": _history("AAA", dates)})
+
+    with pytest.raises(ValueError, match="outside requested inclusive window"):
+        build_research_dataset(
+            partial,
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 8),
+        )
+
+
 def test_research_dataset_service_fetches_once_and_keeps_history_outcomes():
     dates = pd.bdate_range("2024-01-02", periods=5)
     partial = _partial(("AAA",), {"AAA": _history("AAA", dates)})
@@ -218,7 +230,7 @@ def test_research_dataset_service_fetches_once_and_keeps_history_outcomes():
 
 
 def test_research_dataset_matches_current_exhaustive_preparation(monkeypatch):
-    dates = pd.bdate_range("2024-01-02", periods=65)
+    dates = pd.bdate_range("2024-01-02", periods=64)  # through Mar 29
     required = ("AAA", "BBB", "SPY")
     histories = {
         "AAA": _history("AAA", dates, native_start=100.0),
