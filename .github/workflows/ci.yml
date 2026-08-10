@@ -71,3 +71,91 @@ jobs:
         run: npx wrangler d1 migrations apply backteststock-universe --local
       - name: Validate Cloudflare bundle
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+
+  temporary_fix_phase5_results_grid_ancestor:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'phase5/clustering-redundancy'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      EXPECTED_PARENT_SHA: b46720ac332eeadab4b59f78bf804888873b42c0
+      TARGET_BRANCH: phase5/clustering-redundancy
+      TRIGGER_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Guard exact branch state
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          parent="$(git rev-parse HEAD^)"
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${current}" = "${TRIGGER_HEAD_SHA}"
+          test "${parent}" = "${EXPECTED_PARENT_SHA}"
+          test "${remote}" = "${current}"
+      - name: Patch real Phase 5 overflow ancestor
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workspace = Path("apps/portfolio-web/src/RefineryWorkspace.tsx")
+          text = workspace.read_text(encoding="utf-8")
+          old = '<div ref={resultsRef}>{analysis && <RefineryResults response={analysis} />}</div>'
+          new = '<div ref={resultsRef} className="refinery-results-shell">{analysis && <RefineryResults response={analysis} />}</div>'
+          if text.count(old) != 1:
+              raise SystemExit("results wrapper marker mismatch")
+          workspace.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          css = Path("apps/portfolio-web/src/refineryPhase5.css")
+          text = css.read_text(encoding="utf-8")
+          marker = '.refinery-workspace .refinery-phase5-card {\n'
+          prefix = '''.refinery-workspace .refinery-results-shell,
+          .refinery-workspace .refinery-results-stack {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+          }
+
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit("Phase 5 CSS marker mismatch")
+          css.write_text(text.replace(marker, prefix + marker, 1), encoding="utf-8")
+
+          contract = Path("tests/test_refinery_phase5_web_contract.mjs")
+          text = contract.read_text(encoding="utf-8")
+          marker = 'test("Phase 5 wide tables remain contained by their own horizontal scroll region", () => {\n'
+          new_test = '''test("Refinery results grid ancestors opt out of intrinsic min-content expansion", () => {
+            const workspaceSource = read("apps/portfolio-web/src/RefineryWorkspace.tsx");
+            assert.match(workspaceSource, /className="refinery-results-shell"/u);
+            assert.match(
+              phase5CssSource,
+              /\\.refinery-workspace \\.refinery-results-shell,[\\s\\S]*?\\.refinery-workspace \\.refinery-results-stack\\s*\\{[^}]*width:\\s*100%;[^}]*min-width:\\s*0;[^}]*max-width:\\s*100%;/su,
+            );
+          });
+
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit("Phase 5 source-contract marker mismatch")
+          contract.write_text(text.replace(marker, new_test + marker, 1), encoding="utf-8")
+          PY
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' apps/portfolio-web/src/RefineryWorkspace.tsx apps/portfolio-web/src/refineryPhase5.css tests/test_refinery_phase5_web_contract.mjs | sort)"
+          test "${changed}" = "${expected}"
+      - name: Commit and push root-cause fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${remote}" = "${TRIGGER_HEAD_SHA}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/portfolio-web/src/RefineryWorkspace.tsx apps/portfolio-web/src/refineryPhase5.css tests/test_refinery_phase5_web_contract.mjs
+          git commit -m "fix: contain Phase 5 results grid ancestry"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
