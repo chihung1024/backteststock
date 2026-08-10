@@ -261,6 +261,8 @@ export interface RefineryRedundancyPair {
   downside_correlation: number | null;
   stress_correlation: number | null;
   factor_implied_correlation: number | null;
+  factor_corroboration_eligible: boolean;
+  factor_corroboration_reason: string | null;
   same_average_cluster: boolean;
   same_complete_cluster: boolean;
   available_stability_windows: number;
@@ -280,6 +282,10 @@ export interface RefineryRedundancyEvidence {
 export interface RefineryFactorAssetEvidence {
   status: string;
   quote_currency: string | null;
+  factor_computable: boolean;
+  factor_model_scope: string;
+  factor_corroboration_eligible: boolean;
+  factor_corroboration_reason: string | null;
   monthly_return_policy: string;
   observations: number;
   start?: string | null;
@@ -292,6 +298,8 @@ export interface RefineryFactorAssetEvidence {
 export interface RefineryFactorRelationships {
   source: string;
   scope: string;
+  factor_model_scope: string;
+  factor_corroboration_policy: string;
   return_currency: string;
   monthly_return_policy: string;
   minimum_monthly_observations: number;

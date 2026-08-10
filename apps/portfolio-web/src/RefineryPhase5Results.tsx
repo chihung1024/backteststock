@@ -100,6 +100,7 @@ function RedundancyPairRow({ pair }: { pair: RefineryRedundancyPair }) {
       <td>{formatNumber(pair.downside_correlation, 2)}</td>
       <td>{formatNumber(pair.stress_correlation, 2)}</td>
       <td>{formatNumber(pair.factor_implied_correlation, 2)}</td>
+      <td title={pair.factor_corroboration_reason ?? undefined}>{yesNo(pair.factor_corroboration_eligible)}</td>
       <td>{yesNo(pair.same_average_cluster)}</td>
       <td>{yesNo(pair.same_complete_cluster)}</td>
       <td>{formatPercent(pair.window_cocluster_agreement, 0)}</td>
@@ -138,7 +139,7 @@ function RedundancyPanel({ response }: { response: RefineryAnalyzeResponse }) {
 
       <div className="table-scroll refinery-phase5-pair-scroll" tabIndex={0} role="region" aria-label="重複曝險 pair evidence">
         <table className="data-table refinery-redundancy-table">
-          <thead><tr><th>Pair</th><th>Verdict</th><th>Confidence</th><th>156W</th><th>252D</th><th>Downside</th><th>Stress</th><th>Factor</th><th>Avg cluster</th><th>Complete</th><th>Window</th><th>Bootstrap</th></tr></thead>
+          <thead><tr><th>Pair</th><th>Verdict</th><th>Confidence</th><th>156W</th><th>252D</th><th>Downside</th><th>Stress</th><th>Factor diagnostic</th><th>Factor 可作 verdict</th><th>Avg cluster</th><th>Complete</th><th>Window</th><th>Bootstrap</th></tr></thead>
           <tbody>{visiblePairs.map((pair) => <RedundancyPairRow key={`${pair.symbol_a}-${pair.symbol_b}`} pair={pair} />)}</tbody>
         </table>
       </div>
@@ -160,19 +161,22 @@ function FactorPanel({ response }: { response: RefineryAnalyzeResponse }) {
       <div className="refinery-evidence-grid">
         <div><span>Source</span><strong>{factors.source}</strong></div>
         <div><span>Return currency</span><strong>{factors.return_currency}</strong></div>
+        <div><span>Model scope</span><strong>{factors.factor_model_scope}</strong></div>
         <div><span>Minimum months</span><strong>{factors.minimum_monthly_observations}</strong></div>
         <div><span>Factor sample</span><strong>{factors.factor_sample?.observations ?? "—"}</strong></div>
       </div>
 
       <div className="table-scroll" tabIndex={0} role="region" aria-label="因子曝險適用範圍">
         <table className="data-table">
-          <thead><tr><th>代碼</th><th>Status</th><th>Quote CCY</th><th>Obs.</th><th>R²</th></tr></thead>
+          <thead><tr><th>代碼</th><th>Status</th><th>Quote CCY</th><th>Computable</th><th>Verdict eligible</th><th>Obs.</th><th>R²</th></tr></thead>
           <tbody>
             {assets.map(([symbol, asset]) => (
               <tr key={symbol}>
                 <th scope="row">{symbol}</th>
                 <td>{asset.status}</td>
                 <td>{asset.quote_currency ?? "—"}</td>
+                <td>{yesNo(asset.factor_computable)}</td>
+                <td title={asset.factor_corroboration_reason ?? undefined}>{yesNo(asset.factor_corroboration_eligible)}</td>
                 <td>{asset.observations}</td>
                 <td>{formatNumber(asset.r_squared, 3)}</td>
               </tr>
@@ -180,7 +184,7 @@ function FactorPanel({ response }: { response: RefineryAnalyzeResponse }) {
           </tbody>
         </table>
       </div>
-      <p className="refinery-method-note">Factor-implied correlation 表示系統性 factor component 的共動，不是總報酬相關，也不是全球通用因子模型。</p>
+      <p className="refinery-method-note">Factor-implied correlation 是 U.S.-factor co-movement diagnostic。沒有可追溯的 instrument/model applicability authority 時，診斷仍可顯示，但 factor_corroboration_eligible=false，不能升級 redundancy verdict。</p>
     </section>
   );
 }
