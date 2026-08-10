@@ -61,6 +61,15 @@ test("Phase 5 CSS keeps every concrete class selector inside the Refinery worksp
   }
 });
 
+test("Refinery results grid ancestors opt out of intrinsic min-content expansion", () => {
+  const workspaceSource = read("apps/portfolio-web/src/RefineryWorkspace.tsx");
+  assert.match(workspaceSource, /className="refinery-results-shell"/u);
+  assert.match(
+    phase5CssSource,
+    /\.refinery-workspace \.refinery-results-shell,[\s\S]*?\.refinery-workspace \.refinery-results-stack\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/su,
+  );
+});
+
 test("Phase 5 wide tables remain contained by their own horizontal scroll region", () => {
   assert.match(
     phase5CssSource,

@@ -200,7 +200,7 @@ export function RefineryWorkspace() {
       </section>
 
       {preflight && <RefineryPreflightCard response={preflight} />}
-      <div ref={resultsRef}>{analysis && <RefineryResults response={analysis} />}</div>
+      <div ref={resultsRef} className="refinery-results-shell">{analysis && <RefineryResults response={analysis} />}</div>
 
       <div className="run-bar refinery-run-bar" aria-live="polite">
         <div><strong>{busy ? (busy === "preflight" ? "正在預檢…" : "正在診斷…") : "Refinery read-only"}</strong><span>{error || message || "先預檢資料，再執行風險結構診斷。"}</span></div>

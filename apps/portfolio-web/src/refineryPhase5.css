@@ -1,3 +1,10 @@
+.refinery-workspace .refinery-results-shell,
+.refinery-workspace .refinery-results-stack {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .refinery-workspace .refinery-phase5-card {
   width: 100%;
   min-width: 0;
