@@ -15,7 +15,6 @@ from apps.api.app.portfolio.analytics_data import (
 )
 from apps.api.app.quant.factors import (
     US_FACTOR_COLUMNS,
-    boundary_safe_monthly_returns,
     factor_implied_relationship,
     fit_us_factor_exposure,
 )
