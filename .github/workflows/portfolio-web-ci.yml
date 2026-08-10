@@ -30,7 +30,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -42,8 +42,6 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -54,18 +52,5 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
-      - name: Synchronize generated Portfolio assets
-        env:
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if git diff --quiet -- package-lock.json public/portfolio; then
-            echo "Generated assets already synchronized."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json public/portfolio
-          git commit -m "build: synchronize Portfolio production assets"
-          git push origin "HEAD:${HEAD_BRANCH}"
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
