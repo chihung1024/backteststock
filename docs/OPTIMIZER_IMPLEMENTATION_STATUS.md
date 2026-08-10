@@ -1,51 +1,52 @@
-# Optimizer implementation status
+# Optimizer Implementation Status — Historical Snapshot
 
-Status: implemented in this merge branch; deployment and browser-capacity
-validation remain pending.
+Status: **HISTORICAL / SUPERSEDED AS A LIVE STATUS DOCUMENT**.
 
-## Active product contract
+This file preserves the Exhaustive optimizer implementation snapshot from the original rollout. Statements below about pending deployment/browser-capacity validation describe that historical stage and must **not** be used as the current project status.
 
-- One fixed user-supplied source pool; no pre-ranking, ticker substitution, or
-  training-period candidate selection.
+For current state use:
+
+1. root `to_do_update_list.md` for live phase/verification status;
+2. `EXHAUSTIVE_OPTIMIZER_V3.md` for the current full-period Exhaustive product/research contract;
+3. current code/tests/GitHub checks for operational truth.
+
+## Historical active product contract captured by this snapshot
+
+- One fixed user-supplied source pool; no pre-ranking, ticker substitution, or training-period candidate selection.
 - One complete historical period; no training / out-of-sample split.
-- Every asset and benchmark is converted to daily TWD adjusted-close levels
-  before the browser receives the signed snapshot.
-- Any source or benchmark data failure stops the exhaustive preflight with an
-  explicit list; it never silently drops a ticker or shortens the period.
-- `N` source tickers and configurable `K` holdings enumerate all `C(N,K)`
-  portfolios with dynamic equal target weights `1/K`.
-- Relative bands, monthly, quarterly, annual, and no-rebalance modes use the
-  same exact browser simulation and configurable transaction cost / execution
-  delay.
+- Every asset and benchmark is converted to daily TWD adjusted-close levels before the browser receives the signed snapshot.
+- Any source or benchmark data failure stops exhaustive preflight with an explicit list; it never silently drops a ticker or shortens the period.
+- `N` source tickers and configurable `K` holdings enumerate all `C(N,K)` portfolios with dynamic equal target weights `1/K`.
+- Relative bands, monthly, quarterly, annual, and no-rebalance modes use the same exact browser simulation and configurable transaction cost / execution delay.
 
-## Capacity and persistence
+These semantics remain historical-research semantics: full-period search results are not out-of-sample future-performance evidence.
 
-- The browser calculates up to **50,000,000** combinations.
-- Up to **5,000,000** result rows are durably retained after all combinations
-  have been calculated: 60% primary optimized-score leaders, 30% leaders from
-  complementary metrics, and 10% deterministic diversity coverage.
-- The first phase stores only bounded typed selection buffers; retained ranks
-  are re-evaluated and stored compactly as `Uint32 rank + Float32[14] metrics`.
-- Holdings are reconstructed from combinatorial rank, so they are not duplicated
-  in every saved result row.
-- Paused jobs persist checkpoints and compact chunks.  A pre-checkpoint browser
-  close deliberately recomputes completed work rather than bias global ranks.
-- The old 60-source-ticker cap is replaced by a 100-ticker platform boundary;
-  the additional guards are `C(N,K) ≤ 50,000,000`, signed snapshot size, and
-  the preflight resource estimate.
+## Capacity and persistence recorded at implementation time
+
+- Browser calculation limit: **50,000,000** combinations.
+- Durable retained result bound: up to **5,000,000** rows after all combinations are evaluated.
+- Historical retention policy: 60% primary optimized-score leaders, 30% complementary-metric leaders, 10% deterministic diversity coverage.
+- First phase stores bounded typed selection buffers; retained ranks are re-evaluated and stored compactly as `Uint32 rank + Float32[14] metrics`.
+- Holdings are reconstructed from combinatorial rank rather than duplicated per saved row.
+- Paused jobs persist checkpoints/compact chunks; a close before the first checkpoint recomputes work rather than biasing global ranks.
+- Historical source-ticker boundary was raised from 60 to 100, additionally constrained by combination count, signed snapshot size and preflight resource estimates.
+
+Any capacity value that affects current behavior must be verified against current code/tests rather than assumed from this snapshot.
 
 ## Retired surface
 
-The former `/api/optimizer/*` training / out-of-sample workflow is no longer
-deployed or edge-routable.  `optimizer.html` uses only
-`/api/optimizer/exhaustive/prepare`; legacy source files remain in the repository
-temporarily as historical reference and are not part of the active build or
-public route contract.
+The former `/api/optimizer/*` training / out-of-sample workflow is retired from the active edge/public route contract. `optimizer.html` uses the full-period Exhaustive preparation path. Legacy source files may remain as historical references and are not automatically production authorities.
 
-## Remaining release checks
+## Historical release checks
 
-- Run the real-browser IndexedDB resume and 5M-retention tests in an environment
-  with Playwright Chromium installed.
-- Measure 25/50/75/100-source preflight behavior on the target Vercel runtime.
-- Deploy the branch only after confirming configured upstream Yahoo and FX
-  request limits remain within the free hosting envelope.
+At the time this snapshot was written, the following checks were still listed as pending:
+
+- real-browser IndexedDB resume / high-retention validation;
+- 25/50/75/100-source preflight capacity checks on target runtime;
+- deployment confirmation under hosting/request limits.
+
+Those lines are retained here as **historical evidence of the rollout state**, not as current blockers. Later CI/release/deployment evidence is recorded in Git history and the live roadmap.
+
+## Maintenance rule
+
+Do not keep updating this file as a second project tracker. If Exhaustive semantics change, update the versioned Exhaustive contract and root live roadmap; preserve this snapshot for audit history.
