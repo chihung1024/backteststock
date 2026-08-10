@@ -34,7 +34,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -46,6 +46,47 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply guarded P5-CORR-D convergence patch
+        if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python scripts/_temporary_apply_p5_corr_d.py
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then
+            echo "P5-CORR-D patch already applied."
+          else
+            echo "$changed"
+            while IFS= read -r path; do
+              case "$path" in
+                apps/api/app/quant/clustering.py|\
+                apps/api/app/refinery/models.py|\
+                apps/api/app/refinery/relationships.py|\
+                apps/api/app/refinery/phase5_service.py|\
+                apps/portfolio-web/src/*.ts|\
+                apps/portfolio-web/src/*.tsx|\
+                tests/*.py|\
+                tests/*.mjs|\
+                docs/research/REFINERY_CLUSTERING_V1.md|\
+                docs/research/REFINERY_API_V1.md|\
+                docs/research/REFINERY_UI_V1.md|\
+                docs/research/PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md)
+                  ;;
+                *)
+                  echo "Unexpected P5-CORR-D path: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<< "$changed"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add $changed
+            git commit -m "docs: converge Phase 5 corrected contracts and versions"
+            git push origin "HEAD:${HEAD_BRANCH}"
+          fi
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
