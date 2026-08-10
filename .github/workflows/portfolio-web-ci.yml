@@ -24,7 +24,6 @@ on:
       - "tests/e2e/portfolio_full_page.spec.mjs"
       - "tests/e2e/refinery_workspace.spec.mjs"
       - "tests/e2e/refinery_contract.spec.mjs"
-      - "tests/e2e/refinery_phase5.spec.mjs"
       - "tests/test_portfolio_web_contract.mjs"
       - "tests/test_portfolio_route_bridge.mjs"
       - "tests/test_refinery_web_contract.mjs"
@@ -52,6 +51,37 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Capture P5-SEC npm audit evidence
+        shell: bash
+        run: |
+          npm audit --json > /tmp/audit-all.json || true
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          node <<'NODE'
+          const fs = require('fs');
+          function compact(path) {
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const vulnerabilities = Object.fromEntries(
+              Object.entries(data.vulnerabilities || {}).map(([name, value]) => [name, {
+                severity: value.severity,
+                isDirect: value.isDirect,
+                via: value.via,
+                effects: value.effects,
+                range: value.range,
+                nodes: value.nodes,
+                fixAvailable: value.fixAvailable,
+              }]),
+            );
+            return { metadata: data.metadata, vulnerabilities };
+          }
+          console.log('=== P5_SEC_AUDIT_ALL ===');
+          console.log(JSON.stringify(compact('/tmp/audit-all.json'), null, 2));
+          console.log('=== P5_SEC_AUDIT_PRODUCTION_ONLY ===');
+          console.log(JSON.stringify(compact('/tmp/audit-prod.json'), null, 2));
+          NODE
+          echo '=== P5_SEC_NPM_LS ==='
+          npm ls wrangler miniflare undici --all || true
+          echo '=== P5_SEC_NPM_EXPLAIN_UNDICI ==='
+          npm explain undici || true
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
