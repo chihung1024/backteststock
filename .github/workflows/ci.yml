@@ -89,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "7f3576670af49880b2df0a86224c465a5451f981"
+          test "$(git rev-parse HEAD^)" = "d252f748a31146cf35470387b1bf29d587e45260"
       - name: Install locked dependencies and browser
         run: |
           npm ci
@@ -100,11 +100,13 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path("tests/e2e/refinery_phase5.spec.mjs")
           text = path.read_text(encoding="utf-8")
-          old = '''  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-          expect(overflow).toBeLessThanOrEqual(1);
-          '''
+          pattern = re.compile(
+              r'(?m)^\s*const overflow = await page\.evaluate\(\(\) => document\.documentElement\.scrollWidth - window\.innerWidth\);\s*\n\s*expect\(overflow\)\.toBeLessThanOrEqual\(1\);'
+          )
           new = '''  const layoutDiagnostics = await page.evaluate(() => {
             const describe = (element, label) => {
               if (!element) return null;
@@ -158,11 +160,11 @@ jobs:
           });
           console.log("PHASE5_LAYOUT_DIAGNOSTICS=" + JSON.stringify(layoutDiagnostics));
           const overflow = layoutDiagnostics.documentScrollWidth - layoutDiagnostics.viewport;
-          expect(overflow).toBeLessThanOrEqual(1);
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("layout assertion marker mismatch")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          expect(overflow).toBeLessThanOrEqual(1);'''
+          updated, count = pattern.subn(new, text, count=1)
+          if count != 1:
+              raise SystemExit(f"layout assertion regex mismatch: {count}")
+          path.write_text(updated, encoding="utf-8")
           PY
       - name: Run targeted Phase 5 100-candidate layout probe
         run: npx playwright test tests/e2e/refinery_phase5.spec.mjs --grep "100-candidate" --reporter=line
