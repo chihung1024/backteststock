@@ -14,7 +14,7 @@ import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage as scipy_linkage
 from scipy.spatial.distance import squareform
 
-REFINERY_CLUSTERING_CONTRACT_VERSION = "refinery-clustering-twd-2026-08-10.1"
+REFINERY_CLUSTERING_CONTRACT_VERSION = "refinery-clustering-twd-2026-08-10.2"
 PRIMARY_CLUSTER_LINKAGE = "average"
 SENSITIVITY_CLUSTER_LINKAGE = "complete"
 PRIMARY_FLAT_CUT_DISTANCE = 0.50

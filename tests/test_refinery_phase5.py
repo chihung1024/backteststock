@@ -172,6 +172,13 @@ def test_phase5_adds_read_only_clustering_redundancy_and_unavailable_theme() -> 
     analysis = result["analysis"]
 
     assert result["status"] == "ok"
+    assert result["schema_version"] == "refinery-v1-2026-08-10.3"
+    assert result["contract_version"] == "refinery-v1"
+    assert result["methodology"]["clustering_contract_version"] == "refinery-clustering-twd-2026-08-10.2"
+    assert result["methodology"]["clustering_bootstrap_window_weeks"] == 156
+    assert result["methodology"]["factor_monthly_return_policy"] == "boundary-month-exclusion-v1"
+    assert result["methodology"]["factor_relationship_sample_policy"] == "global_common_monthly_sample_v1"
+    assert result["methodology"]["factor_corroboration_policy"] == "fail_closed_without_traceable_instrument_scope_v1"
     assert analysis["clustering"]["status"] == "ok"
     assert analysis["clustering"]["primary"]["method"] == "average"
     assert analysis["clustering"]["sensitivity"]["method"] == "complete"

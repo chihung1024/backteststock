@@ -23,7 +23,7 @@ function correlationView(symbols, matrix, status = "ok") {
 function preflightResponse(symbols) {
   return {
     contract_version: "refinery-v1",
-    schema_version: "refinery-v1-2026-08-10.2",
+    schema_version: "refinery-v1-2026-08-10.3",
     endpoint: "preflight",
     status: "ready",
     request: {

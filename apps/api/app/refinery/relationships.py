@@ -38,6 +38,7 @@ FACTOR_MODEL_SCOPE = "U.S.-factor co-movement diagnostic"
 FACTOR_CORROBORATION_UNAVAILABLE_REASON = (
     "unavailable_no_traceable_instrument_scope"
 )
+FACTOR_CORROBORATION_POLICY = "fail_closed_without_traceable_instrument_scope_v1"
 
 
 def build_phase5_relationships(
@@ -276,7 +277,7 @@ def _factor_payload(
         "source": FRENCH_FACTOR_SOURCE,
         "scope": FACTOR_MODEL_SCOPE,
         "factor_model_scope": FACTOR_MODEL_SCOPE,
-        "factor_corroboration_policy": "fail_closed_without_traceable_instrument_scope_v1",
+        "factor_corroboration_policy": FACTOR_CORROBORATION_POLICY,
         "return_currency": "native_quote_currency",
         "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
         "minimum_monthly_observations": DEFAULT_FACTOR_MIN_MONTHS,

@@ -10,6 +10,7 @@ from apps.api.app.quant import (
     BOOTSTRAP_BLOCK_WEEKS,
     BOOTSTRAP_REPLICATES,
     DEFAULT_FACTOR_MIN_MONTHS,
+    FACTOR_MONTHLY_RETURN_POLICY,
     PRIMARY_CLUSTER_LINKAGE,
     PRIMARY_FLAT_CUT_DISTANCE,
     PRIMARY_STRUCTURAL_WINDOW_WEEKS,
@@ -21,7 +22,12 @@ from apps.api.app.quant import (
 )
 from apps.api.app.research import FRENCH_FACTOR_SOURCE, FrenchFactorProvider
 
-from .relationships import THEME_UNAVAILABLE_STATUS, build_phase5_relationships
+from .relationships import (
+    FACTOR_CORROBORATION_POLICY,
+    FACTOR_MODEL_SCOPE,
+    THEME_UNAVAILABLE_STATUS,
+    build_phase5_relationships,
+)
 from .service import RefineryService as _BaseRefineryService
 
 
@@ -49,11 +55,15 @@ class Phase5RefineryService(_BaseRefineryService):
                 "clustering_stability_windows_weeks": list(STABILITY_WINDOWS_WEEKS),
                 "clustering_bootstrap_replicates": BOOTSTRAP_REPLICATES,
                 "clustering_bootstrap_block_weeks": BOOTSTRAP_BLOCK_WEEKS,
+                "clustering_bootstrap_window_weeks": PRIMARY_STRUCTURAL_WINDOW_WEEKS,
                 "clustering_bootstrap_seed_source": (
                     "effective_structural_weekly_sample_fingerprint_sha256"
                 ),
                 "factor_source": FRENCH_FACTOR_SOURCE,
-                "factor_scope": "U.S.-factor co-movement diagnostic",
+                "factor_scope": FACTOR_MODEL_SCOPE,
+                "factor_monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
+                "factor_relationship_sample_policy": "global_common_monthly_sample_v1",
+                "factor_corroboration_policy": FACTOR_CORROBORATION_POLICY,
                 "factor_minimum_monthly_observations": DEFAULT_FACTOR_MIN_MONTHS,
                 "theme_relationship_policy": THEME_UNAVAILABLE_STATUS,
             }
