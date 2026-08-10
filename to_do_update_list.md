@@ -1,543 +1,659 @@
 # BacktestStock Development Master Plan
 
-> Persistent execution/handoff index for `chihung1024/backteststock` and the Portfolio Refinery program. A phase/batch is not complete until this file records its status, evidence, limitations, and exact resume point.
+> Persistent execution / handoff authority for `chihung1024/backteststock`. This file must describe the **current remote reality**, not merely the intended process. A phase/batch is not DONE until status, evidence, limitations, rollback/recovery information, and exact next action are recorded here.
 
-## 1. Current baseline
+## 0. Document authority and staleness rule
 
-- Protected production branch: `main`
-- Phase 4 implementation PR: `#63` — `feat: add read-only Portfolio Refinery diagnostic UI`
-- Phase 4 final implementation head: `4439e4e721f8c93cc77161affbd5f24554de516f`
-- Phase 4 implementation merge: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`
-- Phase 4 pre backup: `backup-pre-pr63-17f0dd88aeae`
-- Phase 4 post backup: `backup-post-pr63-e59c1402011c`
-- Current phase state: **Phase 4 — PASS; becomes CLOSED when this doc-only closeout merges**
-- Next implementation phase: **Phase 5 — Clustering & Redundancy**
-- Governance ruleset: `main-protection`
-  - enforcement active; default branch target; bypass empty
-  - deletion and force/non-fast-forward pushes blocked
-  - PR required; squash only
-  - required checks: `validate` (GitHub Actions) + `Vercel`
-
-## 2. Mandatory execution discipline
-
-1. Read `AI_PROJECT_PLAYBOOK.md` first; it is the repository-wide AI engineering governance document.
-2. Execute phases in order. Do not start a later phase before the current exit gate passes.
-3. Avoid unrelated refactors/feature expansion; new discoveries go NOW/NEXT/BACKLOG/REJECT per the playbook.
-4. Implementation and quantitative-methodology work uses a non-`main` branch and PR.
-5. Never force-push or use direct implementation commits on `main`.
-6. Use squash merge and expected-head verification where supported.
-7. Runtime/quant-methodology PRs use generic `release-backup`.
-8. Never silently delete tickers, shorten requested dates, substitute calendars/currencies, backfill future data, or turn unavailable metrics into valid zeros.
-9. Keep historical search/exploration separate from OOS validation claims.
-10. Preserve explicit methodology/contract versions when externally observable semantics change.
-11. Update this file in each implementation PR with all information known before merge.
-12. A phase-ending implementation PR is followed by a **doc-only closeout PR** recording final merge SHA, post-backup, final checks/review, limitations, phase status and next resume point.
-13. The closeout PR does not recursively require another closeout; the next AI queries current `main` before work.
-14. If validation fails, preserve last valid production behavior and fix only inside the current phase.
-15. A golden fixture is not an authority merely because it is committed; where practical, its provenance must be independently anchored to a reference implementation or separately derived invariant.
-16. Partial research evidence may be reported, but formal analysis must never silently redefine requested membership by dropping failed candidates.
-
-## 3. Architecture boundaries
-
-- `apps/api/app/data/` — shared TWD market-data, FX, return-component and valuation authority.
-- `apps/api/app/portfolio/` — Portfolio v3 ledger/path-dependent analysis authority.
-- `apps/api/app/research/` — additive research-domain data/services beginning with `ResearchDatasetV1`; it must not become a second downloader.
-- `apps/api/app/quant/` — pure validated quantitative primitives; no API/UI/selection/sizing side effects.
-- `apps/api/app/refinery/` — read-only Refinery request/service boundary beginning in Phase 3; may compose ResearchDataset + Risk Mathematics but must not absorb Portfolio v3 ledger logic or later selection/sizing policy.
-- `api/refinery_v1.py` — dedicated FastAPI entrypoint for `/api/v1/refinery/*`.
-- `api/portfolio_v3.py` — production FastAPI Portfolio v3 entrypoint.
-- `api/index_v2.py`, `api/scan_v2.py`, `api/screener.py` — current compatibility/production entrypoints as documented.
-- `api/exhaustive_optimizer.py` — full-period historical research/search snapshot path, not an OOS validation engine.
-- `apps/portfolio-web/` — Portfolio v3 plus a separate Phase 4 Refinery diagnostic workspace; Portfolio and Refinery persistence/API contracts remain isolated.
-- New Refinery logic must not be added to legacy `api/index.py` or `api/optimizer.py`.
-- Portfolio v3 retains its strict production portfolio boundary; Refinery remains a separate research/diagnostic domain.
-
-Primary references:
-
-- `AI_PROJECT_PLAYBOOK.md`
-- `docs/PHASE_MINUS1_GOVERNANCE.md`
-- `docs/adr/0001-runtime-and-quant-authority.md`
-- `docs/UNIFIED_TWD_CONTRACT.md`
-- `docs/METRICS_REPRODUCIBILITY.md`
-- `docs/EXHAUSTIVE_OPTIMIZER_V3.md`
-- `docs/quant/METRIC_AUTHORITY.md`
-- `docs/quant/RETURN_SEMANTICS.md`
-- `docs/quant/RISK_MODEL_POLICY.md`
-- `docs/quant/RISK_MATHEMATICS_V1.md`
-- `docs/research/RESEARCH_DATASET_V1.md`
-- `docs/research/REFINERY_API_V1.md`
-- `docs/research/REFINERY_UI_V1.md`
+- Engineering governance authority: `AI_PROJECT_PLAYBOOK.md`.
+- Product/architecture overview: `README.md`.
+- **Live project status authority inside the repository: this file.**
+- Methodology/schema semantics: versioned contract docs under `docs/quant/`, `docs/research/`, ADRs and deployment/governance docs.
+- Operational truth that can change outside the repository (current `main`, PR head, checks, ruleset, deployment, release) must be queried from GitHub/Vercel/Cloudflare before acting.
+- If this file conflicts with current remote state, classify it as **documentation drift**, correct the file in the current Batch, and do not infer a new plan from stale text.
+- Detailed document precedence and freshness requirements: `docs/PROJECT_DOCUMENTATION_POLICY.md`.
 
 ---
 
-# 4. Roadmap
+# 1. Project Status
 
-## Phase -1 — Governance & Architecture Hardening
+## Primary Goal
 
-**Status: CLOSED / PASS**
+Complete **Phase 5 — Clustering & Redundancy** correctly and close it before starting Phase 6.
 
-- PR `#52`, merge `9135bdd33a46afee4f4a12b9030ca4504114924f`
-- CI/Vercel PASS
-- Pre: `backup-pre-pr52-a0c640783dc9`
-- Post: `backup-post-pr52-9135bdd33a46`
-- Architecture docs/runtime inventory aligned; obsolete PR19/PR38 backup workflows retired; `main-protection` activated afterward.
+## Current authoritative remote state
 
-## Continuity governance — persistent roadmap
+- Production branch: `main`.
+- Current `main`: `db3e692e3e4ce1962d6953988464947b35d5ef82` — Phase 4 closeout PR #64.
+- Phase 4: **CLOSED / PASS**.
+- Active implementation PR: **#65** — `feat: add Phase 5 clustering and redundancy diagnostics`.
+- PR #65 base: `main@db3e692e3e4ce1962d6953988464947b35d5ef82`.
+- PR #65 implementation head before this documentation convergence batch: `0dd3c12b3097975bdcd4d36aeab5504987efbe29`.
+- PR #65 state: **OPEN / DRAFT / MERGEABLE, but NOT MERGE-APPROVED**.
+- Current support batch branch: `docs/phase5-convergence-plan`, created from the exact PR #65 head above.
+- Current active Batch: **P5-DOC — Documentation & Methodology Convergence**.
 
-**Status: CLOSED / PASS**
+## Current verification evidence on PR #65 head `0dd3c12b...`
 
-- PR `#53`, merge `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`
-- CI/Vercel PASS
-- Pre: `backup-pre-pr53-9135bdd33a46`
-- Post: `backup-post-pr53-bc8ce721a829`
-- Added root `to_do_update_list.md` and implementation/closeout handoff discipline.
+- Main CI run `31344110155`: PASS.
+  - Python pytest: **244 passed**.
+  - Worker/Node: **47 passed**.
+  - score tests: **12 passed**.
+  - Playwright: **41 passed**.
+  - compile, Ruff, dependency consistency, Vercel config, D1 local migrations, Cloudflare dry-run: PASS.
+- Portfolio web CI run `31344110161`: PASS.
+- Release Backup Gates run `31344110147`: PASS.
+- Vercel required status: **FAIL — deployment rate limited / retry in 24 hours**; current evidence indicates quota/rate limiting, not a proven application build failure.
+- Independent final PR review submissions: **none yet**.
 
-## Phase 0 — Quant Authority Freeze
+## Merge decision
 
-**Status: CLOSED / PASS**
-
-- PR `#54`, merge `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`; pre/post backups and final CI/Vercel/review PASS.
-- Closeout PR `#55`, merge `d173f1d15a671e7d2f3c096a56e7ee3ef9f0a183`.
-- Metric/return/risk authorities frozen; existing 365.25 vs 365.2425 CAGR year-length difference remains explicit/versioned rather than silently normalized.
-
----
-
-## Phase 1 — ResearchDataset
-
-**Status: CLOSED / PASS**
-
-- Implementation PR `#57`, merge `7cf3fdcfa248d47a036419213da0acce594ada7c`.
-- Closeout PR `#58`, merge `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`.
-- Contract/version: `ResearchDatasetV1` / `research-dataset-twd-2026-08-09.1`.
-- One TWD market-data authority, explicit requested/resolved/failure evidence, window isolation, union calendar, daily/weekly TWD matrices, coverage/audits/fingerprints and deterministic hash implemented.
-- Exhaustive preparation parity passed without migrating production Exhaustive.
-- Pre `backup-pre-pr57-863039af8036`; post `backup-post-pr57-7cf3fdcfa248`.
-
-Known limitations retained:
-
-- Production consumers are not generally migrated to ResearchDataset.
-- Daily alignment intentionally reuses `align_twd_price_frame()` for semantic parity.
-- No point-in-time Universe/fundamentals are introduced.
+**NO-GO** until the Phase 5 methodology/documentation blockers below are resolved, final exact-head CI is green, Vercel required status is green, persistent handoff is current, and independent final review is recorded.
 
 ---
 
-## Phase 2 — Risk Mathematics Core
+# 2. Stable State
 
-**Status: CLOSED / PASS**
+Last Known Good production state is Phase 4 closeout on protected `main`:
 
-- Implementation PR `#59`, final head `9cd00609bcbdde210bdc024fa224016ca3dda6d3`, merge `724075ddbb0383f7889e4b622a95a57769d5558c`.
-- Closeout PR `#60`, merge `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
-- Contract/version: `risk-math-twd-2026-08-09.1`.
-- Sample/Ledoit-Wolf/EWMA covariance, diagnostics/dispersion, portfolio variance/vol/MRC/signed RC/DR, effective counts/ranks and guarded tactical/medium/structural/downside/stress correlation implemented.
-- NumPy Ledoit-Wolf independently anchored to scikit-learn; scikit-learn remains dev/test-only.
-- Initial bad golden fixture was independently re-derived and corrected rather than modifying valid mathematics to fit wrong expectations.
-- Pre `backup-pre-pr59-666c561c0abf`; post `backup-post-pr59-724075ddbb03`.
+- Phase 4 implementation PR #63 merge: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
+- Phase 4 closeout PR #64 merge / current main: `db3e692e3e4ce1962d6953988464947b35d5ef82`.
+- Phase 4 pre backup: `backup-pre-pr63-17f0dd88aeae`.
+- Phase 4 post backup: `backup-post-pr63-e59c1402011c`.
+- Phase 4 post-main CI / Portfolio web CI / Vercel / Cloudflare deploy-smoke: PASS as recorded in the historical phase record below.
 
-Known limitations retained:
-
-- Minimum-observation and EWMA-decay policies remain consumer-level choices.
-- Effective rank/participation ratio are structural diagnostics, not proof of exact independent economic bets.
-- No clustering, selection, sizing or OOS claim exists in Phase 2.
+Recovery principle: if Phase 5 causes a production regression after merge, restore the last known good Phase 4 production candidate first, then perform RCA and re-deploy a verified fix.
 
 ---
 
-## Phase 3 — Read-only Refinery API
+# 3. Architecture Notes
 
-**Status: CLOSED / PASS**
+## Canonical boundaries
 
-### Objective
-Expose Phase 1 ResearchDataset + Phase 2 Risk Mathematics through a separate deterministic read-only research API without changing Portfolio v3 ledger semantics or exposing clustering/selection/sizing/recommendation behavior.
+- `apps/api/app/data/` — TWD market-data, FX, return-component and valuation authority.
+- `apps/api/app/portfolio/` — Portfolio v3 ledger and path-dependent analytics authority.
+- `apps/api/app/research/` — reproducible research datasets and shared research-data adapters; **not a second market-price downloader**.
+- `apps/api/app/quant/` — pure quantitative primitives; no API/UI/selection/sizing side effects.
+- `apps/api/app/refinery/` — read-only Refinery composition and evidence policy; no Portfolio ledger absorption and no unvalidated selection policy.
+- `api/refinery_v1.py` — dedicated `/api/v1/refinery/*` FastAPI entrypoint.
+- `api/portfolio_v3.py` — Portfolio v3 FastAPI entrypoint.
+- `api/exhaustive_optimizer.py` — full-period historical research/search, not an OOS validation engine.
+- `apps/portfolio-web/` — separate Portfolio and Refinery workspace state/API boundaries.
 
-### Completed implementation — PR #61
+## Research architecture
 
-- [x] Defined `docs/research/REFINERY_API_V1.md` before implementation.
-- [x] Frozen API contract/schema: `refinery-v1` / `refinery-v1-2026-08-09.1`.
-- [x] Added separate `apps/api/app/refinery/` request/service boundary.
-- [x] Added dedicated FastAPI entrypoint `api/refinery_v1.py` and dedicated Vercel `/api/v1/refinery/(.*)` route.
-- [x] Added fixed Worker allowlist for exactly `POST preflight` and `POST analyze`.
-- [x] Candidate contract: 2–100 unique normalized symbols, explicit dates, optional benchmark, optional explicit candidate weights, explicit EWMA decay/stress quantile.
-- [x] Reuses existing `normalize_symbol()` including Taiwan numeric shorthand; no second symbol-normalization rule.
-- [x] No benchmark default and no equal-weight default are fabricated.
-- [x] Explicit weights must cover every candidate exactly once and total 100% within ±0.05 percentage point; accepted tolerance is proportionally normalized to exact unit sum while raw weights/raw total/normalization policy remain visible.
-- [x] Performs one authoritative `TWDHistoryService.histories_partial()` fetch for candidates + optional benchmark.
-- [x] Builds separate candidate and benchmark ResearchDataset views from that one audited batch so benchmark choice cannot alter candidate covariance/correlation sample.
-- [x] Partial preflight evidence may report resolved-symbol sample counts, but any unresolved candidate forces status `incomplete` and `analysis=null`; no reduced-universe formal analysis.
-- [x] Benchmark failure preserves candidate structural analysis and disables only conditional diagnostics with explicit failure/unavailable evidence.
-- [x] Candidate-complete but insufficient history returns `insufficient_data`.
-- [x] Ledoit-Wolf annualized covariance is primary formal risk estimator; sample/EWMA remain diagnostics/sensitivity.
-- [x] Exposes covariance diagnostics/dispersion, structural effective dimensions, optional explicit-weight portfolio risk and guarded tactical/medium/structural/downside/stress correlations.
-- [x] Public API omits raw price arrays/full ResearchDataset exports.
-- [x] Canonical deterministic JSON, 4 MiB response bound, 512 KiB request bound, 240s edge timeout, no-store/security headers and best-effort backend rate limits implemented.
-- [x] Worker strips authorization/cookies/backend-identifying headers and bypasses generic edge cache for Refinery.
-- [x] Upstream RuntimeError detail is logged server-side and sanitized to a stable client `upstream_failure` response.
-- [x] Vercel/Worker/CI deployment contracts and tests updated without changing Portfolio UI, Exhaustive or later-phase logic.
+```text
+TWDHistoryService
+  -> ResearchDatasetV1
+      -> Risk Mathematics
+      -> Refinery API
+          -> Refinery UI
+          -> Phase 5 clustering/redundancy evidence
+              -> later marginal experiments
+                  -> later walk-forward validity
+                      -> only then selection/sizing claims
+```
 
-### Validation defect found and root-caused
+## Locked architecture decisions
 
-Initial PR #61 CI run `31301415964` reached Python tests after dependencies/pip consistency/compile/Ruff PASS. Result: **210 passed / 1 failed**.
-
-Failure: `test_incomplete_candidate_blocks_formal_analysis_without_silent_deletion`.
-
-Root cause:
-
-- service correctly classified a candidate set with a failed symbol as `incomplete`;
-- diagnostic complete-case evidence still indexed the full requested symbol list against a DataFrame containing only resolved symbols, causing a pandas `KeyError`;
-- this was an evidence-accounting bug, not justification to delete the failed candidate.
-
-Fix:
-
-- evidence sample counts use `candidate_dataset.resolved_symbols`;
-- requested/resolved/failure membership remains explicit;
-- unresolved candidates still force `analysis=null`;
-- zero-resolved-symbol evidence is handled safely;
-- no silent smaller-portfolio calculation was introduced.
-
-Additional same-scope hardening:
-
-1. Accepted 100% ±0.05 percentage-point weight totals are proportionally normalized to exact unit sum for Phase 2 primitives, preserving relative weights and exposing the raw total/policy.
-2. Upstream RuntimeError text is no longer exposed to clients.
-
-### Final Phase 3 evidence
-
-- Implementation PR: `#61`.
-- Base SHA: `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
-- Final implementation head: `4899199a50d01189904ef0842c5d5247afc4d09d`.
-- Squash merge: `6e18726dcc1383e0b839e4bd0bded46e720e2707`.
-- Final changed-file scope: dedicated Refinery backend/edge/deployment wiring, tests/docs/CI and roadmap only; no Portfolio UI, clustering, selection, sizing or Exhaustive logic.
-- Final PR-head `validate` run `31301902120`: PASS — dependency/pip check, compile, Ruff, all Python tests, JS syntax, Worker tests, score tests, Playwright E2E, Vercel config, D1 local migration and Cloudflare dry-run.
-- Final Portfolio web CI run `31301902143`: PASS.
-- Final PR-head Vercel required context: PASS.
-- Final Release Backup Gate: PASS.
-- Independent final diff review: PASS, recorded as COMMENT review `4890806477`.
-- Merge-after-push `main` CI run `31302059179`: PASS.
-- Production Vercel status for merge SHA: PASS.
-- Production Cloudflare Worker deploy run `31302059197`: PASS, including D1 migrations, Worker/static deploy, Russell 2000 smoke and Portfolio v3 smoke.
-- Pre backup: `backup-pre-pr61-4cea3b18fdce` -> `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
-- Post backup: `backup-post-pr61-6e18726dcc13` -> `6e18726dcc1383e0b839e4bd0bded46e720e2707`.
-
-### Known limitations carried forward
-
-1. Phase 3 is API-only; no user-facing Refinery UI exists yet.
-2. Backend rate limiting is deliberately best-effort/in-process, not a globally distributed quota.
-3. Correlation observation thresholds and EWMA decay are versioned consumer policies, not universal statistical truths.
-4. API V1 returns structural/risk diagnosis only; it does not classify redundancy, recommend stocks, select holdings or size positions.
-5. No Leave-One-Out/Add-One/Replace-One, clustering, factor/economic-theme overlay, Exhaustive integration or OOS validation exists yet.
-6. The current UI remains Portfolio-focused; Phase 4 must use a separate Refinery workspace model/schema rather than overloading Portfolio v3 persisted state.
-
-### Exit gate
-
-- [x] API contract/version frozen/documented.
-- [x] Separate runtime/edge route implemented.
-- [x] Preflight/analyze deterministic/fail-closed semantics implemented/tested.
-- [x] Candidate/benchmark sample isolation implemented/tested.
-- [x] Request/response/rate/error/security guards implemented/tested.
-- [x] Initial defect root-caused without silent candidate deletion.
-- [x] Final PR-head `validate`, Portfolio web CI, Vercel and Release Backup Gates PASS.
-- [x] Independent diff review PASS.
-- [x] PR #61 exact-head squash merge.
-- [x] Post-merge backup verified.
-- [x] Merge-after-push `main` CI PASS.
-- [x] Production Vercel and Cloudflare deployment/smoke PASS.
-- [x] Closeout PR `#62` merged as `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`; Phase 3 is `CLOSED / PASS`.
+1. TWD remains the Taiwanese-investor valuation/risk authority.
+2. ResearchDataset preserves requested/resolved/failure membership and deterministic dataset identity.
+3. Formal analysis never silently removes failed candidates.
+4. Browser code renders evidence; it does not become a second quant authority.
+5. Portfolio ledger, Refinery diagnostics, Exhaustive historical search and future OOS validation remain separate semantic domains.
+6. Full-period historical winners are not forward-performance evidence.
+7. No point-in-time claim before time-valid Universe/fundamental provenance exists.
 
 ---
 
-## Phase 4 — Refinery Diagnostic UI
+# 4. Master Plan
 
-**Status: PASS; CLOSED when this closeout PR merges**
+| Phase | Name | Status |
+| --- | --- | --- |
+| -1 | Governance & Architecture Hardening | CLOSED / PASS |
+| 0 | Quant Authority Freeze | CLOSED / PASS |
+| 1 | ResearchDatasetV1 | CLOSED / PASS |
+| 2 | Risk Mathematics Core | CLOSED / PASS |
+| 3 | Read-only Refinery API | CLOSED / PASS |
+| 4 | Refinery Diagnostic UI | CLOSED / PASS |
+| **5** | **Clustering & Redundancy** | **IN PROGRESS / PR #65 / NO-GO** |
+| 6 | Marginal Experiments | PLANNED / BLOCKED BY PHASE 5 |
+| 7 | Research Validity / Walk-Forward | PLANNED |
+| 8 | Selection Policy | PLANNED |
+| 9 | Sizing Engine | PLANNED |
+| 10 | Validated Exhaustive Integration | PLANNED |
+| 11 | Point-in-Time Universe / Alpha / Economic Factors | PLANNED |
 
-### Objective
-Add a separate deterministic read-only Refinery workspace that consumes Phase 3 diagnostics without changing Portfolio v3 behavior or introducing clustering, redundancy verdict, selection, sizing, optimization or OOS recommendation semantics.
-
-### Completed implementation — PR #63
-
-- [x] Added explicit workspace switch between Portfolio backtest and `持股精煉診斷` without iframe/modal shell.
-- [x] Added separate `RefineryWorkspaceModel` and persistence key `backteststock.refinery.workspace.v1`; existing Portfolio persisted model remains separate.
-- [x] Shared Portfolio model/handoff links force Portfolio mode so Scanner/Portfolio handoff behavior is unchanged.
-- [x] Added same-origin Refinery client isolated to `/api/v1/refinery/preflight` and `/api/v1/refinery/analyze`; Portfolio API client remains `/api/v3/portfolio/*` only.
-- [x] Candidate editor supports 2–100 normalized symbols, optional benchmark, optional explicit capital weights, date window and existing Phase 3 EWMA/stress settings.
-- [x] No hidden equal-weight portfolio is fabricated when weights are absent; portfolio risk is explicitly unavailable instead.
-- [x] Preflight is mandatory before analysis and preserves `ready` / `incomplete` / `insufficient_data` fail-closed semantics.
-- [x] Added data/reproducibility evidence, effective observations, structure/effective-dimension summary, Diversification Ratio and covariance stability/estimator-dispersion diagnostics.
-- [x] Added capital weight vs signed component risk contribution only when explicit weights exist; negative risk contribution remains signed rather than being silently converted to positive risk.
-- [x] Added tactical 63D, medium 252D, structural 156W, downside and stress correlation views; unavailable benchmark-conditioned views stay explicitly unavailable.
-- [x] Full matrix rendering is limited to <=20 assets; >20 assets render deterministic top-30 absolute-correlation pairs as presentation only, never as a redundancy verdict.
-- [x] Added responsive/mobile behavior with a 390px no-page-overflow browser gate.
-- [x] Loaded `refinery.css` into the Vite graph after existing Portfolio styles and scoped shared utility selectors under `.refinery-workspace` to prevent cascade into existing Portfolio UI.
-- [x] Added/strengthened focused Portfolio web CI path filters, Portfolio/Refinery source-contract tests and Phase 4 browser acceptance tests.
-- [x] Committed deterministic Vite production assets; final focused gate verifies rebuild parity with `git diff --exit-code -- package-lock.json public/portfolio`.
-- [x] Phase 5+ semantics remain absent: no clustering, redundancy verdict, KEEP/TRIM/REPLACE, marginal experiments, sizing, Exhaustive integration or OOS selection claim.
-
-### Defects found by independent review and root-caused
-
-1. **Stale production bundle** — Phase 4 TypeScript source compiled, but committed `public/portfolio` initially lagged the source. The fix was a deterministic locked-dependency Vite rebuild with generated-path allowlist and race guard; no minified asset was hand-edited.
-2. **Ambiguous Playwright labels** — desktop labels such as `Refinery 持股 1 代碼` also substring-matched the mobile label. E2E selectors were corrected with exact accessible-name matching; production UI was not distorted to satisfy a bad selector.
-3. **Acceptance-gate coverage gap** — formal browser evidence was missing for `incomplete`, `insufficient_data`, explicit-weight signed RC/DR, covariance diagnostics and all five correlation views. A dedicated Phase 4 contract E2E suite was added.
-4. **Focused CI omission** — Refinery E2E and source-contract files were not initially included in the focused Portfolio web workflow. Path filters and the source-contract command were extended so future Refinery-only changes cannot bypass the focused gate.
-5. **Orphan stylesheet** — `refinery.css` existed but was not in the Vite import graph. It is now imported from `main.tsx` after `styles.css`.
-6. **Contract-test substring false positives** — broad regexes incorrectly matched legal identifiers such as `RefineryWorkspaceModel` and `RefineryPreflightResponse`. Tests now guard exact import boundaries/whole legacy identifiers.
-7. **CSS cascade leakage after enabling the stylesheet** — generic names such as `.toggle-row` and `.weight-total` could override existing Portfolio classes because Refinery CSS loads later. Shared Refinery utilities are now scoped beneath `.refinery-workspace`, with a source-contract invariant preventing regression.
-
-### Final Phase 4 evidence
-
-- Implementation PR: `#63`.
-- Base SHA: `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`.
-- Final implementation head: `4439e4e721f8c93cc77161affbd5f24554de516f`.
-- Squash merge: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
-- Final PR-head CI run `31309682808`: PASS — Python **216/216**, Worker **47/47**, score **12/12**, Playwright **39/39**, Vercel config, D1 local migrations and Cloudflare dry-run all PASS.
-- Final PR-head Portfolio web CI run `31309682811`: PASS, including TypeScript/Vite build, Portfolio + Refinery source contracts and deterministic committed-asset parity.
-- Final PR-head Vercel required context: PASS.
-- Final Release Backup Gate on the final PR head: PASS.
-- Independent final audit: PASS, COMMENT review `4891193075`, with no remaining blocking finding.
-- Exact-head squash merge performed with expected head `4439e4e721f8c93cc77161affbd5f24554de516f`.
-- Merge-after-push main CI run `31309999532`: PASS.
-- Merge-after-push Portfolio web CI run `31309999527`: PASS.
-- Production Vercel status for merge SHA: PASS.
-- Production Cloudflare Worker deploy run `31309999511`: PASS, including D1 migrations, Worker/static assets, Russell 2000 smoke and Portfolio v3 smoke.
-- Pre backup: `backup-pre-pr63-17f0dd88aeae` -> `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`.
-- Post backup: `backup-post-pr63-e59c1402011c` -> `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
-- Temporary deterministic-build helpers are not part of the final implementation diff.
-
-### Known limitations carried forward
-
-1. Phase 4 is diagnosis-only. It does not classify redundancy or tell the user to KEEP/TRIM/REPLACE any holding.
-2. Downside/stress correlation still depends on a usable benchmark; missing/failed benchmark remains explicit unavailable evidence rather than a fabricated zero or fallback.
-3. The >20-asset top-pair summary is a rendering/performance policy only, not a clustering or redundancy methodology.
-4. Phase 3 backend rate limiting remains best-effort/in-process rather than a globally distributed quota.
-5. No factor-implied relationship engine, economic-theme evidence, cluster stability, marginal experiment, sizing or OOS validation exists yet.
-6. No Scanner -> Refinery conversion/handoff is introduced; Portfolio handoff remains the existing contract.
-7. Historical correlation/effective-rank diagnostics are descriptive evidence and must not be promoted into future-performance claims in Phase 5.
-
-### Exit gate
-
-- [x] Separate Refinery workspace/model/storage implemented without overloading Portfolio v3 state.
-- [x] Existing Portfolio and shared handoff behavior preserved/tested.
-- [x] Preflight/analyze UI semantics preserve Phase 3 fail-closed behavior.
-- [x] Explicit-weight signed RC and no-weight unavailable behavior tested.
-- [x] Covariance/effective-dimension/correlation diagnostics rendered and tested.
-- [x] Large-matrix and 390px responsive gates PASS.
-- [x] Focused source-contract/E2E gates protect workspace/API/CSS isolation.
-- [x] Final PR-head CI, Portfolio web CI, Vercel and Release Backup Gates PASS.
-- [x] Independent final audit PASS.
-- [x] PR #63 exact-head squash merge.
-- [x] Post-merge backup verified.
-- [x] Merge-after-push main CI PASS.
-- [x] Production Vercel and Cloudflare deployment/smoke PASS.
-- [ ] This doc-only closeout must merge; then Phase 4 is `CLOSED / PASS`.
+Phase order is a working baseline. Do not reopen an earlier locked decision without new evidence, a material defect, an architecture conflict, an external platform change, or clearly superior benefit relative to migration risk.
 
 ---
 
-## Phase 5 — Clustering & Redundancy
+# 5. Current Phase / Batch — Phase 5
 
-**Status: NEXT / NOT STARTED — begin only after this Phase 4 closeout merges**
+## Phase 5 objective
 
-### Objective
-Add deterministic, traceable clustering and multi-evidence redundancy diagnosis on top of the existing ResearchDataset/Risk Mathematics/Refinery contracts, without crossing into marginal experiments, selection, sizing or future-performance recommendations.
+Add deterministic, traceable clustering and multi-evidence redundancy diagnosis on top of ResearchDataset/Risk Mathematics/Refinery **without** crossing into marginal experiments, selection, sizing, Exhaustive candidate selection, or OOS recommendation claims.
 
-### First actions
+## Implemented on PR #65 as of `0dd3c12b...`
 
-- [ ] Query latest protected `main` after this closeout; do not assume `e59c1402...` remains HEAD because closeout adds a documentation commit.
-- [ ] Confirm no unfinished Phase 4 implementation/closeout PR remains.
-- [ ] Read `AI_PROJECT_PLAYBOOK.md`, this roadmap, `REFINERY_API_V1.md`, `REFINERY_UI_V1.md`, ResearchDataset and Risk Mathematics contracts before designing Phase 5.
-- [ ] Freeze a Phase 5 clustering/redundancy methodology contract before runtime implementation; do not implement from UI intuition or a magic aggregate score.
-- [ ] Decide the canonical backend/pure-quant boundary for clustering and factor-implied relationship calculations before adding UI controls; browser code should render evidence, not become a second quantitative authority.
-- [ ] Preserve the Phase 4 UI/API fail-closed and workspace-isolation contracts.
-- [ ] Keep redundancy output descriptive as HIGH / MEDIUM / LOW / UNCERTAIN evidence; no KEEP/TRIM/REPLACE until the later validated selection phase.
+- Correlation-distance hierarchical clustering.
+- Average linkage primary / complete linkage sensitivity.
+- 52/104/156-week stability windows.
+- Deterministic 200-replicate, 4-week circular block bootstrap.
+- HIGH / MEDIUM / LOW / UNCERTAIN historical redundancy verdicts.
+- Factor-implied systematic relationship diagnostics using Kenneth French monthly U.S. factors + momentum.
+- Explicit unavailable theme evidence when no traceable source exists.
+- Additive Refinery API response fields.
+- Read-only Phase 5 UI panels and large-pair/mobile rendering guards.
+- Pure quant, API, source-contract and browser tests.
 
-### Planned work
+## Current Batch: P5-DOC — Documentation & Methodology Convergence
 
-- [ ] Correlation-distance hierarchical clustering.
-- [ ] Average linkage default; complete-linkage sensitivity.
-- [ ] Multi-window and bootstrap cluster stability.
-- [ ] Asset-level factor diagnostics where valid.
-- [ ] Prefer factor-implied covariance/correlation to simple beta-vector cosine for factor-overlap evidence.
-- [ ] Treat U.S. Fama-French factors as secondary evidence outside U.S. equities.
-- [ ] Economic-theme overlay remains traceable/read-only in this phase.
-- [ ] Evidence stack: price, downside, stress, factor, theme, confidence.
-- [ ] Verdicts: HIGH / MEDIUM / LOW / UNCERTAIN.
-- [ ] No magic 0–100 redundancy score.
+### Single goal
 
----
+Make all Phase 5 handoff/contract/index documents reflect the real implementation state and convert review findings into explicit, actionable merge gates.
 
-## Phase 6 — Marginal Experiments
+### In scope
 
-**Status: PLANNED**
+- README / documentation hierarchy.
+- `to_do_update_list.md` live state and historical continuity.
+- research-document index.
+- Refinery API/UI cross-phase documentation.
+- Phase 5 methodology review amendments and evidence references.
+- explicit NOW/NEXT/BACKLOG/REJECT classification.
 
-- [ ] Remove-One, Add-One, Replace-One.
-- [ ] Every experiment states funding policy: pro-rata survivors / cash / cluster champion / selected replacement.
-- [ ] Recompute volatility, CVaR diagnostics, DR, effective counts/ranks, risk/cluster concentration.
-- [ ] Clear before/after decomposition.
-- [ ] Historical diagnostic semantics only; no implied future alpha.
+### Out of scope
 
----
+- Python/TypeScript production logic changes.
+- changing redundancy thresholds in code.
+- adding new data vendors / instrument master.
+- Phase 6 marginal experiments.
+- selection/sizing/OOS work.
+- GitHub ruleset mutation.
 
-## Phase 7 — Research Validity / Walk-Forward
+### Allowed investigation
 
-**Status: PLANNED**
+Only investigation required to verify documentation correctness, methodology applicability, current GitHub state, tests/checks and contract/code drift.
 
-- [ ] Trial registry for every model/policy configuration.
-- [ ] Fixed-candidate-universe anchored walk-forward V1.
-- [ ] Training-only refinement/selection; never-seen forward evaluation.
-- [ ] Turnover/transaction-cost accounting and OOS original-vs-refined comparison.
-- [ ] Track trial count/selection breadth.
-- [ ] Probabilistic/Deflated Sharpe where appropriate; PBO/CSCV only if research grid warrants it.
-- [ ] Explicit fixed-universe survivorship limitation.
+### Expansion trigger
 
-Non-goal: no point-in-time Universe claim before Phase 11.
+Escalate out of P5-DOC only if investigation finds a Critical issue (security/data corruption/auth bypass) or a Phase 5 correctness problem that must be fixed in production code. Such items are recorded for the next dedicated Batch; implementation remains single-threaded.
 
 ---
 
-## Phase 8 — Selection Policy
+# 6. Phase 5 Review Findings
 
-**Status: PLANNED**
+## NOW — merge blockers
 
-- [ ] Cluster tournament policy.
-- [ ] Greedy selection with marginal utility recomputed after each addition.
-- [ ] Pairwise swap search and replacement hurdle/hysteresis.
-- [ ] Stop on diminishing marginal benefit, not hard-coded holding count.
-- [ ] N-vs-efficiency curve and OOS selection-frequency/stability reporting.
-- [ ] Only after validation expose KEEP / TRIM / REPLACE semantics.
-- [ ] Historical price-derived alpha remains labelled historical proxy unless forward data are valid.
+### P5-M1 — Bootstrap seed identity contract drift
+
+**Symptom:** `REFINERY_CLUSTERING_V1.md` says seed material includes candidate `dataset_hash`.
+
+**Implementation evidence:** `Phase5RefineryService` computes a canonical fingerprint from sorted structural weekly returns and temporarily supplies that fingerprint as the dataset hash used by bootstrap seeding.
+
+**Why it matters:** request-order permutation should not change labelled clustering evidence; using a full ResearchDataset identity that includes request-order metadata can conflict with this requirement.
+
+**Decision state:** implementation direction appears preferable for clustering determinism, but documentation and contract identity are inconsistent.
+
+**Required permanent fix:** explicitly adopt one seed identity, update code + contract + tests together, and bump clustering contract version if externally observable methodology semantics change.
+
+**Status:** BLOCKER / NOW.
+
+### P5-M2 — Monthly factor partial-period alignment is underspecified
+
+Current asset monthly returns are compounded with calendar-month resampling. If a requested research interval starts or ends mid-month, the asset observation can represent only a partial month while the Kenneth French monthly factor row represents the complete calendar month.
+
+**Required permanent fix:** define complete-month eligibility; incomplete first/last asset months must not be regressed against full-month factor observations. Add mid-month start/end tests and expose the effective factor sample.
+
+**Status:** BLOCKER / NOW.
+
+### P5-M3 — Factor computability and factor applicability are conflated
+
+Current V1 eligibility uses USD quote currency + native returns + minimum observations. Official U.S. Fama/French factors are constructed from U.S. equity universes; USD denomination alone does not establish that a factor relationship is an economically appropriate redundancy corroborator for every USD-denominated instrument.
+
+**Required permanent fix:** distinguish:
+
+- `factor_computable` — data can be regressed;
+- `factor_scope/applicability` — evidence is approved for interpretation/corroboration.
+
+Until a traceable instrument-scope rule exists, factor output may remain a labelled diagnostic but must not silently become a decisive redundancy corroborator solely because quote currency is USD.
+
+**Status:** BLOCKER / NOW.
+
+### P5-M4 — Factor beta / covariance common-sample semantics
+
+Per-asset regressions can have different valid month sets while systematic covariance uses a factor covariance matrix over a broader factor frame.
+
+**Required permanent fix:** freeze a common-sample policy (preferred for V1) or explicitly version pairwise/common-window semantics; tests must prove the factor-implied matrix uses the same intended observation universe.
+
+**Status:** BLOCKER / NOW.
+
+### P5-V1 — Vercel required check not green
+
+Current required Vercel status on `0dd3c12b...` is failure due deployment rate limit. Do not remove the required check as a workaround. Final merge head must receive an actual green Vercel required status.
+
+**Status:** BLOCKER / NOW.
+
+### P5-R1 — Independent final review not yet recorded
+
+PR #65 currently has no submitted review. Final review must target the exact final head after methodology/code/doc convergence.
+
+**Status:** BLOCKER / NOW.
 
 ---
 
-## Phase 9 — Sizing Engine
+# 7. Phase 5 Batch Plan
 
-**Status: PLANNED**
+## P5-DOC — Documentation & Methodology Convergence
 
-Compare under the same OOS framework:
+**Status: ACTIVE**
 
-- [ ] Equal weight, inverse volatility, ERC, HRP benchmark, Ledoit-Wolf minimum variance, constrained risk budget.
-- [ ] User-visible capital/risk/cluster constraints.
-- [ ] Deterministic optimizer/multi-start policy and safe fallback.
-- [ ] OOS CAGR, vol, Sharpe, Sortino, MDD, Calmar, CVaR, turnover, DR and effective-rank comparison.
+Deliverables:
 
-No method, including HRP, is the default winner before evidence.
+- repair stale Phase 4/Phase 5 handoff state;
+- establish documentation precedence/freshness policy;
+- add research-doc index;
+- reconcile Refinery API schema documentation with current additive Phase 5 schema;
+- document Phase 5 UI extension without rewriting the Phase 4 persistence contract;
+- mark clustering methodology as under final review and enumerate required amendments;
+- preserve historical decisions and exact resume point.
+
+Verification:
+
+- docs-only diff review;
+- internal link/path review;
+- no runtime files changed;
+- parent PR remains functional because this Batch changes no code.
+
+Rollback: drop/revert the documentation commit; parent PR head remains recoverable at `0dd3c12b...`.
+
+## P5-CORR — Methodology Correctness Convergence
+
+**Status: NEXT**
+
+Single goal: resolve P5-M1..M4 with minimal production-code changes.
+
+Required sequence:
+
+1. freeze amended methodology decision;
+2. update clustering/factor contract version where required;
+3. implement canonical seed identity;
+4. implement complete-month factor alignment;
+5. implement factor applicability/corroboration policy;
+6. implement common-sample factor relationship policy;
+7. add targeted unit/invariant/regression tests;
+8. update API/UI types only if the versioned evidence schema changes;
+9. update this file before commit.
+
+## P5-SEC — Dependency vulnerability triage
+
+**Status: NEXT / CONDITIONAL**
+
+Latest CI `npm ci` reported 3 vulnerabilities (2 moderate, 1 high). This is not yet evidence of a production-reachable vulnerability.
+
+Process:
+
+1. obtain `npm audit --json` evidence;
+2. identify direct/transitive and production/dev scope;
+3. determine reachability/exploitability;
+4. if production-reachable high severity -> promote to Critical and fix before Phase 5 merge;
+5. otherwise document and schedule the minimal safe dependency remediation.
+
+Do not run `npm audit fix --force` without impact analysis.
+
+## P5-VAL — Final validation and independent review
+
+**Status: BLOCKED BY P5-CORR**
+
+- compile / Ruff / Python tests;
+- Worker/Node tests;
+- score tests;
+- Portfolio web type/build/source-contract tests;
+- Playwright full regression;
+- D1 local migrations / Cloudflare dry-run as required by full CI;
+- Vercel required check green;
+- Release Backup Gate green;
+- independent exact-head review;
+- all BLOCKER review findings resolved or explicitly rejected with evidence.
+
+## P5-MERGE — Expected-head squash merge
+
+**Status: BLOCKED**
+
+Only after P5-VAL PASS. No bypass, force push or direct main commit.
+
+## P5-CLOSE — Post-main verification and closeout
+
+**Status: BLOCKED**
+
+Record:
+
+- merge SHA;
+- post backup/release checkpoint;
+- main CI / Portfolio web CI;
+- Vercel / Cloudflare deployment and smoke where runtime changed;
+- known limitations;
+- Phase 5 CLOSED / PASS;
+- exact Phase 6 resume point.
 
 ---
 
-## Phase 10 — Validated Exhaustive Integration
+# 8. NEXT / BACKLOG / REJECT
 
-**Status: PLANNED**
+## NEXT
 
-- [ ] Training only: ResearchDataset -> Refinery -> candidate reduction -> Exhaustive search.
-- [ ] Freeze selected portfolio/policy before OOS evaluation.
-- [ ] Never present full-period Refinery + Exhaustive winner as forward evidence.
-- [ ] Track trial/combination counts and benchmark against simpler policies.
-- [ ] Mechanically enforce training/OOS separation for preparation, tuning and evaluation.
+1. P5-CORR methodology correctness convergence.
+2. P5-SEC vulnerability triage.
+3. P5-VAL final exact-head validation/review.
+4. Separate governance hardening Batch after Phase 5 implementation is stable.
+
+## BACKLOG
+
+- full instrument/security master for explicit asset taxonomy and region/model applicability;
+- deterministic traceable economic-theme provider/taxonomy;
+- globally distributed Refinery rate limiting;
+- Vercel preview-deployment quota optimization;
+- immutable-SHA pinning review for GitHub Actions where appropriate;
+- richer factor-region models only after explicit scope/provenance governance.
+
+## REJECT for current Phase
+
+- 0–100 magic redundancy score;
+- automatic KEEP / TRIM / REPLACE labels;
+- Phase 6 Remove-One/Add-One/Replace-One inside PR #65;
+- HRP/ERC/minimum-variance sizing;
+- Exhaustive candidate selection;
+- OOS/walk-forward claims;
+- current fundamentals injected into historical tests;
+- untraceable LLM theme labels;
+- removing Vercel required checks to bypass quota failure.
 
 ---
 
-## Phase 11 — Point-in-Time Universe / Alpha / Economic Factors
+# 9. Decision Log
 
-**Status: PLANNED**
+## D-001 — TWD canonical investor-risk authority
 
-- [ ] Point-in-time Universe membership/effective dates and historical delisting handling as data permit.
-- [ ] Point-in-time fundamentals and valid/licensed analyst/revision data if available.
-- [ ] Revenue/EPS/FCF/ROIC/balance-sheet/valuation dimensions.
-- [ ] Traceable economic-factor taxonomy with source/effective date/confidence.
-- [ ] Never inject current fundamentals into historical backtests.
-- [ ] Re-run walk-forward with time-valid information.
+**Status:** LOCKED.
 
-Exit gate: provenance/effective dates support actual point-in-time claims.
+Native/FX components remain auditable, but cross-market Taiwanese-investor valuation and risk use TWD semantics.
+
+Reopen only for a documented requirement change or evidence that current TWD contract is mathematically/data incorrect.
+
+## D-002 — Requested membership is never silently reduced
+
+**Status:** LOCKED.
+
+Partial evidence may be displayed; formal analysis must fail closed when requested candidate membership is incomplete.
+
+## D-003 — ResearchDataset is a reproducibility boundary, not a strategy
+
+**Status:** LOCKED.
+
+No hidden selection/sizing policy belongs in ResearchDataset.
+
+## D-004 — Historical search is not OOS evidence
+
+**Status:** LOCKED.
+
+Full-period Scanner/Exhaustive/Refinery output remains descriptive until Phase 7 walk-forward validation.
+
+## D-005 — Phase 5 verdict semantics remain descriptive classes
+
+**Status:** LOCKED FOR PHASE 5.
+
+Use HIGH / MEDIUM / LOW / UNCERTAIN evidence; no action/replacement semantics.
+
+## D-006 — Average linkage primary, complete linkage sensitivity
+
+**Status:** WORKING BASELINE.
+
+SciPy accepts average/complete linkage on a condensed distance matrix; Ward is intentionally not the V1 default for the precomputed correlation-distance path.
+
+## D-007 — Bootstrap seed identity amendment
+
+**Original decision:** seed includes full candidate `dataset_hash`.
+
+**New evidence:** permutation-invariant clustering requires an order-insensitive canonical structural identity; current implementation already derives a structural weekly fingerprint.
+
+**Proposed change:** make canonical structural-weekly fingerprint the explicit seed-data identity and bump methodology version with tests.
+
+**Status:** REOPENED / P5-M1 BLOCKER.
+
+## D-008 — U.S. factor evidence scope
+
+**Original decision:** USD quote currency + native history + 36 months makes factor evidence usable.
+
+**New evidence:** official U.S. Fama/French factors are U.S.-equity factor portfolios; USD denomination alone is a data property, not an applicability taxonomy.
+
+**Proposed change:** separate computability from applicability/corroboration.
+
+**Status:** REOPENED / P5-M3 BLOCKER.
 
 ---
 
-# 5. Cross-phase validation matrix
+# 10. Root Cause Log
+
+## RC-001 — Phase 3 partial-evidence indexing failure
+
+- Symptom: incomplete candidate test raised pandas `KeyError`.
+- Failure point: diagnostic sample accounting indexed requested symbols against a resolved-only frame.
+- Root cause: evidence accounting mixed requested membership with resolved data columns.
+- Fix: use `resolved_symbols` for descriptive evidence while keeping requested membership authoritative and `analysis=null`.
+- Prevention: explicit membership/fail-closed tests.
+- Status: CLOSED.
+
+## RC-002 — Phase 4 stale production bundle
+
+- Symptom: TypeScript source and committed production assets diverged.
+- Root cause: source/build artifact synchronization was not an enforced deterministic gate.
+- Fix: locked rebuild + committed-asset parity verification.
+- Status: CLOSED.
+
+## RC-003 — Phase 4 CSS leakage / orphan stylesheet
+
+- Failure: Refinery stylesheet was initially outside the Vite graph; when enabled, generic selectors could leak into Portfolio UI.
+- Root cause: missing import-path and CSS namespace invariants.
+- Fix: import after Portfolio styles; scope under `.refinery-workspace`; source-contract regression guard.
+- Status: CLOSED.
+
+## RC-004 — Phase 5 handoff document drift
+
+- Symptom: PR #65 had 53 commits while `to_do_update_list.md` still said Phase 5 `NEXT / NOT STARTED` and Phase 4 closeout pending.
+- Root cause: Phase 5 implementation advanced without updating the persistent handoff file required by project governance.
+- Impact: a new Agent could restart Phase 5, reopen Phase 4 or make an incorrect merge decision.
+- Fix: P5-DOC resets live status from current GitHub evidence and establishes a staleness rule.
+- Prevention: implementation PR must update this file before each phase-ending merge; final review checks remote-vs-document state.
+- Status: FIXED BY CURRENT DOC BATCH, pending merge into parent Phase 5 branch.
+
+---
+
+# 11. Known Issues
+
+1. **Phase 5 P5-M1..M4 methodology blockers** — NOW.
+2. **Vercel deployment rate limit on current PR head** — NOW; external quota state, not permission to bypass required status.
+3. **No independent PR #65 final review yet** — NOW.
+4. **GitHub ruleset governance drift** — `main-protection` is active and requires PR + squash + `validate` + `Vercel`, but currently has `strict_required_status_checks_policy=false`, zero required approvals and no required review-thread resolution. Handle in a separate governance Batch; do not mix into Phase 5 quant correctness unless it directly blocks merge safety.
+5. **npm audit signal** — CI reported vulnerabilities; reachability not yet established.
+
+---
+
+# 12. Technical Debt
+
+- Refinery backend rate limiting is best-effort/in-process rather than global.
+- Instrument taxonomy is insufficient to make broad factor-model applicability claims automatically.
+- Theme evidence remains intentionally unavailable without traceable taxonomy/provider.
+- Point-in-time Universe/fundamental history is not yet implemented.
+- Vercel preview deployment frequency can exhaust free-plan quota during large multi-commit PRs.
+- Some historical docs are phase-frozen and require additive extension notes rather than rewriting old semantics.
+
+---
+
+# 13. Deferred / Rejected Candidates
+
+### Deferred
+
+- regional/developed factor models;
+- instrument master;
+- theme provider;
+- global rate limiter;
+- advanced deployment quota optimization;
+- Phase 6+ research functionality.
+
+### Rejected for Phase 5
+
+- stock action labels;
+- unversioned magic score;
+- hidden equal weighting;
+- silent fallback to different factor/calendar/currency/universe;
+- recommendation claims without Phase 7+ evidence.
+
+---
+
+# 14. Risks
+
+| Risk | Severity | Current control |
+| --- | --- | --- |
+| Methodology/doc mismatch changes reproducibility | High | P5-M1 contract convergence + versioning |
+| Partial-month factor alignment biases regression | High | P5-M2 complete-month policy/tests |
+| Factor evidence over-interpreted outside scope | High | P5-M3 applicability separation |
+| Different regression samples feed one factor covariance interpretation | High | P5-M4 common-sample policy |
+| Vercel quota blocks required check | Medium | wait/retry on final head; no gate removal |
+| Governance ruleset weaker than documented workflow | Medium | manual discipline now; separate hardening Batch |
+| Dependency alert is production-reachable | Unknown/High if confirmed | evidence-based audit triage |
+| Survivorship/look-ahead overclaim | High | explicit descriptive/OOS boundaries; Phase 7/11 gates |
+
+---
+
+# 15. Cross-phase Validation Matrix
 
 | Validation | Requirement |
 | --- | --- |
-| Existing regression suite | Pass |
-| Python compile/lint/tests | Pass when Python touched |
-| Worker/Node tests | Pass when JS/routing/optimizer touched |
-| Portfolio web type/build/source-contract tests | Pass when Portfolio web touched |
-| Browser E2E | Pass for user-flow changes and full regression gate |
-| Vercel required check | Pass |
-| D1 migration validation | Pass when D1 touched / full CI requires it |
-| Cloudflare dry-run | Pass when Worker/static deployment touched / full CI requires it |
-| Production deployment/smoke | Pass when deployed runtime/edge behavior changes |
-| Quant golden/parity fixtures | Required from Phase 0 onward where applicable |
+| Existing regression suite | PASS |
+| Python compile/lint/tests | Required when Python/quant/API touched |
+| Worker/Node tests | Required when routing/worker/optimizer touched; full CI currently runs them |
+| Portfolio web type/build/source-contract | Required when Portfolio/Refinery web touched |
+| Browser E2E | Required for user-flow changes and final regression |
+| Vercel required check | PASS before merge |
+| D1 migration validation | Required when D1 touched / by full CI |
+| Cloudflare dry-run | Required when Worker/static deploy touched / by full CI |
+| Production deploy/smoke | Required when deployed runtime/edge behavior changes |
+| Quant reference/parity fixtures | Required where applicable |
 | Mathematical invariants/metamorphic tests | Required from Phase 2 onward |
 | API security/resource/fail-closed tests | Required from Phase 3 onward |
-| OOS/walk-forward evidence | Required for recommendation claims from Phase 7 onward |
-| Pre/post Release backup | Required for runtime/quant-methodology PRs |
-| Independent diff review | Required before merge; COMMENT evidence is acceptable when GitHub forbids self-approval and branch protection does not require another approver |
-| `to_do_update_list.md` update | Required in implementation PR and phase closeout |
+| OOS/walk-forward evidence | Required before recommendation claims |
+| Release backup gate | Required for runtime/quant-methodology PRs |
+| Independent exact-head review | Required before merge |
+| `to_do_update_list.md` current-state check | Required before merge and closeout |
 
-# 6. Status vocabulary
+---
 
-Use: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `VALIDATING`, `PASS`, `FAIL`, `CLOSED`, `DEFERRED`.
+# 16. Historical Change Log / Phase Records
 
-Do not mark a phase `CLOSED` until its exit gate and closeout record are complete.
+## Phase -1 — Governance & Architecture Hardening
 
-# 7. Execution log
+**CLOSED / PASS**
 
-## 2026-08-09 — Phase -1 / PR #52
+- PR #52 merge `9135bdd33a46afee4f4a12b9030ca4504114924f`.
+- Pre `backup-pre-pr52-a0c640783dc9`; post `backup-post-pr52-9135bdd33a46`.
+- Architecture/runtime inventory aligned; obsolete backup workflows retired; main protection activated afterward.
 
-- Governance/architecture hardening completed; merge `9135bdd33a46afee4f4a12b9030ca4504114924f`.
-- CI/Vercel PASS; pre/post backups verified; `main-protection` later activated/API-verified.
+## Continuity governance
 
-## 2026-08-09 — Persistent roadmap / PR #53
+**CLOSED / PASS**
 
-- Added root execution/handoff index; merge `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`.
-- CI/Vercel PASS; pre/post backups verified.
+- PR #53 merge `bc8ce721a82938c32ed8b9af7c91fba25a161f8a`.
+- Added root persistent roadmap/handoff discipline.
 
-## 2026-08-09 — Phase 0 / PR #54 + closeout #55
+## Phase 0 — Quant Authority Freeze
 
-- Quant authority freeze merged `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`; full checks/review/backups PASS.
-- Closeout merged `d173f1d15a671e7d2f3c096a56e7ee3ef9f0a183`; Phase 0 CLOSED / PASS.
+**CLOSED / PASS**
 
-## 2026-08-09 — AI playbook / PR #56
+- Implementation PR #54 merge `68cbd58d570ce7d806c2a73903b5bdb506c9bae1`.
+- Closeout PR #55 merge `d173f1d15a671e7d2f3c096a56e7ee3ef9f0a183`.
+- Metric/return/risk authorities frozen; known CAGR year-length difference remains explicit/versioned.
 
-- Added `AI_PROJECT_PLAYBOOK.md`; merge `863039af803671a8caf1d35074d038136ca2332a`.
-- Adopted as repository-wide AI governance.
+## AI engineering playbook
 
-## 2026-08-09 — Phase 1 / PR #57 + closeout #58
+- PR #56 merge `863039af803671a8caf1d35074d038136ca2332a`.
+- `AI_PROJECT_PLAYBOOK.md` adopted as repository-wide engineering governance.
 
-- ResearchDataset implementation merge `7cf3fdcfa248d47a036419213da0acce594ada7c`; closeout `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`; Phase 1 CLOSED / PASS.
+## Phase 1 — ResearchDatasetV1
 
-## 2026-08-09 — Phase 2 / PR #59 + closeout #60
+**CLOSED / PASS**
 
-- Risk Mathematics implementation merge `724075ddbb0383f7889e4b622a95a57769d5558c`; closeout `4cea3b18fdce7db5e464196172f59930abf6b7d9`; Phase 2 CLOSED / PASS.
+- PR #57 merge `7cf3fdcfa248d47a036419213da0acce594ada7c`.
+- Closeout #58 merge `666c561c0abf9d40fcc037ee0ee5d6ea14f007a4`.
+- Contract `research-dataset-twd-2026-08-09.1`.
+- Requested/resolved/failure evidence, window isolation, daily/weekly TWD matrices, coverage/audits/fingerprints/hash implemented.
+- Exhaustive preparation parity passed without migrating Exhaustive.
 
-## 2026-08-09 — Phase 3 / PR #61 + closeout #62
+## Phase 2 — Risk Mathematics Core
 
-- Defined read-only Refinery V1 contract before implementation and added dedicated API/edge boundary.
-- Initial CI `31301415964` found one real partial-evidence indexing defect; fixed resolved-evidence accounting without silently reducing candidate membership.
-- Added explicit weight-normalization traceability and upstream error sanitization.
-- Final head `4899199a50d01189904ef0842c5d5247afc4d09d` passed `validate`, Portfolio web CI, Vercel and Release Backup Gates.
-- Independent final review PASS via COMMENT `4890806477`.
-- Expected-head squash merge `6e18726dcc1383e0b839e4bd0bded46e720e2707`.
-- Pre/post backups verified: `backup-pre-pr61-4cea3b18fdce`, `backup-post-pr61-6e18726dcc13`.
-- Merge-after-push `main` CI PASS; production Vercel and Cloudflare deploy/smokes PASS.
-- Closeout PR `#62` merged `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`; Phase 3 CLOSED / PASS.
+**CLOSED / PASS**
 
-## 2026-08-09 — Phase 4 / PR #63 + closeout #64
+- PR #59 merge `724075ddbb0383f7889e4b622a95a57769d5558c`.
+- Closeout #60 merge `4cea3b18fdce7db5e464196172f59930abf6b7d9`.
+- Contract `risk-math-twd-2026-08-09.1`.
+- Sample/Ledoit-Wolf/EWMA covariance, diagnostics, risk decomposition, effective dimensions and guarded correlation views implemented.
+- Ledoit-Wolf fixture independently anchored; an initially incorrect golden fixture was corrected rather than changing valid math to fit it.
 
-- Added isolated read-only Refinery diagnostic workspace and deterministic browser/source-contract gates.
-- Independent review root-caused stale generated assets, missing stylesheet import, CSS cascade leakage, ambiguous E2E selectors and incomplete focused-test coverage before merge.
-- Final head `4439e4e721f8c93cc77161affbd5f24554de516f` passed full CI, focused Portfolio web CI, Vercel and Release Backup Gates; Playwright 39/39.
-- Independent final audit PASS via COMMENT `4891193075`.
-- Expected-head squash merge `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
-- Pre/post backups verified: `backup-pre-pr63-17f0dd88aeae`, `backup-post-pr63-e59c1402011c`.
-- Merge-after-push main CI and Portfolio web CI PASS; production Vercel and Cloudflare deploy/smokes PASS.
-- This doc-only closeout transitions Phase 4 to CLOSED / PASS when merged.
+## Phase 3 — Read-only Refinery API
 
-# 8. Exact resume point
+**CLOSED / PASS**
 
-After this doc-only Phase 4 closeout merges:
+- PR #61 final head `4899199a50d01189904ef0842c5d5247afc4d09d`.
+- Merge `6e18726dcc1383e0b839e4bd0bded46e720e2707`.
+- Closeout #62 merge `17f0dd88aeaeff61f84ac6598c7b6258135d4ca4`.
+- Pre `backup-pre-pr61-4cea3b18fdce`; post `backup-post-pr61-6e18726dcc13`.
+- Final CI/Portfolio web/Vercel/backup/review/post-main/deployment evidence PASS.
+- Key RCA: incomplete-candidate evidence indexing fixed without silently shrinking membership.
 
-1. Query latest protected `main`; do not assume `e59c1402...` is still HEAD because this closeout itself adds a documentation commit.
-2. Confirm no open unfinished Phase 4 implementation/closeout PR remains.
-3. Begin **Phase 5 — Clustering & Redundancy only**.
-4. Read `AI_PROJECT_PLAYBOOK.md`, this roadmap, `docs/research/REFINERY_API_V1.md`, `docs/research/REFINERY_UI_V1.md`, `docs/research/RESEARCH_DATASET_V1.md`, `docs/quant/RISK_MATHEMATICS_V1.md`, current Refinery backend/API/UI contracts and tests.
-5. Freeze a Phase 5 methodology/contract before runtime implementation. Correlation-distance, linkage defaults/sensitivity, stability, confidence and verdict semantics must be explicit/versioned before code becomes authoritative.
-6. Keep quantitative clustering/factor relationship calculations in the canonical backend/pure-quant authority; browser code renders evidence and state only.
-7. Structural dependency evidence should prioritize synchronized weekly TWD returns, with tactical daily TWD views remaining distinct; do not collapse them into one universal correlation matrix.
-8. Add average-linkage hierarchical clustering with complete-linkage sensitivity and multi-window/bootstrap stability; do not use Ward as the default on correlation distance.
-9. Add traceable multi-evidence redundancy diagnosis (price/downside/stress/factor/theme/confidence) with HIGH / MEDIUM / LOW / UNCERTAIN only; no magic 0–100 score.
-10. Treat U.S. factor models as secondary evidence outside appropriate U.S. equity contexts; prefer factor-implied covariance/correlation to raw beta-vector cosine when factor overlap is used.
-11. Keep economic-theme evidence deterministic/traceable/read-only; do not inject ungoverned labels into optimization.
-12. Do not add Leave-One-Out/Add-One/Replace-One, KEEP/TRIM/REPLACE, sizing, Exhaustive selection or OOS recommendation claims in Phase 5.
-13. Preserve Phase 4 candidate completeness, benchmark isolation, explicit-unavailable semantics, workspace/API/storage isolation and responsive/performance guards.
-14. Update this file in the Phase 5 implementation PR and complete the same doc-only closeout process before Phase 6.
+## Phase 4 — Refinery Diagnostic UI
+
+**CLOSED / PASS**
+
+- PR #63 final head `4439e4e721f8c93cc77161affbd5f24554de516f`.
+- Merge `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`.
+- Closeout #64 / current main `db3e692e3e4ce1962d6953988464947b35d5ef82`.
+- Pre `backup-pre-pr63-17f0dd88aeae`; post `backup-post-pr63-e59c1402011c`.
+- Final PR CI: Python 216/216, Worker 47/47, score 12/12, Playwright 39/39; Portfolio web CI/Vercel/backup/review/post-main/deployment PASS.
+- RCAs included stale generated assets, stylesheet graph omission, CSS leakage, ambiguous E2E labels and focused-gate coverage gaps.
+
+## Phase 5 — Clustering & Redundancy
+
+**IN PROGRESS**
+
+- PR #65 base `db3e692e...`, current implementation head before docs convergence `0dd3c12b...`.
+- 53 commits / 31 changed files at the start of P5-DOC.
+- Latest main CI / Portfolio web CI / Release Backup Gates PASS.
+- Vercel required status rate-limited.
+- Methodology correctness review reopened P5-M1..M4.
+- Documentation drift found and classified RC-004.
+
+---
+
+# 17. Exact Next Actions / Resume Point
+
+A new Agent must not restart Phase 5 from the old planning checklist. Resume exactly here:
+
+1. Read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PROJECT_DOCUMENTATION_POLICY.md`.
+2. Query current `main`, PR #65 exact head, checks, reviews and ruleset; compare with this snapshot.
+3. Confirm P5-DOC has been merged into the Phase 5 branch or otherwise preserve its decisions.
+4. Execute **P5-CORR only**: resolve P5-M1 seed identity, P5-M2 complete-month factor alignment, P5-M3 factor applicability/corroboration, P5-M4 common-sample semantics.
+5. Update `REFINERY_CLUSTERING_V1.md` contract identity and code constants together if methodology semantics change.
+6. Add targeted tests before broad regression.
+7. Triage npm vulnerabilities without shotgun/force upgrades.
+8. Run P5-VAL full exact-head verification.
+9. Obtain independent final review on the exact reviewed head.
+10. Require actual green `validate` + `Vercel` and backup gate; no bypass.
+11. Squash merge with expected head SHA.
+12. Post-main verification, production deploy/smoke where applicable, backup/release checkpoint, then a doc-only Phase 5 closeout.
+13. Only after Phase 5 is `CLOSED / PASS` begin Phase 6 — Marginal Experiments.
+
+---
+
+# 18. Status Vocabulary
+
+Use only: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `VALIDATING`, `PASS`, `FAIL`, `CLOSED`, `DEFERRED` plus explicit `NO-GO` for merge readiness.
+
+Do not mark a phase `CLOSED` until implementation, required validation, review, merge, post-main evidence, rollback/recovery record and closeout are complete.

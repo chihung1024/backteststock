@@ -1,13 +1,17 @@
 # Portfolio Refinery Read-only API V1
 
-Status: Phase 3 contract. This API exposes Phase 1 `ResearchDatasetV1` and Phase 2 `Risk Mathematics V1` for deterministic diagnosis only. It does not select, rank, size, recommend, cluster, or optimize securities.
+Status: **Phase 3 baseline contract with Phase 5 additive analysis-schema extension**. The request contract remains `refinery-v1`; Phase 5 adds read-only clustering/redundancy/factor/theme evidence to successful `analyze` responses without changing the request shape or Portfolio v3 ledger semantics.
+
+Current Phase 5 implementation is still under final review. Clustering/factor methodology is governed by `REFINERY_CLUSTERING_V1.md` plus the active `PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md`; this API document defines transport/schema/fail-closed semantics, not the statistical thresholds themselves.
 
 ## Contract identity
 
 ```text
 REFINERY_API_CONTRACT_VERSION = refinery-v1
-REFINERY_API_SCHEMA_VERSION   = refinery-v1-2026-08-09.1
+REFINERY_API_SCHEMA_VERSION   = refinery-v1-2026-08-10.2
 ```
+
+Historical note: Phase 3 originally shipped schema `refinery-v1-2026-08-09.1`. The `.2` schema is an additive response extension on the Phase 5 branch; the request contract is unchanged.
 
 Runtime boundary:
 
@@ -19,7 +23,7 @@ Allowed routes:
   POST /api/v1/refinery/analyze
 ```
 
-No wildcard backend surface is exposed through the Worker. Unknown Refinery paths fail closed with 404 and wrong methods with 405.
+Unknown Refinery paths fail closed with 404 and unsupported methods with 405. The Worker exposes no wildcard Refinery backend surface.
 
 ## 1. Request contract
 
@@ -32,22 +36,20 @@ Required:
 
 Optional:
 
-- `benchmark`: one normalized symbol used only for downside/stress conditioning
-- `weights`: explicit candidate weights in percent; if supplied, every candidate must appear exactly once and total 100% within 0.05 percentage point
-- `ewma_decay`: explicit covariance sensitivity policy, default `0.94`, finite and strictly between 0 and 1
-- `stress_quantile`: benchmark lower-tail quantile, default `0.10`, allowed `[0.05, 0.25]`
+- `benchmark`: one normalized symbol used for benchmark-conditioned downside/stress evidence
+- `weights`: explicit candidate weights in percent; every candidate exactly once; total 100% within ±0.05 percentage point
+- `ewma_decay`: covariance sensitivity parameter, default `0.94`, strictly between 0 and 1
+- `stress_quantile`: lower-tail benchmark quantile, default `0.10`, allowed `[0.05, 0.25]`
 
-No equal-weight assumption is made when `weights` is omitted. Portfolio-specific volatility/MRC/RC/DR/weight-effective metrics are then returned as unavailable, while structural covariance/correlation diagnostics may still be produced.
+Phase 5 introduces **no new request fields**. Clustering/redundancy/factor/theme evidence is derived from the same audited request/data boundary.
 
-If explicit weights are accepted within the ±0.05 percentage-point total tolerance, the raw percentages and raw input total remain visible in the request echo, while the vector passed to Phase 2 risk mathematics is **proportionally normalized to exact unit sum**. This is a mechanical numerical normalization that preserves all relative weights; it is not a sizing or optimization policy.
+No equal-weight assumption is created when `weights` is omitted. Portfolio-specific volatility/MRC/RC/DR/weight-effective metrics remain unavailable while structural diagnostics can still be emitted.
 
-`end_date` may not be in the future. `start_date < end_date`. The requested span is capped at 15 × 366 calendar days as a Phase 3 resource budget, not as a claim about the statistically optimal history length.
+Accepted weight totals within tolerance are proportionally normalized to exact unit sum for Phase 2 risk mathematics. Raw percentages, raw input total and normalization policy remain visible. This is numerical normalization, not sizing or optimization.
 
-Taiwan numeric shorthand and all symbol normalization reuse `apps.api.app.data.history_service.normalize_symbol`; the Refinery must not create a second ticker-normalization rule.
+`start_date < end_date`; `end_date` may not be future; requested span is capped at 15 × 366 calendar days. Symbol normalization reuses `apps.api.app.data.history_service.normalize_symbol`.
 
 ## 2. Resource and abuse boundaries
-
-Phase 3 reuses the proven Portfolio v3 edge/runtime class rather than the Exhaustive snapshot exception:
 
 ```text
 MAX_REQUEST_BYTES              = 512 KiB
@@ -59,46 +61,44 @@ MAX_CANDIDATE_SYMBOLS          = 100
 MAX_HISTORY_CALENDAR_DAYS      = 15 × 366
 ```
 
-The rate limiter is an in-process best-effort guard, not a globally distributed quota. The Worker additionally enforces request body size and a fixed route/method allowlist before proxying.
+Backend rate limiting is best-effort/in-process, not a globally distributed quota. The Worker also enforces body size and fixed route/method allowlists before proxying.
 
-Responses are `Cache-Control: no-store`; authorization/cookie headers are not required by this API and the edge proxy must not forward them. Backend/server/set-cookie disclosure is stripped at the edge.
+Responses use `Cache-Control: no-store`. Authorization/cookie headers are not required and are not forwarded through the Refinery edge path. Backend/server/set-cookie disclosure is stripped at the edge.
 
-## 3. One market-data fetch, two reproducible views
+Phase 5 pair evidence must still fit the same 4 MiB canonical-response guard. The API may not silently truncate requested candidate membership or pair evidence to fit the limit; oversize output fails closed.
 
-The Refinery performs one authoritative `TWDHistoryService.histories_partial()` request for the union of candidate symbols plus an optional distinct benchmark.
+## 3. One market-data fetch, reproducible views
 
-From that one audited batch it constructs:
+The Refinery performs one authoritative `TWDHistoryService.histories_partial()` call over candidate symbols plus an optional distinct benchmark.
 
-1. **candidate ResearchDataset** — contains candidate symbols only and is the sole source for candidate covariance/correlation/risk analysis;
-2. **benchmark ResearchDataset** — one-symbol reproducibility view when a distinct benchmark is supplied.
+From that audited batch it constructs:
 
-This separation is mandatory. Adding or changing a benchmark must not alter the candidate complete-case calendar or candidate covariance/correlation sample.
+1. **candidate ResearchDataset** — candidate-only data used for covariance/correlation/risk/clustering/redundancy;
+2. **benchmark ResearchDataset** — optional one-symbol reproducibility view for benchmark-conditioned diagnostics.
 
-The Refinery does not implement a downloader. `TWDHistoryService` remains the market-data authority and `build_research_dataset()` remains the research alignment/reproducibility authority.
+Changing/adding a benchmark must not change the candidate complete-case calendar or candidate covariance/correlation/clustering sample.
+
+The Refinery is not a market-data downloader. `TWDHistoryService` remains data/FX authority; `ResearchDatasetV1` remains alignment/membership/reproducibility authority.
 
 ## 4. Partial data and fail-closed analysis
 
-`preflight` is diagnostic and may return a partial dataset with explicit per-symbol failures.
+`preflight` may return partial evidence with explicit per-symbol failures.
 
-For a partial candidate dataset, preflight observation/complete-case counts are descriptive evidence over the **resolved symbols only**. They do not redefine requested membership, and they never make a partial candidate set eligible for formal analysis.
+Resolved-symbol observation counts in a partial preflight are descriptive only and do not redefine requested membership.
 
-`analyze` must never silently remove a failed candidate and calculate a smaller portfolio/universe as if the request had succeeded.
+If any requested **candidate** is unresolved:
 
-If any **candidate** is unresolved:
-
-- HTTP response remains a deterministic diagnostic response;
 - top-level status is `incomplete`;
 - requested/resolved/failure evidence is returned;
-- resolved-evidence sample counts may be returned for diagnostics;
-- `analysis` is `null`.
+- descriptive resolved-evidence counts may be returned;
+- `analysis = null`;
+- no Phase 2/5 formal analysis is computed on a silently reduced candidate set.
 
-A failed optional benchmark does not invalidate candidate structural analysis. Instead, benchmark-conditioned downside/stress results are explicitly unavailable with the benchmark failure evidence retained.
+A failed optional benchmark does not invalidate candidate structural analysis. It makes benchmark-conditioned downside/stress evidence explicitly unavailable while preserving benchmark failure evidence.
 
-If candidate membership is complete but complete-case observations are below the analysis minimum, status is `insufficient_data` and formal analysis is not emitted.
+If candidate membership is complete but required complete-case history is insufficient, status is `insufficient_data` and formal analysis is not emitted.
 
 ## 5. Versioned reliability policy
-
-Phase 3 V1 uses these API-level reliability/resource policies:
 
 ```text
 MIN_DAILY_ANALYSIS_OBSERVATIONS = 60
@@ -112,53 +112,51 @@ CONDITIONAL_MIN_OBSERVATIONS     = 20
 DAILY_COVARIANCE_ANNUALIZATION   = 252
 ```
 
-These are versioned consumer policies, not universal statistical constants. Phase 2 mathematics keeps its own minimum-observation parameters explicit.
+These are consumer policies, not universal statistical constants.
+
+Phase 5 clustering has additional versioned methodology parameters (linkage, cut, stability windows, bootstrap policy, factor/theme evidence rules) defined in `REFINERY_CLUSTERING_V1.md`.
 
 ## 6. `preflight` response
 
-`POST /api/v1/refinery/preflight` returns only request/data readiness and reproducibility evidence. It does not calculate a portfolio recommendation.
+`POST /api/v1/refinery/preflight` remains a readiness/reproducibility endpoint. Phase 5 does not turn preflight into a recommendation or hidden analysis call.
 
-The response includes:
+It includes:
 
 - API contract/schema versions;
-- ResearchDataset and Risk Mathematics contract versions;
-- normalized candidate symbols, benchmark, dates and explicit weight state;
-- raw explicit weight input total and normalization policy when weights are supplied;
-- candidate dataset hash and optional benchmark dataset hash;
+- ResearchDataset/Risk Mathematics versions;
+- normalized candidate/benchmark/date/weight input state;
+- raw weight total and normalization policy when supplied;
+- candidate and optional benchmark dataset hashes;
 - requested/resolved membership;
-- per-symbol failures with stage/detail/retryable;
-- effective start/end;
+- per-symbol failures;
+- effective dates;
 - reference/common observation counts;
-- coverage diagnostics;
-- per-asset metadata/audit/fingerprints already carried by ResearchDataset;
+- coverage/audit/fingerprint evidence;
 - analysis eligibility and explicit reasons.
 
-`preflight` may report `ready`, `incomplete`, or `insufficient_data`.
+Statuses remain `ready`, `incomplete`, or `insufficient_data`.
 
-## 7. `analyze` response
+## 7. `analyze` response — Phase 3/4 baseline
 
-When candidate data are complete and sufficient, `POST /api/v1/refinery/analyze` returns:
+When candidate data are complete/sufficient, existing fields remain backward compatible.
 
 ### Reproducibility
 
 - all preflight evidence;
-- candidate dataset hash;
-- optional benchmark dataset hash;
+- candidate/benchmark dataset identities;
 - API/ResearchDataset/Risk Mathematics versions;
-- explicit covariance annualization, EWMA decay, stress quantile and observation guards.
+- covariance annualization, EWMA decay, stress quantile and observation guards.
 
 ### Covariance diagnostics
 
-Daily candidate returns only:
+Daily candidate returns:
 
-- Ledoit-Wolf annualized covariance as the primary formal risk estimator;
-- sample covariance diagnostic estimator;
-- EWMA sensitivity estimator;
-- per-estimator observation count/method and numerical diagnostics;
-- Ledoit-Wolf shrinkage coefficient;
+- Ledoit-Wolf annualized covariance as primary formal estimator;
+- sample covariance as diagnostic;
+- EWMA as sensitivity diagnostic;
+- per-estimator observations/method/numerical diagnostics;
+- shrinkage coefficient;
 - pairwise estimator-dispersion diagnostics.
-
-The API does **not** return three full covariance matrices in V1. It returns diagnostics plus the primary risk results, reducing response size and avoiding presentation of sensitivity estimators as competing official weights.
 
 ### Structural dimensions
 
@@ -167,23 +165,21 @@ The API does **not** return three full covariance matrices in V1. It returns dia
 - medium-correlation entropy effective rank;
 - medium-correlation participation ratio.
 
-These remain structural diagnostics and are not labelled an exact number of independent economic bets.
+These are structural diagnostics, not an exact count of independent economic bets.
 
-### Portfolio risk, only when explicit weights were supplied
+### Portfolio risk — only with explicit weights
 
-- proportionally normalized unit-sum weights used by Phase 2 risk mathematics;
-- annualized portfolio variance and volatility;
+- normalized weights actually used;
+- annualized variance/volatility;
 - marginal risk contribution;
 - signed component risk contribution;
 - Diversification Ratio;
 - weight-effective holdings;
 - gross absolute-RC equivalent holdings.
 
-Signed hedge RC remains visible. The API does not transform negative RC into a positive allocation recommendation.
+Negative hedge RC remains signed.
 
 ### Correlation views
-
-The response may include ordered labelled matrices for:
 
 - tactical daily;
 - medium daily;
@@ -191,11 +187,55 @@ The response may include ordered labelled matrices for:
 - downside benchmark-negative;
 - benchmark lower-tail stress.
 
-Each view includes status, input/effective/dropped observations, window/condition/threshold and matrix only when Phase 2 marks it available. Missing benchmark produces an explicit unavailable API state rather than an implicit SPY assumption.
+Each carries explicit status, input/effective/dropped observations, condition/window/threshold and matrix only when available.
 
-## 8. Deterministic serialization
+## 8. `analyze` response — Phase 5 additive sections
 
-Successful and diagnostic Refinery payloads are serialized with canonical JSON semantics:
+Schema `.2` may add these read-only sections under `analysis`:
+
+```text
+analysis.clustering
+analysis.redundancy
+analysis.factor_relationships
+analysis.theme_relationships
+```
+
+### `analysis.clustering`
+
+Carries server-authoritative labelled hierarchy/membership and stability evidence, including methodology version, primary/sensitivity linkage, display cut, multi-window evidence, bootstrap evidence and cluster summaries when available.
+
+The API returns labelled data so the browser never infers semantics from raw matrix position or recomputes linkage.
+
+### `analysis.redundancy`
+
+Carries unordered pair evidence, descriptive verdict (`HIGH|MEDIUM|LOW|UNCERTAIN`), evidence confidence and the underlying price/stability/factor/theme corroborators/statuses.
+
+No numeric magic score and no KEEP/TRIM/REPLACE action is introduced.
+
+### `analysis.factor_relationships`
+
+Carries explicitly scoped factor diagnostic evidence, source/sample/provenance, per-asset regression evidence and factor-implied relationship evidence when valid under the versioned Phase 5 methodology.
+
+The active Phase 5 review is tightening complete-month/common-sample/applicability semantics. Until those amendments are implemented and versioned, this section is **under final methodology review** and must not be interpreted beyond the current labelled evidence.
+
+### `analysis.theme_relationships`
+
+Carries traceable theme evidence only when a deterministic approved source exists. Current Phase 5 behavior may explicitly return `unavailable_no_traceable_theme_source`.
+
+## 9. Methodology metadata
+
+The response `methodology` object is the user/audit-visible bridge between schema and quantitative contracts. It must expose applicable contract versions and critical consumer policies.
+
+Rules:
+
+- API schema version and clustering methodology version are separate identities;
+- changing a quantitative methodology semantic does not silently reuse an old clustering version;
+- adding externally visible response fields requires API schema-version review;
+- browser code may display methodology but must not redefine it.
+
+## 10. Deterministic serialization
+
+Successful/diagnostic payloads use canonical JSON semantics:
 
 ```text
 UTF-8
@@ -204,15 +244,15 @@ separators=(",", ":")
 allow_nan=False
 ```
 
-NumPy/Pandas scalars are converted to JSON-safe primitive values and non-finite analytical values are represented as `null` only where the contract explicitly permits unavailable diagnostics. A response exceeding `MAX_RESPONSE_BYTES` fails closed rather than being silently truncated.
+NumPy/Pandas scalar values are normalized to JSON-safe primitives. Contract-approved unavailable analytical values are represented as `null`, not numeric zero.
 
-The API must never include raw daily price arrays or full ResearchDataset exports in the public response.
+Public API does not return raw daily price arrays or full ResearchDataset exports.
 
-## 9. Error and security behavior
+## 11. Error and security behavior
 
-Backend validation errors are sanitized and stable. Unexpected exceptions are logged server-side and return a generic 500 response without stack traces/environment variables.
+Validation errors are sanitized/stable. Unexpected exceptions are logged server-side and produce generic 500 responses without stack trace or environment leakage.
 
-All Refinery responses include:
+All Refinery responses include the established no-store/security headers, including:
 
 - `Cache-Control: no-store`
 - `X-Content-Type-Options: nosniff`
@@ -221,44 +261,52 @@ All Refinery responses include:
 - `X-Refinery-API-Schema-Version`
 - `X-Request-Id` when available
 
-CORS allowlist matches the self-owned Portfolio v3 origins unless separately reviewed.
+CORS remains limited to reviewed self-owned origins.
 
-## 10. Explicit non-goals
+## 12. Explicit non-goals through Phase 5
 
-Phase 3 does not implement:
+The API does not implement:
 
 - BUY / SELL / KEEP / TRIM / REPLACE;
-- stock ranking or selection;
+- stock action ranking/selection;
 - position sizing;
-- HRP/ERC/minimum-variance portfolio optimization;
-- clustering or redundancy verdicts;
-- factor/economic-theme overlays;
-- Leave-One-Out/Add-One/Replace-One;
-- Exhaustive integration;
-- historical alpha claims;
+- HRP/ERC/minimum-variance optimization;
+- Leave-One-Out/Add-One/Replace-One experiments;
+- Exhaustive candidate selection;
 - OOS/walk-forward claims;
 - Portfolio v3 ledger migration;
-- UI changes.
+- untraceable economic-theme classification.
 
-Any of those belongs to a later approved phase.
+Phase 5 clustering/redundancy is historical descriptive evidence only.
 
-## 11. Phase 3 validation gates
+## 13. Validation gates
 
-Before merge:
+### Baseline Phase 3/4 invariants
 
-1. request normalization/uniqueness/date/weight/resource tests pass;
-2. one-fetch candidate/benchmark separation is tested;
-3. candidate partial data blocks formal analysis without silent deletion;
-4. partial preflight sample counts remain descriptive resolved-evidence statistics only;
-5. benchmark failure only disables conditional diagnostics;
-6. no-weight request does not fabricate equal weights;
-7. accepted weight-total tolerance is proportionally normalized and traceable;
-8. covariance/risk outputs match Phase 2 primitives on synthetic fixtures;
-9. deterministic repeated requests over the same injected dataset produce identical payloads;
-10. request and response size guards pass;
-11. rate-limit/error/security-header tests pass;
-12. Worker allowlist/wrong-method/oversize/header-sanitization tests pass;
-13. Vercel route/deployment-contract tests pass;
-14. existing Portfolio/Scanner/Exhaustive behavior remains unchanged;
-15. full CI/Vercel/backup/independent diff review pass;
-16. `to_do_update_list.md` records final evidence before merge and a doc-only closeout follows.
+- request normalization/uniqueness/date/weight/resource tests;
+- one-fetch candidate/benchmark separation;
+- candidate partial data blocks formal analysis;
+- benchmark failure only disables conditional evidence;
+- no hidden equal weights;
+- traceable weight normalization;
+- covariance/risk parity with Phase 2 primitives;
+- deterministic serialization;
+- request/response/security/rate/error guards;
+- Worker route/header/method/body guards;
+- existing Portfolio/Scanner/Exhaustive regressions.
+
+### Phase 5 additive gates
+
+Before Phase 5 merge:
+
+- clustering/factor methodology contract and implementation versions align;
+- additive schema `.2` remains backward compatible for existing Phase 3/4 fields;
+- incomplete membership still yields `analysis=null`;
+- benchmark failure cannot fabricate downside/stress evidence;
+- candidate permutation preserves equivalent labelled clustering evidence;
+- response-size guard covers maximum pair output;
+- factor unavailable/applicability states are explicit;
+- theme unavailable state is explicit;
+- server output, UI types and methodology fields agree;
+- full CI/Vercel/backup/independent exact-head review pass;
+- `to_do_update_list.md` records exact final evidence before merge and phase closeout.

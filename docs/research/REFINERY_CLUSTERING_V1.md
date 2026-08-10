@@ -1,8 +1,28 @@
 # Portfolio Refinery Clustering & Redundancy V1
 
-Status: Phase 5 methodology contract. This phase adds deterministic hierarchical clustering and descriptive redundancy evidence on top of `ResearchDatasetV1`, `Risk Mathematics V1`, Refinery API V1 and Refinery UI V1. It does **not** recommend trades, select holdings, size positions, run marginal experiments, integrate Exhaustive, or make out-of-sample claims.
+Status: **Phase 5 methodology baseline / UNDER FINAL REVIEW / NOT MERGE-APPROVED**.
 
-## Contract identity
+This document defines the initial Phase 5 clustering/redundancy methodology implemented on PR #65. It adds deterministic hierarchical clustering and descriptive redundancy evidence on top of `ResearchDatasetV1`, `Risk Mathematics V1`, Refinery API V1 and Refinery UI V1. It does **not** recommend trades, select holdings, size positions, run marginal experiments, integrate Exhaustive, or make out-of-sample claims.
+
+## Review status and amendment gate
+
+The initial `.1` methodology is not yet the final merge authority. Independent review reopened four narrow correctness/contract questions:
+
+1. bootstrap seed-data identity;
+2. complete-month factor alignment;
+3. factor computability vs applicability/corroboration;
+4. common-sample factor-implied relationship semantics.
+
+Details and acceptance criteria are recorded in [`PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md`](PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md).
+
+Until those items are resolved in code + tests + contract together:
+
+- PR #65 remains **NO-GO**;
+- the `.1` text below is the auditable initial baseline, not a declaration that review findings are already implemented;
+- accepted semantic changes require an explicit methodology-version review/bump;
+- no future Agent should “fix the docs only” to make code and contract appear consistent.
+
+## Contract identity — initial Phase 5 baseline
 
 ```text
 REFINERY_CLUSTERING_CONTRACT_VERSION = refinery-clustering-twd-2026-08-10.1
@@ -15,47 +35,48 @@ BOOTSTRAP_BLOCK_WEEKS                 = 4
 STABILITY_WINDOWS_WEEKS               = 52, 104, 156
 ```
 
-These are versioned research-consumer policies, not universal statistical constants. Any change to distance, linkage, cut, bootstrap, stability or verdict semantics requires an explicit contract version change and parity/regression review.
+These are versioned research-consumer policies, not universal statistical constants. Any change to distance, linkage, cut, bootstrap identity/sampling, stability, factor evidence eligibility or verdict semantics requires explicit contract-version review and regression/parity evidence.
 
 ## 1. Authority boundaries
 
-Phase 5 preserves the existing architecture:
-
-- `TWDHistoryService` remains the market-data/FX authority.
-- `ResearchDatasetV1` remains the requested/resolved membership, TWD calendar, daily/weekly return and reproducibility authority.
+- `TWDHistoryService` remains market-data/FX authority.
+- `ResearchDatasetV1` remains requested/resolved membership, TWD calendar, daily/weekly return and full dataset reproducibility authority.
 - `apps/api/app/quant/` owns pure clustering/factor mathematical primitives.
-- `apps/api/app/refinery/` composes evidence and applies the versioned descriptive verdict policy.
-- `api/refinery_v1.py` remains the self-owned public Refinery entrypoint.
-- `apps/portfolio-web/` renders returned evidence only; browser code must not become a second clustering/redundancy calculation authority.
-- Portfolio v3 Ledger/analytics remains independent; Refinery must not import Portfolio Ledger models as a generic research bag.
+- `apps/api/app/refinery/` composes evidence and applies versioned descriptive verdict policy.
+- `api/refinery_v1.py` remains the public Refinery entrypoint.
+- `apps/portfolio-web/` renders evidence only; it does not recompute clustering/redundancy/factor verdicts.
+- Portfolio v3 ledger/analytics remains independent.
 
-No new downloader is introduced for candidate prices or FX.
+Candidate prices/FX are not re-downloaded by Phase 5. The Kenneth French factor adapter is a separate shared research-data source for the explicitly scoped factor diagnostic; it does not become a second candidate-price downloader.
 
 ## 2. Membership and fail-closed semantics
 
-Clustering/redundancy analysis is emitted only when Phase 3 candidate membership is complete and Phase 3 formal analysis is otherwise eligible.
+Formal clustering/redundancy is emitted only when candidate membership is complete and existing Refinery formal analysis is eligible.
 
 If any requested candidate is unresolved:
 
 - top-level Refinery status remains `incomplete`;
-- clustering/redundancy output is unavailable/null;
-- the resolved subset must **not** be silently clustered as if it were the requested universe.
+- `analysis = null` under the established API contract;
+- the resolved subset is **not** silently clustered as a replacement universe.
 
-If structural weekly evidence is unavailable or degenerate, the API may still return the existing Phase 4 risk diagnostics, but clustering/redundancy evidence must fail closed with an explicit status/reason.
+If structural weekly evidence is unavailable/degenerate, existing Phase 4 risk diagnostics may still be returned where valid, but clustering/redundancy fails closed with explicit status/reason.
+
+A benchmark failure affects only benchmark-conditioned downside/stress corroboration; it cannot change the candidate structural sample or fabricate a fallback benchmark.
 
 ## 3. Primary structural dependency input
 
-The authoritative clustering input is the existing ResearchDataset synchronized **weekly TWD** return matrix, not the daily close matrix.
+The primary clustering input is the existing ResearchDataset synchronized **weekly TWD** return matrix.
 
-Reason:
+Rationale:
 
 - daily TWD returns remain authoritative for Taiwanese-investor NAV/risk;
-- mixed-market daily closes are asynchronous across U.S./Taiwan/Japan/Europe;
-- the existing `W-FRI period last actual TWD observation` policy is the structural dependency layer already frozen in ResearchDataset V1.
+- mixed-market daily closes are asynchronous;
+- ResearchDataset already freezes the `W-FRI period last actual TWD observation` structural policy;
+- Phase 5 must not invent a second weekly calendar.
 
-The primary structural view uses at most the latest 156 weekly observations and the existing complete-case semantics. Phase 5 must not invent a second weekly calendar.
+The primary structural view uses at most the latest 156 weekly observations with existing complete-case semantics.
 
-Daily tactical/medium, downside and stress correlations remain corroborating evidence only.
+Tactical/medium daily, downside and stress correlations are distinct corroborating evidence, not interchangeable versions of one universal correlation matrix.
 
 ## 4. Correlation distance
 
@@ -65,65 +86,61 @@ For a valid Pearson correlation matrix `rho`:
 d_ij = sqrt((1 - rho_ij) / 2)
 ```
 
-Implementation rules:
+Implementation requirements:
 
-1. reorder symbols into canonical lexicographic order before clustering so request-order permutations cannot change tie resolution merely by column position;
-2. enforce a square symmetric finite matrix with unit diagonal;
-3. clip only floating-point overshoot to `[-1, 1]` before distance conversion;
-4. set diagonal distance to exactly zero;
-5. reject materially non-symmetric/non-finite inputs rather than silently repairing them;
-6. return symbols and results in explicit labelled form so later UI never infers ordering from raw matrix position.
+1. canonical lexicographic symbol order before clustering;
+2. square, symmetric, finite matrix with unit diagonal;
+3. only floating-point overshoot is clipped to `[-1, 1]`;
+4. diagonal distance exactly zero;
+5. materially invalid inputs fail closed rather than being silently repaired;
+6. all public results are explicitly labelled by symbol.
 
-This correlation distance is suitable for correlation-based hierarchical clustering. **Ward linkage is not the default and is not allowed in V1** because the project is not treating this transformed correlation distance as an ordinary Euclidean observation matrix for Ward variance minimization.
+Ward is not a Phase 5 V1 default. Average/complete operate directly on the condensed distance representation; Ward/centroid/median impose Euclidean-distance requirements that this project does not assume for the precomputed correlation-distance workflow.
 
 ## 5. Hierarchical clustering
 
-### Primary hierarchy
+### Primary
 
 ```text
 linkage = average
 ```
 
-Average linkage operates on the condensed correlation-distance matrix.
-
-### Sensitivity hierarchy
+### Sensitivity
 
 ```text
 linkage = complete
 ```
 
-Complete linkage is computed from the same structural matrix as a sensitivity diagnostic.
+Both use the same structural correlation-distance matrix.
 
 ### Determinism
 
-The implementation must canonicalize symbol order before constructing the condensed matrix. Flat cluster IDs are then canonicalized by sorted member sets; raw SciPy cluster numbers are never treated as stable public identifiers.
+- canonicalize symbol order before condensed-distance construction;
+- do not expose raw SciPy flat-cluster numbers as stable IDs;
+- canonicalize public flat cluster IDs from sorted member sets;
+- response includes enough labelled merge evidence for rendering without browser-side linkage.
 
-The response must include enough hierarchy evidence to render a dendrogram/tree without recomputing linkage in the browser:
+Expected hierarchy evidence includes:
 
-- canonical symbol order;
+- canonical symbols;
 - linkage method;
-- merge rows / child references;
-- merge distance;
-- merged sample count;
+- merge child references;
+- merge distance/count;
 - canonical flat memberships at the display cut.
 
-## 6. Flat cluster display cut
-
-Phase 5 V1 uses an explicit descriptive cut:
+## 6. Flat display cut
 
 ```text
 PRIMARY_FLAT_CUT_DISTANCE = 0.50
 ```
 
-For direct pairwise correlation this corresponds to `rho = 0.50`, but hierarchical cluster membership depends on linkage aggregation and therefore is not equivalent to saying every within-cluster pair has correlation >= 0.50.
+For a direct pair this maps to correlation 0.50, but hierarchical membership depends on linkage aggregation; it does not mean every within-cluster pair has correlation ≥0.50.
 
-The cut exists to make cluster/stability evidence inspectable and reproducible. It is **not** claimed to be statistically optimal and must be displayed as a versioned methodology parameter.
-
-Average-linkage membership is primary descriptive grouping; complete-linkage membership at the same cut is sensitivity evidence.
+The cut is a reproducible descriptive policy, not a claim of statistical optimality.
 
 ## 7. Multi-window stability
 
-Phase 5 computes structural clustering on these trailing weekly windows when available:
+Trailing structural windows when available:
 
 ```text
 52 weeks
@@ -131,133 +148,146 @@ Phase 5 computes structural clustering on these trailing weekly windows when ava
 156 weeks
 ```
 
-Every window reuses the same ResearchDataset weekly return policy and complete-case rules. A window is available only when it meets the existing structural minimum-observation guard; unavailable windows remain explicit and are excluded from the denominator of agreement calculations.
+Each window reuses ResearchDataset weekly semantics and the structural minimum-observation guard.
 
-For each asset pair, report:
+For every unordered pair report:
 
-- number of available windows;
-- number of windows in which both assets share the same average-linkage flat cluster;
-- `window_cocluster_agreement = same / available` when at least two windows are available;
-- unavailable/null when fewer than two windows are available.
+- available windows;
+- same-cluster windows under average linkage;
+- `same / available` agreement when at least two windows are available;
+- unavailable/null when fewer than two are available.
 
-No missing window is counted as disagreement.
+Unavailable windows are excluded from the denominator; they are not counted as disagreements.
 
-## 8. Bootstrap cluster stability
+## 8. Bootstrap cluster stability — initial `.1` baseline
 
 ### Sampling policy
 
-Use deterministic circular moving-block bootstrap on the primary structural weekly complete-case return frame:
+Deterministic circular moving-block bootstrap over the primary structural weekly complete-case return frame:
 
 ```text
 replicates   = 200
 block length = 4 weeks
 ```
 
-Rows are resampled jointly across every candidate so cross-sectional dependence is preserved. Blocks preserve short local time ordering better than iid row resampling.
+Rows are resampled jointly across candidate columns to preserve cross-sectional dependence. Degenerate replicates are counted as unusable rather than hidden.
 
-### Deterministic seed
+### Initial `.1` seed contract
 
-The bootstrap seed is derived from canonical SHA-256 material containing:
+The original contract states seed material includes:
 
 - candidate `dataset_hash`;
-- `REFINERY_CLUSTERING_CONTRACT_VERSION`;
+- clustering contract version;
 - primary linkage;
 - flat-cut distance;
-- bootstrap replicate count;
-- bootstrap block length.
+- replicate count;
+- block length.
 
-Repeated analysis of the same frozen dataset/contract must therefore produce identical bootstrap output.
+### Active review finding
 
-### Bootstrap output
+Current PR #65 implementation instead derives a canonical fingerprint from the structural weekly frame and feeds that identity into the bootstrap seed path to preserve request-order invariance. This is a real contract/implementation drift, not a wording-only issue.
 
-For every pair, report average-linkage co-cluster probability at the primary flat cut.
+The expected convergence is to define a dedicated **structural bootstrap fingerprint** without repurposing `ResearchDataset.dataset_hash`, but that amendment is not considered implemented by this documentation change alone. See Phase 5 convergence plan M1.
 
-For every primary flat cluster with at least two members, report mean pairwise bootstrap co-cluster probability as descriptive cluster stability. Singleton stability is `not_applicable`, not `1.0`.
+### Output
 
-If a bootstrap replicate becomes degenerate, that replicate is explicitly counted as unusable. The response reports requested/usable replicate counts; it must not silently pretend 200 successful replicates were obtained.
+- pairwise average-linkage co-cluster probability;
+- requested/usable/unusable replicate counts;
+- cluster-level mean pairwise stability where applicable;
+- singleton stability = `not_applicable`, not `1.0`.
 
 ## 9. Price-based redundancy evidence
 
-For each unordered candidate pair, Phase 5 may expose these evidence fields:
+For each unordered pair Phase 5 may expose:
 
 - structural weekly correlation;
 - medium daily correlation;
-- downside correlation when benchmark-conditioned evidence is available;
-- stress correlation when benchmark-conditioned evidence is available;
-- same primary average-linkage cluster;
-- same complete-linkage sensitivity cluster;
+- downside correlation when benchmark-conditioned evidence is valid;
+- stress correlation when valid;
+- same average-linkage cluster;
+- same complete-linkage cluster;
 - multi-window co-cluster agreement;
 - bootstrap co-cluster probability;
-- observations/status for every underlying view.
+- observation/status evidence for underlying views.
 
-Tactical 63D daily correlation may be displayed as context but is not a core redundancy verdict input because it is intentionally short-horizon.
+Tactical 63D daily correlation may be displayed as context but is not a core verdict input in `.1`.
 
-## 10. Factor-implied relationship evidence
+## 10. Factor-implied relationship evidence — initial `.1` baseline under review
 
-Factor evidence is secondary corroboration only. It must never override contradictory structural price evidence by itself.
+Factor evidence is secondary corroboration only and cannot override contradictory structural evidence by itself.
 
-### Scope
+### Data source / model scope
 
-V1 may calculate factor evidence only for assets where:
-
-- quote currency is USD;
-- native-return history is available;
-- at least 36 overlapping monthly observations exist with the official Kenneth French factor data.
-
-Other assets receive an explicit unavailable scope status. This is deliberately labelled a **U.S.-factor co-movement diagnostic**, not a universal global factor model.
-
-### Return/factor semantics
-
-Use monthly compounded **native-currency** asset returns for this diagnostic so TWD FX translation is not folded into U.S. equity-factor beta estimates.
-
-For eligible assets:
+Phase 5 uses official Kenneth French monthly U.S. five-factor data plus U.S. momentum through the shared research adapter. Asset regressions use monthly compounded **native-currency** returns so TWD FX translation is not folded into the factor beta estimate.
 
 ```text
 asset excess return = native monthly return - RF
 predictors           = MKT_RF, SMB, HML, RMW, CMA, MOM
 ```
 
-Factor data must come from the existing official Kenneth French Data Library adapter after that adapter is moved/re-exported through a shared research/data authority. Refinery must not reverse-depend on Portfolio Ledger code.
+### Initial `.1` computability rule
 
-### Factor-implied covariance/correlation
+The initial contract allowed factor calculation where:
 
-Let `beta_i` be an asset's factor-beta vector and `Sigma_F` the covariance matrix of aligned factor returns over the research sample:
+- quote currency is USD;
+- native-return history exists;
+- at least 36 overlapping monthly observations exist.
+
+This remains the auditable initial rule implemented on the branch, but it is **under review**.
+
+### Review amendments required before merge
+
+#### A. Complete-month alignment
+
+Calendar-month labels alone are insufficient when a request begins/ends mid-month. A partial-month asset return must not be paired with a full-month Kenneth French factor observation. Phase 5 must freeze/test complete-month semantics before merge.
+
+#### B. Computability vs applicability/corroboration
+
+USD quotation proves denomination, not economic instrument/model applicability. The final V1 evidence contract must distinguish whether a factor diagnostic is mechanically computable from whether it is approved as redundancy-verdict corroboration.
+
+Until a traceable applicability taxonomy exists, the conservative review proposal is to allow clearly labelled diagnostic output when computable but not let it upgrade a verdict merely because the instrument is USD-denominated.
+
+#### C. Common relationship sample
+
+Per-asset beta windows and the factor covariance sample must have one explicit relationship-sample policy. The preferred V1 convergence is a common complete-month sample for every asset included in one returned systematic relationship matrix.
+
+### Factor-implied relationship formula
+
+For valid betas and a frozen factor covariance sample:
 
 ```text
-Cov_factor(i,j) = beta_i' Sigma_F beta_j
+Cov_factor(i,j)  = beta_i' Sigma_F beta_j
 Corr_factor(i,j) = Cov_factor(i,j) /
                    sqrt(Cov_factor(i,i) * Cov_factor(j,j))
 ```
 
-This is correlation of the **factor-implied systematic component**, not total asset-return correlation. Idiosyncratic residual variance is intentionally not presented as systematic overlap.
+This is correlation of factor-implied **systematic components**, not total-return correlation. Residual/idiosyncratic variance is not mislabelled as systematic overlap.
 
-Per-asset output includes observations, beta vector and R-squared. Pairwise factor-implied correlation is considered a usable corroborator only when both assets have valid regressions; low R-squared remains visible and reduces confidence rather than being hidden.
-
-No raw beta-vector cosine is used as the official factor-overlap evidence.
+No raw beta-vector cosine is the official factor-overlap metric.
 
 ## 11. Economic-theme evidence
 
-Phase 5 must not infer opaque economic themes from ticker names, current web prose or an unversioned LLM classification.
+Phase 5 does not infer themes from ticker strings, unversioned current web prose or opaque LLM classification.
 
-V1 permits theme evidence only when a deterministic traceable source exists with at least:
+Usable theme evidence requires deterministic traceable provenance including, at minimum:
 
 - source/provider;
 - taxonomy/version;
-- effective/retrieval date;
+- retrieval/effective date;
 - per-symbol labels;
 - confidence/provenance.
 
-Until such a source is implemented, theme evidence is returned as:
+Until implemented:
 
 ```text
 status = unavailable_no_traceable_theme_source
 ```
 
-This explicit unavailable state satisfies the architecture requirement better than silently fabricating themes. Any later automatic theme source requires separate methodology/version review and remains read-only until Point-in-Time governance is available.
+Missing theme evidence is not zero and cannot silently influence verdicts.
 
-## 12. Redundancy verdict policy
+## 12. Redundancy verdict policy — initial `.1`
 
-Verdicts describe **historical exposure redundancy evidence** only:
+Verdicts describe **historical exposure redundancy evidence only**:
 
 ```text
 HIGH
@@ -268,104 +298,92 @@ UNCERTAIN
 
 There is no numeric 0–100 score.
 
-### Core usable evidence
+### Core evidence
 
-A pair needs valid structural correlation and bootstrap evidence to receive HIGH/MEDIUM/LOW. Otherwise verdict is `UNCERTAIN`.
+Valid structural correlation and bootstrap evidence are required for HIGH/MEDIUM/LOW; otherwise verdict is `UNCERTAIN`.
 
 ### HIGH
 
-All must hold:
+All:
 
-- structural weekly correlation >= 0.80;
+- structural correlation ≥0.80;
 - same average-linkage cluster;
 - same complete-linkage cluster;
-- bootstrap co-cluster probability >= 0.75;
-- multi-window co-cluster agreement is available and >= 2/3;
-- medium daily correlation is available and >= 0.70.
+- bootstrap co-cluster probability ≥0.75;
+- window agreement available and ≥2/3;
+- medium daily correlation available and ≥0.70.
 
 ### MEDIUM
 
-All must hold:
+All:
 
-- structural weekly correlation >= 0.65;
+- structural correlation ≥0.65;
 - same average-linkage cluster;
-- bootstrap co-cluster probability >= 0.60;
+- bootstrap probability ≥0.60;
 
-and at least one available corroborator holds:
+plus at least one **eligible available** corroborator:
 
-- medium daily correlation >= 0.60;
-- downside correlation >= 0.65;
-- stress correlation >= 0.65;
-- factor-implied correlation >= 0.65 with both factor regressions valid;
-- future traceable theme evidence explicitly shows shared theme.
+- medium daily correlation ≥0.60;
+- downside correlation ≥0.65;
+- stress correlation ≥0.65;
+- factor-implied correlation ≥0.65 when the final factor policy declares the evidence valid/eligible;
+- future traceable shared-theme evidence.
 
-Missing optional corroborators are not treated as zero.
+The `.1` implementation currently treats valid factor regressions as a corroborator; M3 review must be resolved before merge so factor applicability is not inferred solely from USD quote currency.
 
 ### LOW
 
-All must hold:
+All:
 
-- structural weekly correlation <= 0.35;
-- not in the same average-linkage cluster;
-- bootstrap co-cluster probability <= 0.35.
+- structural correlation ≤0.35;
+- not same average-linkage cluster;
+- bootstrap probability ≤0.35.
 
 ### UNCERTAIN
 
-Everything not satisfying HIGH/MEDIUM/LOW, including conflicting evidence, insufficient stability, or missing core evidence.
+Everything else, including conflicting evidence, insufficient stability or missing core evidence.
 
-These thresholds are conservative descriptive policy. They are not estimates of probability that one asset should replace another.
+These classes do not estimate replacement probability and do not imply a trade.
 
 ## 13. Confidence and provenance
 
-Verdict and confidence are separate concepts.
+Verdict and evidence confidence are separate.
 
-Every pair retains:
+Retain, where applicable:
 
-- structural/medium/downside/stress observation counts and statuses;
+- correlation statuses/sample counts;
 - available stability-window count;
 - bootstrap requested/usable replicates;
-- factor observation/R-squared evidence when applicable;
+- factor sample/R-squared/scope evidence;
 - theme provenance/status;
-- dataset hash and methodology versions.
+- dataset identity and clustering methodology version.
 
-The UI may summarize confidence as `HIGH / MEDIUM / LOW` using an explicit versioned rule, but must always retain the underlying evidence and must not conflate confidence with redundancy verdict.
+Initial `.1` confidence summary:
 
-V1 initial confidence rule:
-
-- HIGH: 3 stability windows available, >=190 usable bootstrap replicates, and all core correlation views used by the verdict have their configured minimum observations;
-- MEDIUM: >=2 stability windows, >=160 usable bootstrap replicates, and structural/medium core views valid;
+- HIGH: 3 stability windows, ≥190 usable bootstrap replicates, valid core correlation views;
+- MEDIUM: ≥2 windows, ≥160 usable replicates, valid structural/medium views;
 - LOW: otherwise.
 
-## 14. Asset and cluster summaries
+Confidence is evidence completeness/stability, not a probability that a stock should be removed.
 
-The API may produce convenience summaries from pair evidence:
+## 14. Asset / cluster summaries
 
-### Cluster summary
+Permitted convenience summaries:
 
-- canonical cluster ID;
-- sorted members;
-- member count;
-- mean/min/max structural correlation within cluster;
-- mean bootstrap co-cluster stability when applicable;
+### Cluster
+
+- canonical cluster ID/members/count;
+- min/mean/max within-cluster structural correlation;
+- mean bootstrap pair stability when applicable;
 - complete-linkage sensitivity agreement.
 
-### Asset redundancy neighborhood
+### Asset neighborhood
 
-For each asset:
-
-- HIGH pair peers;
-- MEDIUM pair peers;
-- LOW pair peers;
-- UNCERTAIN pair peers;
-- strongest evidence peers sorted deterministically by verdict class, bootstrap stability, absolute structural correlation and symbol.
-
-This is **not** a stock rank or replace list. No asset receives a KEEP/TRIM/REPLACE label in Phase 5.
+Pair peers may be grouped/sorted by descriptive verdict/evidence, but this is not a stock ranking or replacement list.
 
 ## 15. Public API extension
 
-Phase 5 extends the existing successful Refinery `analyze` response rather than creating a second candidate-data fetch or a browser-side research engine.
-
-Expected new top-level analysis sections:
+Phase 5 extends successful `refinery-v1` analyze responses with:
 
 ```text
 analysis.clustering
@@ -374,108 +392,111 @@ analysis.factor_relationships
 analysis.theme_relationships
 ```
 
-Existing Phase 3/4 fields remain backward compatible.
+No second candidate-data fetch and no browser-side research engine is created.
 
-Externally observable schema additions require a Refinery API schema-version bump while preserving `contract_version = refinery-v1` unless the request contract itself becomes incompatible.
-
-No new request fields are required in V1 clustering. Existing candidate/date/benchmark/weights/EWMA/stress inputs remain authoritative.
+Existing Phase 3/4 fields remain backward compatible. The API request contract remains `refinery-v1`; additive public response fields are governed by the Refinery API schema version.
 
 ## 16. Resource bounds
-
-The existing candidate maximum remains 100.
-
-Phase 5 adds explicit deterministic guards:
 
 ```text
 MAX_CLUSTER_ASSETS      = 100
 BOOTSTRAP_REPLICATES    = 200
 BOOTSTRAP_BLOCK_WEEKS   = 4
-MAX_PAIR_ROWS           = 4,950  # C(100,2)
+MAX_PAIR_ROWS           = 4,950
 ```
 
-The API may return all pair evidence for <=100 assets only if the existing 4 MiB canonical response guard still passes. If measured response size would exceed that bound, the endpoint fails closed; it must not silently truncate pair membership/evidence.
-
-UI may render a deterministic subset/sorted table for performance while retaining the API evidence semantics.
+All evidence must still satisfy the Refinery 4 MiB canonical response guard. Backend fails closed rather than silently dropping candidate/pair evidence. UI presentation may bound mounted DOM while preserving API semantics.
 
 ## 17. UI semantics
 
-Phase 5 adds read-only panels to the existing Refinery workspace:
+Phase 5 read-only panels:
 
-1. `群聚結構` — average hierarchy/cluster groups, complete-linkage sensitivity and stability;
-2. `重複曝險證據` — pair evidence/verdict/confidence table;
-3. `因子關係` — eligible U.S.-factor diagnostics with explicit scope/limitations;
-4. `主題關係` — provenance or explicit unavailable state.
+1. `群聚結構`
+2. `重複曝險證據`
+3. `因子關係`
+4. `主題關係`
 
-UI rules:
+Rules:
 
-- do not recompute clustering/verdicts in TypeScript;
-- do not color HIGH as an automatic sell signal;
-- always expose methodology version and key cut/bootstrap parameters;
-- large pair tables use deterministic top-N presentation/filtering without changing API evidence;
-- mobile must not mount an unbounded dendrogram/table that causes page overflow;
-- existing Phase 4 risk/correlation diagnostics remain available and unchanged.
+- no TypeScript recomputation of linkage/verdicts;
+- no HIGH-as-sell presentation;
+- expose methodology version/cut/bootstrap parameters;
+- deterministic bounded presentation for large pair sets;
+- no page-level mobile overflow;
+- preserve existing Phase 4 diagnostics.
 
-## 18. Required pure-math invariants and tests
+## 18. Required pure-math / methodology tests
 
-At minimum:
+Initial and convergence gates include:
 
-1. correlation-distance matrix is symmetric, zero-diagonal and bounded `[0,1]`;
-2. request/column permutation produces the same canonical hierarchy/memberships after relabelling;
-3. perfect duplicates have zero distance and cluster together;
-4. perfectly anticorrelated assets have distance 1;
-5. identity correlation produces equal off-diagonal distance `sqrt(1/2)`;
-6. average/complete linkage reference fixtures match SciPy on canonical condensed distances;
-7. Ward is not accepted as a V1 method;
-8. bootstrap output is deterministic for the same dataset hash/contract;
-9. bootstrap row resampling is joint across assets;
-10. unusable bootstrap replicates are counted rather than hidden;
-11. multi-window missing evidence is excluded rather than counted as disagreement;
-12. verdict rules are order independent and missing optional evidence never becomes numeric zero;
-13. factor-implied covariance/correlation matches an independently computed matrix fixture;
-14. non-USD/insufficient factor samples fail closed as unavailable;
-15. theme evidence remains unavailable without a traceable source.
+1. correlation-distance symmetry/zero diagonal/[0,1] bound;
+2. request/column permutation -> equivalent canonical hierarchy/evidence;
+3. perfect duplicates distance zero / co-cluster;
+4. perfect anticorrelation distance one;
+5. identity correlation off-diagonal `sqrt(1/2)`;
+6. average/complete fixtures match SciPy on canonical condensed distances;
+7. Ward not accepted as V1 method;
+8. bootstrap deterministic under the frozen structural seed identity;
+9. bootstrap joint row resampling;
+10. unusable replicates explicitly counted;
+11. unavailable windows excluded from agreement denominator;
+12. verdict order-independent; missing evidence never becomes zero;
+13. factor-implied matrix matches independent fixture on the **same frozen sample**;
+14. incomplete first/last factor months excluded under the final complete-month policy;
+15. factor diagnostic availability separated from corroboration eligibility under the final scope policy;
+16. insufficient/non-computable factor evidence fails closed;
+17. theme evidence unavailable without traceable source.
 
-## 19. Required API/regression tests
+## 19. Required API/regression gates
 
 Before merge:
 
-1. incomplete candidate membership still blocks all formal clustering/redundancy analysis;
-2. benchmark failure only removes downside/stress corroboration and does not fabricate it;
-3. no-weight analysis remains valid for structural clustering; no equal weights are invented;
-4. candidate permutation produces equivalent labelled clustering/redundancy evidence;
-5. deterministic repeat requests over the same injected dataset produce identical output;
-6. API schema/methodology versions expose the Phase 5 contract;
-7. response-size/canonical-JSON guards still pass;
-8. existing Phase 3/4 response fields remain unchanged for the same input dataset;
-9. Worker route/security behavior remains unchanged unless separately required;
-10. existing Portfolio, Scanner and Exhaustive regression suites remain unchanged.
+1. incomplete candidate membership blocks formal analysis;
+2. benchmark failure only removes benchmark-conditioned corroboration;
+3. no-weight analysis remains valid structurally without equal-weight fabrication;
+4. candidate permutation produces equivalent labelled Phase 5 evidence;
+5. deterministic repeat requests match under same frozen input/contract;
+6. API schema/methodology versions match code/docs;
+7. response-size/canonical JSON guards pass;
+8. existing Phase 3/4 fields remain regression-compatible;
+9. Worker security/routing behavior remains unchanged unless separately reviewed;
+10. existing Portfolio/Scanner/Exhaustive tests pass;
+11. M1–M4 convergence tests pass.
 
 ## 20. Required browser gates
 
-Add browser coverage for:
+- existing Portfolio flow unchanged;
+- Phase 4 Refinery flow unchanged;
+- cluster/stability/sensitivity panels;
+- all four descriptive redundancy verdict classes without recommendation labels;
+- factor diagnostic/scope/unavailable states;
+- explicit unavailable theme state;
+- >20 / 100-candidate bounded presentation;
+- 390px no page-level horizontal overflow.
 
-1. existing Portfolio workspace flow remains unchanged;
-2. existing Phase 4 Refinery diagnosis flow remains unchanged;
-3. cluster group/stability panel rendering;
-4. average vs complete sensitivity evidence;
-5. HIGH/MEDIUM/LOW/UNCERTAIN redundancy evidence rendering without recommendation labels;
-6. factor available/unavailable scope states;
-7. explicit unavailable theme-source state;
-8. >20 and 100-candidate presentation guard;
-9. 390px Refinery page remains usable without horizontal page overflow.
+## 21. Merge gate
 
-## 21. Explicit non-goals
+Phase 5 is not merge-ready until:
 
-Phase 5 does **not** implement:
+- M1–M4 are resolved and the accepted methodology version is frozen;
+- code/constants/docs/tests/API/UI evidence align;
+- full CI + focused web CI pass;
+- Vercel required status is actually green on final exact head;
+- backup gate passes;
+- dependency vulnerability signal is triaged/classified;
+- independent final exact-head review is recorded;
+- `to_do_update_list.md` is current.
+
+## 22. Explicit non-goals
+
+Phase 5 does not implement:
 
 - KEEP / TRIM / REPLACE;
-- stock selection/ranking as an investment action;
+- stock action ranking/selection;
 - Remove-One / Add-One / Replace-One;
-- position sizing, ERC, HRP or minimum-variance optimization;
+- position sizing / ERC / HRP / minimum variance;
 - Exhaustive candidate selection;
 - future-return alpha claims;
 - OOS/walk-forward validation;
-- point-in-time Universe/fundamentals;
+- point-in-time Universe/fundamental claims;
 - untraceable automatic economic-theme classification.
-
-Those remain later phases.
