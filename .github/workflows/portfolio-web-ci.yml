@@ -49,12 +49,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Apply guarded P5-CORR-D convergence patch
+      - name: Apply hardened P5-CORR-D convergence patch
         if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
         env:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          python scripts/_temporary_apply_p5_corr_d.py
+          python scripts/_temporary_apply_p5_corr_d2.py
           changed="$(git diff --name-only)"
           if [ -z "$changed" ]; then
             echo "P5-CORR-D patch already applied."
