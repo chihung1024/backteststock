@@ -244,7 +244,8 @@ export interface RefineryClusteringEvidence {
     pair_probabilities: RefineryBootstrapPairEvidence[];
   } | null;
   clusters: RefineryClusterSummary[];
-  bootstrap_seed_fingerprint?: string;
+  bootstrap_window_weeks: number;
+  bootstrap_input_fingerprint_sha256: string;
 }
 
 export type RefineryRedundancyVerdict = "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
@@ -260,6 +261,8 @@ export interface RefineryRedundancyPair {
   downside_correlation: number | null;
   stress_correlation: number | null;
   factor_implied_correlation: number | null;
+  factor_corroboration_eligible: boolean;
+  factor_corroboration_reason: string | null;
   same_average_cluster: boolean;
   same_complete_cluster: boolean;
   available_stability_windows: number;
@@ -279,6 +282,11 @@ export interface RefineryRedundancyEvidence {
 export interface RefineryFactorAssetEvidence {
   status: string;
   quote_currency: string | null;
+  factor_computable: boolean;
+  factor_model_scope: string;
+  factor_corroboration_eligible: boolean;
+  factor_corroboration_reason: string | null;
+  monthly_return_policy: string;
   observations: number;
   start?: string | null;
   end?: string | null;
@@ -290,7 +298,10 @@ export interface RefineryFactorAssetEvidence {
 export interface RefineryFactorRelationships {
   source: string;
   scope: string;
+  factor_model_scope: string;
+  factor_corroboration_policy: string;
   return_currency: string;
+  monthly_return_policy: string;
   minimum_monthly_observations: number;
   status: string;
   factor_sample: {
@@ -302,7 +313,10 @@ export interface RefineryFactorRelationships {
   assets: Record<string, RefineryFactorAssetEvidence>;
   systematic_relationship: {
     status: string;
-    factor_observations: number;
+    observations: number;
+    start: string | null;
+    end: string | null;
+    sample_fingerprint_sha256: string | null;
     matrix: RefineryCorrelationMatrix | null;
   } | null;
 }

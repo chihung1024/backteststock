@@ -13,6 +13,7 @@ from apps.api.app.quant.clustering import (
     PRIMARY_FLAT_CUT_DISTANCE,
     SENSITIVITY_CLUSTER_LINKAGE,
     bootstrap_cluster_stability,
+    bootstrap_input_fingerprint,
     circular_block_bootstrap_indices,
     correlation_distance_matrix,
     hierarchical_clustering,
@@ -179,16 +180,17 @@ def test_circular_block_indices_preserve_contiguous_blocks_and_are_reusable_join
 
 def test_bootstrap_stability_is_deterministic_for_same_dataset_contract() -> None:
     weekly = _weekly_fixture(rows=120)
+    fingerprint = bootstrap_input_fingerprint(weekly)
     first = bootstrap_cluster_stability(
         weekly,
-        dataset_hash="dataset-fixture-abc",
+        input_fingerprint=fingerprint,
         replicates=30,
         block_weeks=4,
         min_observations=52,
     )
     second = bootstrap_cluster_stability(
         weekly,
-        dataset_hash="dataset-fixture-abc",
+        input_fingerprint=fingerprint,
         replicates=30,
         block_weeks=4,
         min_observations=52,
@@ -216,7 +218,7 @@ def test_bootstrap_counts_degenerate_replicates_as_unusable_not_success() -> Non
     )
     result = bootstrap_cluster_stability(
         weekly,
-        dataset_hash="degenerate-fixture",
+        input_fingerprint=bootstrap_input_fingerprint(weekly),
         replicates=12,
         min_observations=52,
     )
@@ -227,19 +229,25 @@ def test_bootstrap_counts_degenerate_replicates_as_unusable_not_success() -> Non
     assert all(pair.probability is None for pair in result.pair_probabilities)
 
 
-def test_bootstrap_dataset_hash_changes_deterministic_seed() -> None:
-    weekly = _weekly_fixture(rows=90)
+def test_bootstrap_effective_input_change_changes_deterministic_seed() -> None:
+    first_weekly = _weekly_fixture(rows=90)
+    second_weekly = first_weekly.copy()
+    second_weekly.iloc[-1, 0] += 0.01
+    first_fingerprint = bootstrap_input_fingerprint(first_weekly)
+    second_fingerprint = bootstrap_input_fingerprint(second_weekly)
+
     first = bootstrap_cluster_stability(
-        weekly,
-        dataset_hash="dataset-A",
+        first_weekly,
+        input_fingerprint=first_fingerprint,
         replicates=5,
         min_observations=52,
     )
     second = bootstrap_cluster_stability(
-        weekly,
-        dataset_hash="dataset-B",
+        second_weekly,
+        input_fingerprint=second_fingerprint,
         replicates=5,
         min_observations=52,
     )
 
+    assert first_fingerprint != second_fingerprint
     assert first.seed != second.seed

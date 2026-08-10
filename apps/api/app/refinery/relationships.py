@@ -14,8 +14,10 @@ from apps.api.app.quant import (
     BOOTSTRAP_BLOCK_WEEKS,
     BOOTSTRAP_REPLICATES,
     DEFAULT_FACTOR_MIN_MONTHS,
+    FACTOR_MONTHLY_RETURN_POLICY,
     PRIMARY_CLUSTER_LINKAGE,
     PRIMARY_FLAT_CUT_DISTANCE,
+    PRIMARY_STRUCTURAL_WINDOW_WEEKS,
     REFINERY_CLUSTERING_CONTRACT_VERSION,
     SENSITIVITY_CLUSTER_LINKAGE,
     STABILITY_WINDOWS_WEEKS,
@@ -32,6 +34,11 @@ from apps.api.app.research import FRENCH_FACTOR_SOURCE, FrenchFactorProvider, Re
 from .redundancy import RedundancyEvidence, redundancy_confidence, redundancy_verdict
 
 THEME_UNAVAILABLE_STATUS = "unavailable_no_traceable_theme_source"
+FACTOR_MODEL_SCOPE = "U.S.-factor co-movement diagnostic"
+FACTOR_CORROBORATION_UNAVAILABLE_REASON = (
+    "unavailable_no_traceable_instrument_scope"
+)
+FACTOR_CORROBORATION_POLICY = "fail_closed_without_traceable_instrument_scope_v1"
 
 
 def build_phase5_relationships(
@@ -40,6 +47,7 @@ def build_phase5_relationships(
     weekly_returns: pd.DataFrame,
     structural_correlation: CorrelationResult,
     correlation_payloads: Mapping[str, Mapping[str, Any]],
+    bootstrap_input_fingerprint: str,
     factor_provider: FrenchFactorProvider,
 ) -> dict[str, Any]:
     """Compose clustering, redundancy, factor and theme evidence without re-fetching prices."""
@@ -47,7 +55,7 @@ def build_phase5_relationships(
     clustering = _clustering_payload(
         weekly_returns=weekly_returns,
         structural_correlation=structural_correlation,
-        dataset_hash=candidate_dataset.dataset_hash,
+        input_fingerprint=bootstrap_input_fingerprint,
     )
     factors = _factor_payload(candidate_dataset, factor_provider)
     theme = {
@@ -74,7 +82,7 @@ def _clustering_payload(
     *,
     weekly_returns: pd.DataFrame,
     structural_correlation: CorrelationResult,
-    dataset_hash: str,
+    input_fingerprint: str,
 ) -> dict[str, Any]:
     base = {
         "contract_version": REFINERY_CLUSTERING_CONTRACT_VERSION,
@@ -84,6 +92,8 @@ def _clustering_payload(
         "stability_windows_weeks": list(STABILITY_WINDOWS_WEEKS),
         "bootstrap_replicates": BOOTSTRAP_REPLICATES,
         "bootstrap_block_weeks": BOOTSTRAP_BLOCK_WEEKS,
+        "bootstrap_window_weeks": PRIMARY_STRUCTURAL_WINDOW_WEEKS,
+        "bootstrap_input_fingerprint_sha256": input_fingerprint,
     }
     if structural_correlation.status != "ok" or structural_correlation.matrix is None:
         return {
@@ -116,10 +126,11 @@ def _clustering_payload(
         )
         bootstrap = bootstrap_cluster_stability(
             weekly_returns,
-            dataset_hash=dataset_hash,
+            input_fingerprint=input_fingerprint,
             replicates=BOOTSTRAP_REPLICATES,
             block_weeks=BOOTSTRAP_BLOCK_WEEKS,
             min_observations=52,
+            window=PRIMARY_STRUCTURAL_WINDOW_WEEKS,
             cut_distance=PRIMARY_FLAT_CUT_DISTANCE,
         )
     except (TypeError, ValueError) as exc:
@@ -236,6 +247,11 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_non_usd_quote_currency",
                 "quote_currency": quote_currency or None,
+                "factor_computable": False,
+                "factor_model_scope": FACTOR_MODEL_SCOPE,
+                "factor_corroboration_eligible": False,
+                "factor_corroboration_reason": FACTOR_CORROBORATION_UNAVAILABLE_REASON,
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -245,6 +261,11 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_native_returns",
                 "quote_currency": quote_currency,
+                "factor_computable": False,
+                "factor_model_scope": FACTOR_MODEL_SCOPE,
+                "factor_corroboration_eligible": False,
+                "factor_corroboration_reason": FACTOR_CORROBORATION_UNAVAILABLE_REASON,
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -254,8 +275,11 @@ def _factor_payload(
 
     base = {
         "source": FRENCH_FACTOR_SOURCE,
-        "scope": "U.S.-factor co-movement diagnostic",
+        "scope": FACTOR_MODEL_SCOPE,
+        "factor_model_scope": FACTOR_MODEL_SCOPE,
+        "factor_corroboration_policy": FACTOR_CORROBORATION_POLICY,
         "return_currency": "native_quote_currency",
+        "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
         "minimum_monthly_observations": DEFAULT_FACTOR_MIN_MONTHS,
     }
     if not eligible:
@@ -274,6 +298,11 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_factor_source",
                 "quote_currency": "USD",
+                "factor_computable": False,
+                "factor_model_scope": FACTOR_MODEL_SCOPE,
+                "factor_corroboration_eligible": False,
+                "factor_corroboration_reason": FACTOR_CORROBORATION_UNAVAILABLE_REASON,
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -301,6 +330,11 @@ def _factor_payload(
         asset_results[symbol] = {
             "status": exposure.status,
             "quote_currency": "USD",
+            "factor_computable": exposure.status == "ok" and exposure.betas is not None,
+            "factor_model_scope": FACTOR_MODEL_SCOPE,
+            "factor_corroboration_eligible": False,
+            "factor_corroboration_reason": FACTOR_CORROBORATION_UNAVAILABLE_REASON,
+            "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
             "observations": exposure.observations,
             "start": exposure.start,
             "end": exposure.end,
@@ -309,18 +343,28 @@ def _factor_payload(
             "betas": exposure.betas,
         }
 
-    relation = factor_implied_relationship(exposures, factors)
+    relation = factor_implied_relationship(
+        {symbol: dataset.native_returns[symbol] for symbol in eligible},
+        factors,
+        min_observations=DEFAULT_FACTOR_MIN_MONTHS,
+    )
     relationship_payload = None
     if relation.status == "ok" and relation.correlation is not None:
         relationship_payload = {
             "status": relation.status,
-            "factor_observations": relation.factor_observations,
+            "observations": relation.observations,
+            "start": relation.start,
+            "end": relation.end,
+            "sample_fingerprint_sha256": relation.sample_fingerprint_sha256,
             "matrix": _matrix_payload(relation.correlation),
         }
     elif relation.symbols:
         relationship_payload = {
             "status": relation.status,
-            "factor_observations": relation.factor_observations,
+            "observations": relation.observations,
+            "start": relation.start,
+            "end": relation.end,
+            "sample_fingerprint_sha256": relation.sample_fingerprint_sha256,
             "matrix": None,
         }
 
@@ -384,6 +428,14 @@ def _redundancy_payload(
             correlation_payloads.get("stress"), symbol_a, symbol_b
         )
         factor = factor_matrix.get(pair)
+        factor_corroboration_eligible, factor_corroboration_reason = (
+            _factor_corroboration_pair_evidence(
+                factor_payload,
+                symbol_a,
+                symbol_b,
+                factor,
+            )
+        )
         window = window_lookup.get(pair, {})
         bootstrap = bootstrap_lookup.get(pair)
         evidence = RedundancyEvidence(
@@ -392,6 +444,7 @@ def _redundancy_payload(
             downside_correlation=downside,
             stress_correlation=stress,
             factor_implied_correlation=factor,
+            factor_corroboration_eligible=factor_corroboration_eligible,
             shared_traceable_theme=None,
             same_average_cluster=(
                 primary_by_symbol.get(symbol_a) == primary_by_symbol.get(symbol_b)
@@ -421,6 +474,8 @@ def _redundancy_payload(
                 "downside_correlation": downside,
                 "stress_correlation": stress,
                 "factor_implied_correlation": factor,
+                "factor_corroboration_eligible": factor_corroboration_eligible,
+                "factor_corroboration_reason": factor_corroboration_reason,
                 "same_average_cluster": evidence.same_average_cluster,
                 "same_complete_cluster": evidence.same_complete_cluster,
                 "available_stability_windows": int(window.get("available_windows") or 0),
@@ -484,6 +539,35 @@ def _correlation_value(
     except (ValueError, IndexError, TypeError):
         return None
     return float(value) if value is not None else None
+
+
+def _factor_corroboration_pair_evidence(
+    payload: Mapping[str, Any],
+    symbol_a: str,
+    symbol_b: str,
+    factor_correlation: float | None,
+) -> tuple[bool, str | None]:
+    if factor_correlation is None:
+        return False, "unavailable_factor_relationship"
+    assets = payload.get("assets")
+    if not isinstance(assets, Mapping):
+        return False, FACTOR_CORROBORATION_UNAVAILABLE_REASON
+    asset_a = assets.get(symbol_a)
+    asset_b = assets.get(symbol_b)
+    eligible = (
+        isinstance(asset_a, Mapping)
+        and isinstance(asset_b, Mapping)
+        and asset_a.get("factor_corroboration_eligible") is True
+        and asset_b.get("factor_corroboration_eligible") is True
+    )
+    if eligible:
+        return True, None
+    for asset in (asset_a, asset_b):
+        if isinstance(asset, Mapping):
+            reason = asset.get("factor_corroboration_reason")
+            if isinstance(reason, str) and reason:
+                return False, reason
+    return False, FACTOR_CORROBORATION_UNAVAILABLE_REASON
 
 
 def _factor_matrix_lookup(payload: Mapping[str, Any]) -> dict[tuple[str, str], float]:

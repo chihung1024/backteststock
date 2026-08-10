@@ -12,6 +12,7 @@ class RedundancyEvidence:
     downside_correlation: float | None
     stress_correlation: float | None
     factor_implied_correlation: float | None
+    factor_corroboration_eligible: bool | None
     shared_traceable_theme: bool | None
     same_average_cluster: bool | None
     same_complete_cluster: bool | None
@@ -47,7 +48,8 @@ def redundancy_verdict(evidence: RedundancyEvidence) -> str:
         and evidence.downside_correlation >= 0.65,
         evidence.stress_correlation is not None
         and evidence.stress_correlation >= 0.65,
-        evidence.factor_implied_correlation is not None
+        evidence.factor_corroboration_eligible is True
+        and evidence.factor_implied_correlation is not None
         and evidence.factor_implied_correlation >= 0.65,
         evidence.shared_traceable_theme is True,
     )

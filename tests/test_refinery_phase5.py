@@ -172,6 +172,13 @@ def test_phase5_adds_read_only_clustering_redundancy_and_unavailable_theme() -> 
     analysis = result["analysis"]
 
     assert result["status"] == "ok"
+    assert result["schema_version"] == "refinery-v1-2026-08-10.3"
+    assert result["contract_version"] == "refinery-v1"
+    assert result["methodology"]["clustering_contract_version"] == "refinery-clustering-twd-2026-08-10.2"
+    assert result["methodology"]["clustering_bootstrap_window_weeks"] == 156
+    assert result["methodology"]["factor_monthly_return_policy"] == "boundary-month-exclusion-v1"
+    assert result["methodology"]["factor_relationship_sample_policy"] == "global_common_monthly_sample_v1"
+    assert result["methodology"]["factor_corroboration_policy"] == "fail_closed_without_traceable_instrument_scope_v1"
     assert analysis["clustering"]["status"] == "ok"
     assert analysis["clustering"]["primary"]["method"] == "average"
     assert analysis["clustering"]["sensitivity"]["method"] == "complete"
@@ -251,8 +258,8 @@ def test_phase5_candidate_permutation_keeps_labelled_relationship_evidence_equiv
                     atol=1e-15,
                 )
 
-    assert original["clustering"]["bootstrap_seed_fingerprint"] == (
-        permuted["clustering"]["bootstrap_seed_fingerprint"]
+    assert original["clustering"]["bootstrap_input_fingerprint_sha256"] == (
+        permuted["clustering"]["bootstrap_input_fingerprint_sha256"]
     )
 
 
@@ -308,10 +315,24 @@ def test_usd_assets_use_injected_french_factors_without_second_market_fetch() ->
     assert factor_provider.calls == 1
     assert factors["source"] == "Kenneth French Data Library"
     assert factors["scope"] == "U.S.-factor co-movement diagnostic"
+    assert factors["factor_model_scope"] == "U.S.-factor co-movement diagnostic"
     assert factors["assets"]["AAA"]["status"] == "ok"
     assert factors["assets"]["BBB"]["status"] == "ok"
+    assert factors["assets"]["AAA"]["factor_computable"] is True
+    assert factors["assets"]["BBB"]["factor_computable"] is True
+    assert factors["assets"]["AAA"]["factor_corroboration_eligible"] is False
+    assert factors["assets"]["BBB"]["factor_corroboration_eligible"] is False
+    assert factors["assets"]["AAA"]["factor_corroboration_reason"] == (
+        "unavailable_no_traceable_instrument_scope"
+    )
     assert factors["systematic_relationship"]["status"] == "ok"
     assert factors["systematic_relationship"]["matrix"]["symbols"] == ["AAA", "BBB"]
+    pair = result["analysis"]["redundancy"]["pairs"][0]
+    assert pair["factor_implied_correlation"] is not None
+    assert pair["factor_corroboration_eligible"] is False
+    assert pair["factor_corroboration_reason"] == (
+        "unavailable_no_traceable_instrument_scope"
+    )
 
 
 def test_incomplete_membership_still_blocks_all_formal_phase5_analysis() -> None:

@@ -14,6 +14,7 @@ def _evidence(**overrides: object) -> RedundancyEvidence:
         "downside_correlation": None,
         "stress_correlation": None,
         "factor_implied_correlation": None,
+        "factor_corroboration_eligible": False,
         "shared_traceable_theme": None,
         "same_average_cluster": False,
         "same_complete_cluster": False,
@@ -60,14 +61,25 @@ def test_medium_requires_core_evidence_plus_one_available_corroborator() -> None
     )
     assert redundancy_verdict(no_corroborator) == "UNCERTAIN"
 
-    with_factor = _evidence(
+    ineligible_factor = _evidence(
         structural_correlation=0.70,
         medium_correlation=None,
         factor_implied_correlation=0.70,
+        factor_corroboration_eligible=False,
         same_average_cluster=True,
         bootstrap_probability=0.70,
     )
-    assert redundancy_verdict(with_factor) == "MEDIUM"
+    assert redundancy_verdict(ineligible_factor) == "UNCERTAIN"
+
+    eligible_factor = _evidence(
+        structural_correlation=0.70,
+        medium_correlation=None,
+        factor_implied_correlation=0.70,
+        factor_corroboration_eligible=True,
+        same_average_cluster=True,
+        bootstrap_probability=0.70,
+    )
+    assert redundancy_verdict(eligible_factor) == "MEDIUM"
 
 
 def test_missing_optional_evidence_is_not_interpreted_as_zero_or_low() -> None:
