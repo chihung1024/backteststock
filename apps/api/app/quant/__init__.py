@@ -18,10 +18,12 @@ from .clustering import (
     PairWindowAgreement,
     WindowClusterResult,
     bootstrap_cluster_stability,
+    bootstrap_input_fingerprint,
     circular_block_bootstrap_indices,
     correlation_distance_matrix,
     hierarchical_clustering,
     multi_window_cluster_stability,
+    prepare_bootstrap_sample,
 )
 from .correlation import (
     MEDIUM_DAILY_WINDOW,
@@ -107,6 +109,8 @@ __all__ = [
     "hierarchical_clustering",
     "multi_window_cluster_stability",
     "bootstrap_cluster_stability",
+    "bootstrap_input_fingerprint",
+    "prepare_bootstrap_sample",
     "circular_block_bootstrap_indices",
     "factor_implied_relationship",
     "fit_us_factor_exposure",

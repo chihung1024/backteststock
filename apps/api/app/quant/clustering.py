@@ -240,10 +240,51 @@ def multi_window_cluster_stability(
     )
 
 
+def prepare_bootstrap_sample(
+    weekly_returns: pd.DataFrame,
+    *,
+    window: int = PRIMARY_STRUCTURAL_WINDOW_WEEKS,
+) -> pd.DataFrame:
+    """Return the exact canonical complete-case sample resampled by bootstrap."""
+
+    if not isinstance(window, int) or window < 2:
+        raise ValueError("window must be an integer >= 2")
+    frame = _numeric_return_frame(weekly_returns)
+    return frame.tail(window).replace([np.inf, -np.inf], np.nan).dropna(how="any")
+
+
+def bootstrap_input_fingerprint(
+    weekly_returns: pd.DataFrame,
+    *,
+    window: int = PRIMARY_STRUCTURAL_WINDOW_WEEKS,
+) -> str:
+    """Fingerprint only the exact effective sample consumed by bootstrap."""
+
+    return _bootstrap_sample_fingerprint(
+        prepare_bootstrap_sample(weekly_returns, window=window)
+    )
+
+
+def _bootstrap_sample_fingerprint(sample: pd.DataFrame) -> str:
+    payload = {
+        "symbols": [str(column) for column in sample.columns],
+        "dates": [pd.Timestamp(value).isoformat() for value in sample.index],
+        "values": sample.to_numpy(dtype=float).tolist(),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def bootstrap_cluster_stability(
     weekly_returns: pd.DataFrame,
     *,
-    dataset_hash: str,
+    input_fingerprint: str,
     replicates: int = BOOTSTRAP_REPLICATES,
     block_weeks: int = BOOTSTRAP_BLOCK_WEEKS,
     min_observations: int = 52,
@@ -252,8 +293,8 @@ def bootstrap_cluster_stability(
 ) -> BootstrapClusterStability:
     """Return deterministic moving-block bootstrap co-cluster probabilities."""
 
-    if not isinstance(dataset_hash, str) or not dataset_hash.strip():
-        raise ValueError("dataset_hash must be a non-empty string")
+    if not isinstance(input_fingerprint, str) or not input_fingerprint.strip():
+        raise ValueError("input_fingerprint must be a non-empty string")
     if not isinstance(replicates, int) or replicates < 1:
         raise ValueError("replicates must be an integer >= 1")
     if not isinstance(block_weeks, int) or block_weeks < 1:
@@ -262,13 +303,18 @@ def bootstrap_cluster_stability(
         raise ValueError("window must be an integer >= 2")
 
     minimum = _minimum_observations(min_observations)
-    frame = _numeric_return_frame(weekly_returns).tail(window)
-    clean = frame.replace([np.inf, -np.inf], np.nan).dropna(how="any")
+    clean = prepare_bootstrap_sample(weekly_returns, window=window)
+    effective_fingerprint = _bootstrap_sample_fingerprint(clean)
+    if input_fingerprint.strip() != effective_fingerprint:
+        raise ValueError(
+            "input_fingerprint must match the exact effective bootstrap sample"
+        )
     symbols = tuple(str(column) for column in clean.columns)
     seed = _bootstrap_seed(
-        dataset_hash=dataset_hash,
+        input_fingerprint=effective_fingerprint,
         replicates=replicates,
         block_weeks=block_weeks,
+        window=window,
         cut_distance=cut_distance,
     )
     pairs = tuple(combinations(symbols, 2))
@@ -467,15 +513,21 @@ def _labelled_merges(
 
 
 def _bootstrap_seed(
-    *, dataset_hash: str, replicates: int, block_weeks: int, cut_distance: float
+    *,
+    input_fingerprint: str,
+    replicates: int,
+    block_weeks: int,
+    window: int,
+    cut_distance: float,
 ) -> int:
     payload = {
         "block_weeks": block_weeks,
         "contract_version": REFINERY_CLUSTERING_CONTRACT_VERSION,
         "cut_distance": float(cut_distance),
-        "dataset_hash": dataset_hash,
+        "input_fingerprint": input_fingerprint,
         "linkage": PRIMARY_CLUSTER_LINKAGE,
         "replicates": replicates,
+        "window": window,
     }
     encoded = json.dumps(
         payload,

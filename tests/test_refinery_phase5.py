@@ -251,8 +251,8 @@ def test_phase5_candidate_permutation_keeps_labelled_relationship_evidence_equiv
                     atol=1e-15,
                 )
 
-    assert original["clustering"]["bootstrap_seed_fingerprint"] == (
-        permuted["clustering"]["bootstrap_seed_fingerprint"]
+    assert original["clustering"]["bootstrap_input_fingerprint_sha256"] == (
+        permuted["clustering"]["bootstrap_input_fingerprint_sha256"]
     )
 
 

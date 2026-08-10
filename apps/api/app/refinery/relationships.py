@@ -16,6 +16,7 @@ from apps.api.app.quant import (
     DEFAULT_FACTOR_MIN_MONTHS,
     PRIMARY_CLUSTER_LINKAGE,
     PRIMARY_FLAT_CUT_DISTANCE,
+    PRIMARY_STRUCTURAL_WINDOW_WEEKS,
     REFINERY_CLUSTERING_CONTRACT_VERSION,
     SENSITIVITY_CLUSTER_LINKAGE,
     STABILITY_WINDOWS_WEEKS,
@@ -40,6 +41,7 @@ def build_phase5_relationships(
     weekly_returns: pd.DataFrame,
     structural_correlation: CorrelationResult,
     correlation_payloads: Mapping[str, Mapping[str, Any]],
+    bootstrap_input_fingerprint: str,
     factor_provider: FrenchFactorProvider,
 ) -> dict[str, Any]:
     """Compose clustering, redundancy, factor and theme evidence without re-fetching prices."""
@@ -47,7 +49,7 @@ def build_phase5_relationships(
     clustering = _clustering_payload(
         weekly_returns=weekly_returns,
         structural_correlation=structural_correlation,
-        dataset_hash=candidate_dataset.dataset_hash,
+        input_fingerprint=bootstrap_input_fingerprint,
     )
     factors = _factor_payload(candidate_dataset, factor_provider)
     theme = {
@@ -74,7 +76,7 @@ def _clustering_payload(
     *,
     weekly_returns: pd.DataFrame,
     structural_correlation: CorrelationResult,
-    dataset_hash: str,
+    input_fingerprint: str,
 ) -> dict[str, Any]:
     base = {
         "contract_version": REFINERY_CLUSTERING_CONTRACT_VERSION,
@@ -84,6 +86,8 @@ def _clustering_payload(
         "stability_windows_weeks": list(STABILITY_WINDOWS_WEEKS),
         "bootstrap_replicates": BOOTSTRAP_REPLICATES,
         "bootstrap_block_weeks": BOOTSTRAP_BLOCK_WEEKS,
+        "bootstrap_window_weeks": PRIMARY_STRUCTURAL_WINDOW_WEEKS,
+        "bootstrap_input_fingerprint_sha256": input_fingerprint,
     }
     if structural_correlation.status != "ok" or structural_correlation.matrix is None:
         return {
@@ -116,10 +120,11 @@ def _clustering_payload(
         )
         bootstrap = bootstrap_cluster_stability(
             weekly_returns,
-            dataset_hash=dataset_hash,
+            input_fingerprint=input_fingerprint,
             replicates=BOOTSTRAP_REPLICATES,
             block_weeks=BOOTSTRAP_BLOCK_WEEKS,
             min_observations=52,
+            window=PRIMARY_STRUCTURAL_WINDOW_WEEKS,
             cut_distance=PRIMARY_FLAT_CUT_DISTANCE,
         )
     except (TypeError, ValueError) as exc:

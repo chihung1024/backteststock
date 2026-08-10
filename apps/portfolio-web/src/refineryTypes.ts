@@ -244,7 +244,8 @@ export interface RefineryClusteringEvidence {
     pair_probabilities: RefineryBootstrapPairEvidence[];
   } | null;
   clusters: RefineryClusterSummary[];
-  bootstrap_seed_fingerprint?: string;
+  bootstrap_window_weeks: number;
+  bootstrap_input_fingerprint_sha256: string;
 }
 
 export type RefineryRedundancyVerdict = "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
