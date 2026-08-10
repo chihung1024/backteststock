@@ -71,3 +71,97 @@ jobs:
         run: npx wrangler d1 migrations apply backteststock-universe --local
       - name: Validate Cloudflare bundle
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+
+  temporary_phase5_layout_probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'phase5/clustering-redundancy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Guard probe parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b842bf737dc7e18979e596844dfdb9670097a8f0"
+      - name: Install locked dependencies and browser
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Inject layout diagnostics into failing Phase 5 case
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/e2e/refinery_phase5.spec.mjs")
+          text = path.read_text(encoding="utf-8")
+          old = '''  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+          expect(overflow).toBeLessThanOrEqual(1);
+          '''
+          new = '''  const layoutDiagnostics = await page.evaluate(() => {
+            const describe = (element, label) => {
+              if (!element) return null;
+              const rect = element.getBoundingClientRect();
+              const style = getComputedStyle(element);
+              return {
+                label,
+                tag: element.tagName,
+                className: typeof element.className === "string" ? element.className : "",
+                left: rect.left,
+                right: rect.right,
+                width: rect.width,
+                clientWidth: element.clientWidth,
+                scrollWidth: element.scrollWidth,
+                cssWidth: style.width,
+                minWidth: style.minWidth,
+                maxWidth: style.maxWidth,
+                overflowX: style.overflowX,
+                display: style.display,
+                whiteSpace: style.whiteSpace,
+                overflowWrap: style.overflowWrap,
+                wordBreak: style.wordBreak,
+              };
+            };
+            const selectors = [
+              "html", "body", "#root", ".portfolio-app", ".app-main",
+              ".refinery-workspace", ".refinery-results-shell", ".refinery-results-stack",
+              ".refinery-phase5-card", ".refinery-phase5-card .table-scroll",
+              ".refinery-cluster-table", ".refinery-redundancy-table",
+              ".refinery-verdict-counts", ".refinery-window-strip", ".refinery-evidence-grid",
+              ".notice", ".data-table",
+            ];
+            const selected = selectors.flatMap((selector) =>
+              Array.from(document.querySelectorAll(selector)).map((element, index) => describe(element, `${selector}[${index}]`)),
+            ).filter(Boolean);
+            const overflowers = Array.from(document.querySelectorAll("body *"))
+              .map((element, index) => ({ item: describe(element, `${element.tagName.toLowerCase()}#${index}`), element }))
+              .filter(({ item }) => item && (item.right > window.innerWidth + 1 || item.width > window.innerWidth + 1))
+              .map(({ item }) => item)
+              .sort((a, b) => b.right - a.right)
+              .slice(0, 40);
+            return {
+              viewport: window.innerWidth,
+              documentClientWidth: document.documentElement.clientWidth,
+              documentScrollWidth: document.documentElement.scrollWidth,
+              bodyClientWidth: document.body.clientWidth,
+              bodyScrollWidth: document.body.scrollWidth,
+              selected,
+              overflowers,
+            };
+          });
+          console.log("PHASE5_LAYOUT_DIAGNOSTICS=" + JSON.stringify(layoutDiagnostics));
+          const overflow = layoutDiagnostics.documentScrollWidth - layoutDiagnostics.viewport;
+          expect(overflow).toBeLessThanOrEqual(1);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("layout assertion marker mismatch")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Run targeted Phase 5 100-candidate layout probe
+        run: npx playwright test tests/e2e/refinery_phase5.spec.mjs --grep "100-candidate" --reporter=line
