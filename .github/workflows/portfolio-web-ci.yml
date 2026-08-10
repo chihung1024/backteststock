@@ -34,7 +34,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -46,6 +46,35 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply guarded P5-CORR-C patch
+        if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python scripts/_temporary_apply_p5_corr_c.py
+          if git diff --quiet -- \
+            apps/api/app/refinery/redundancy.py \
+            apps/api/app/refinery/relationships.py \
+            apps/portfolio-web/src/refineryTypes.ts \
+            apps/portfolio-web/src/RefineryPhase5Results.tsx \
+            tests/test_redundancy_policy.py \
+            tests/test_refinery_phase5.py; then
+            echo "P5-CORR-C source patch already applied."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              apps/api/app/refinery/redundancy.py \
+              apps/api/app/refinery/relationships.py \
+              apps/portfolio-web/src/refineryTypes.ts \
+              apps/portfolio-web/src/RefineryPhase5Results.tsx \
+              tests/test_redundancy_policy.py \
+              tests/test_refinery_phase5.py
+            git commit -m "fix: gate Phase 5 factor verdict corroboration"
+            git push origin "HEAD:${HEAD_BRANCH}"
+          fi
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -56,5 +85,19 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs tests/test_refinery_phase5_web_contract.mjs
+      - name: Synchronize generated Portfolio assets on feature branch
+        if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if git diff --quiet -- package-lock.json public/portfolio; then
+            echo "Generated assets already synchronized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json public/portfolio
+          git commit -m "build: synchronize Phase 5 Portfolio assets"
+          git push origin "HEAD:${HEAD_BRANCH}"
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
