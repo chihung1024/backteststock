@@ -33,7 +33,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -45,56 +45,12 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Apply precise Cloudflare dev-tool advisory fix
-        if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
-        env:
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          npm install --save-dev --save-exact \
-            wrangler@4.120.1 \
-            @cloudflare/workers-types@5.20260810.1
-          changed="$(git diff --name-only)"
-          if [ -z "$changed" ]; then
-            echo "Cloudflare dev-tool advisory fix already applied."
-          else
-            echo "$changed"
-            while IFS= read -r path; do
-              case "$path" in
-                package.json|package-lock.json) ;;
-                *)
-                  echo "Unexpected security-update path: $path" >&2
-                  exit 1
-                  ;;
-              esac
-            done <<< "$changed"
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package.json package-lock.json
-            git commit -m "chore: update patched Cloudflare dev tooling"
-            git push origin "HEAD:${HEAD_BRANCH}"
-          fi
-      - name: Verify post-fix audit state
-        shell: bash
-        run: |
-          npm audit --json > /tmp/audit-all.json || true
-          npm audit --omit=dev --json > /tmp/audit-prod.json || true
-          node <<'NODE'
-          const fs = require('fs');
-          for (const [label, path] of [['all','/tmp/audit-all.json'], ['prod','/tmp/audit-prod.json']]) {
-            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-            console.log(`P5_SEC_POST_FIX_${label.toUpperCase()}: ${JSON.stringify(data.metadata?.vulnerabilities || {})}`);
-            console.log(`P5_SEC_POST_FIX_${label.toUpperCase()}_NAMES: ${JSON.stringify(Object.keys(data.vulnerabilities || {}))}`);
-          }
-          NODE
-          npm ls wrangler miniflare undici @cloudflare/workers-types --all || true
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
