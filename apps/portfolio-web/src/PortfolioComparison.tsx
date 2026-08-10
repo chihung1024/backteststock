@@ -71,7 +71,7 @@ export function PortfolioComparison({ results }: { results: BacktestResult[] }) 
   if (results.length < 2) return null;
 
   const windows = results.map(resultWindow);
-  const first = windows[0];
+  const first = windows[0]!;
   const comparable = Boolean(
     first.start
       && first.end
@@ -110,13 +110,14 @@ export function PortfolioComparison({ results }: { results: BacktestResult[] }) 
           <tbody>
             <tr>
               <th scope="row">共同比較期間</th>
-              {results.map((result, index) => (
-                <td key={result.name}>
-                  {windows[index].start && windows[index].end
-                    ? `${windows[index].start} → ${windows[index].end}`
-                    : "—"}
-                </td>
-              ))}
+              {results.map((result) => {
+                const window = resultWindow(result);
+                return (
+                  <td key={result.name}>
+                    {window.start && window.end ? `${window.start} → ${window.end}` : "—"}
+                  </td>
+                );
+              })}
             </tr>
             {COMPARISON_METRICS.map(([key, label, kind]) => (
               <tr key={key}>
