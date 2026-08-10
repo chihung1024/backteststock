@@ -80,6 +80,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -88,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "b842bf737dc7e18979e596844dfdb9670097a8f0"
+          test "$(git rev-parse HEAD^)" = "7f3576670af49880b2df0a86224c465a5451f981"
       - name: Install locked dependencies and browser
         run: |
           npm ci
