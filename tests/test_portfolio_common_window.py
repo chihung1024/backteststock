@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from apps.api.app.portfolio.models import PortfolioSpec, SimulationConfig
 from apps.api.app.portfolio.service import (
@@ -40,8 +41,8 @@ def test_multi_portfolio_service_recomputes_every_result_on_one_common_window() 
     ]
     # EARLY's +50% and +10% returns before the common start must not leak into
     # the comparison. It is freshly initialized at 100 on 2024-01-04.
-    assert batch.results[0].metrics.metrics["final_balance"] == 110.0
-    assert batch.results[1].metrics.metrics["final_balance"] == 102.0
+    assert batch.results[0].metrics.metrics["final_balance"] == pytest.approx(110.0)
+    assert batch.results[1].metrics.metrics["final_balance"] == pytest.approx(102.0)
     assert any(COMPARISON_WINDOW_POLICY in warning for warning in batch.warnings)
 
 
