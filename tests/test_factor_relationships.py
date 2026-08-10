@@ -15,7 +15,7 @@ from apps.api.app.portfolio.analytics_data import (
 )
 from apps.api.app.quant.factors import (
     US_FACTOR_COLUMNS,
-    FactorExposure,
+    boundary_safe_monthly_returns,
     factor_implied_relationship,
     fit_us_factor_exposure,
 )
@@ -72,7 +72,9 @@ def test_factor_exposure_recovers_known_native_return_betas() -> None:
     result = fit_us_factor_exposure(native_returns, factors, min_observations=36)
 
     assert result.status == "ok"
-    assert result.observations == len(factors)
+    assert result.observations == len(factors) - 2
+    assert result.start == factors.index[1].date().isoformat()
+    assert result.end == factors.index[-2].date().isoformat()
     assert result.intercept_monthly == pytest.approx(intercept, abs=1e-12)
     assert result.r_squared == pytest.approx(1.0, abs=1e-12)
     assert result.betas is not None
@@ -94,7 +96,7 @@ def test_factor_exposure_fails_closed_on_insufficient_months() -> None:
     result = fit_us_factor_exposure(native_returns, factors, min_observations=36)
 
     assert result.status == "insufficient_observations"
-    assert result.observations == 24
+    assert result.observations == 22
     assert result.betas is None
     assert result.r_squared is None
 
@@ -103,70 +105,72 @@ def test_factor_implied_covariance_and_correlation_match_matrix_formula() -> Non
     factors = _factor_fixture()
     beta_a = np.array([1.0, 0.2, -0.1, 0.0, 0.1, 0.3])
     beta_b = np.array([0.7, -0.1, 0.4, 0.2, -0.2, 0.1])
-    exposures = {
-        "BBB": FactorExposure(
-            status="ok",
-            observations=60,
-            start="2020-01-31",
-            end="2024-12-31",
-            intercept_monthly=0.0,
-            r_squared=0.8,
-            betas=dict(zip(US_FACTOR_COLUMNS, beta_b, strict=True)),
-        ),
-        "AAA": FactorExposure(
-            status="ok",
-            observations=60,
-            start="2020-01-31",
-            end="2024-12-31",
-            intercept_monthly=0.0,
-            r_squared=0.9,
-            betas=dict(zip(US_FACTOR_COLUMNS, beta_a, strict=True)),
-        ),
-    }
+    asset_a = pd.Series(
+        factors["RF"].to_numpy()
+        + factors[list(US_FACTOR_COLUMNS)].to_numpy() @ beta_a,
+        index=factors.index,
+    )
+    asset_b = pd.Series(
+        factors["RF"].to_numpy()
+        + factors[list(US_FACTOR_COLUMNS)].to_numpy() @ beta_b,
+        index=factors.index,
+    )
 
-    result = factor_implied_relationship(exposures, factors)
+    result = factor_implied_relationship(
+        {"BBB": asset_b, "AAA": asset_a},
+        factors,
+        min_observations=36,
+    )
 
     assert result.status == "ok"
     assert result.symbols == ("AAA", "BBB")
+    assert result.observations == len(factors) - 2
+    assert result.start == factors.index[1].date().isoformat()
+    assert result.end == factors.index[-2].date().isoformat()
+    assert result.sample_fingerprint_sha256 is not None
     assert result.covariance is not None
     assert result.correlation is not None
-    sigma_f = np.cov(factors[list(US_FACTOR_COLUMNS)].to_numpy(), rowvar=False, ddof=1)
+    common_factors = factors.iloc[1:-1]
+    sigma_f = np.cov(
+        common_factors[list(US_FACTOR_COLUMNS)].to_numpy(),
+        rowvar=False,
+        ddof=1,
+    )
     beta_matrix = np.vstack([beta_a, beta_b])
     expected_covariance = beta_matrix @ sigma_f @ beta_matrix.T
     expected_scale = np.sqrt(np.diag(expected_covariance))
     expected_correlation = expected_covariance / np.outer(expected_scale, expected_scale)
 
-    np.testing.assert_allclose(result.covariance.to_numpy(), expected_covariance, rtol=1e-13, atol=1e-15)
-    np.testing.assert_allclose(result.correlation.to_numpy(), expected_correlation, rtol=1e-13, atol=1e-15)
+    np.testing.assert_allclose(
+        result.covariance.to_numpy(), expected_covariance, rtol=1e-13, atol=1e-15
+    )
+    np.testing.assert_allclose(
+        result.correlation.to_numpy(), expected_correlation, rtol=1e-13, atol=1e-15
+    )
 
 
 def test_factor_implied_relationship_excludes_non_ok_exposures_explicitly() -> None:
     factors = _factor_fixture()
-    valid = FactorExposure(
-        status="ok",
-        observations=60,
-        start="2020-01-31",
-        end="2024-12-31",
-        intercept_monthly=0.0,
-        r_squared=0.8,
-        betas={name: 0.2 for name in US_FACTOR_COLUMNS},
+    valid = pd.Series(
+        factors["RF"].to_numpy() + 0.5 * factors["MKT_RF"].to_numpy(),
+        index=factors.index,
     )
-    unavailable = FactorExposure(
-        status="insufficient_observations",
-        observations=20,
-        start="2023-01-31",
-        end="2024-08-31",
-        intercept_monthly=None,
-        r_squared=None,
-        betas=None,
+    short_factors = factors.iloc[:20]
+    unavailable = pd.Series(
+        short_factors["RF"].to_numpy()
+        + 0.5 * short_factors["MKT_RF"].to_numpy(),
+        index=short_factors.index,
     )
 
     result = factor_implied_relationship(
         {"AAA": valid, "NON_US_OR_SHORT": unavailable},
         factors,
+        min_observations=36,
     )
 
     assert result.status == "insufficient_assets"
     assert result.symbols == ("AAA",)
+    assert result.observations == 0
+    assert result.sample_fingerprint_sha256 is None
     assert result.covariance is None
     assert result.correlation is None

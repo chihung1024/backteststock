@@ -280,6 +280,7 @@ export interface RefineryRedundancyEvidence {
 export interface RefineryFactorAssetEvidence {
   status: string;
   quote_currency: string | null;
+  monthly_return_policy: string;
   observations: number;
   start?: string | null;
   end?: string | null;
@@ -292,6 +293,7 @@ export interface RefineryFactorRelationships {
   source: string;
   scope: string;
   return_currency: string;
+  monthly_return_policy: string;
   minimum_monthly_observations: number;
   status: string;
   factor_sample: {
@@ -303,7 +305,10 @@ export interface RefineryFactorRelationships {
   assets: Record<string, RefineryFactorAssetEvidence>;
   systematic_relationship: {
     status: string;
-    factor_observations: number;
+    observations: number;
+    start: string | null;
+    end: string | null;
+    sample_fingerprint_sha256: string | null;
     matrix: RefineryCorrelationMatrix | null;
   } | null;
 }

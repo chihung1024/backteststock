@@ -49,10 +49,12 @@ from .covariance import (
 )
 from .factors import (
     DEFAULT_FACTOR_MIN_MONTHS,
+    FACTOR_MONTHLY_RETURN_POLICY,
     RISK_FREE_COLUMN,
     US_FACTOR_COLUMNS,
     FactorExposure,
     FactorImpliedRelationship,
+    boundary_safe_monthly_returns,
     factor_implied_relationship,
     fit_us_factor_exposure,
 )
@@ -84,6 +86,7 @@ __all__ = [
     "US_FACTOR_COLUMNS",
     "RISK_FREE_COLUMN",
     "DEFAULT_FACTOR_MIN_MONTHS",
+    "FACTOR_MONTHLY_RETURN_POLICY",
     "CorrelationResult",
     "MultiHorizonCorrelation",
     "ClusterGroup",
@@ -112,6 +115,7 @@ __all__ = [
     "bootstrap_input_fingerprint",
     "prepare_bootstrap_sample",
     "circular_block_bootstrap_indices",
+    "boundary_safe_monthly_returns",
     "factor_implied_relationship",
     "fit_us_factor_exposure",
     "covariance_diagnostics",

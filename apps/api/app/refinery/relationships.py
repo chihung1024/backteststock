@@ -14,6 +14,7 @@ from apps.api.app.quant import (
     BOOTSTRAP_BLOCK_WEEKS,
     BOOTSTRAP_REPLICATES,
     DEFAULT_FACTOR_MIN_MONTHS,
+    FACTOR_MONTHLY_RETURN_POLICY,
     PRIMARY_CLUSTER_LINKAGE,
     PRIMARY_FLAT_CUT_DISTANCE,
     PRIMARY_STRUCTURAL_WINDOW_WEEKS,
@@ -241,6 +242,7 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_non_usd_quote_currency",
                 "quote_currency": quote_currency or None,
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -250,6 +252,7 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_native_returns",
                 "quote_currency": quote_currency,
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -261,6 +264,7 @@ def _factor_payload(
         "source": FRENCH_FACTOR_SOURCE,
         "scope": "U.S.-factor co-movement diagnostic",
         "return_currency": "native_quote_currency",
+        "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
         "minimum_monthly_observations": DEFAULT_FACTOR_MIN_MONTHS,
     }
     if not eligible:
@@ -279,6 +283,7 @@ def _factor_payload(
             asset_results[symbol] = {
                 "status": "unavailable_factor_source",
                 "quote_currency": "USD",
+                "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
                 "observations": 0,
                 "r_squared": None,
                 "betas": None,
@@ -306,6 +311,7 @@ def _factor_payload(
         asset_results[symbol] = {
             "status": exposure.status,
             "quote_currency": "USD",
+            "monthly_return_policy": FACTOR_MONTHLY_RETURN_POLICY,
             "observations": exposure.observations,
             "start": exposure.start,
             "end": exposure.end,
@@ -314,18 +320,28 @@ def _factor_payload(
             "betas": exposure.betas,
         }
 
-    relation = factor_implied_relationship(exposures, factors)
+    relation = factor_implied_relationship(
+        {symbol: dataset.native_returns[symbol] for symbol in eligible},
+        factors,
+        min_observations=DEFAULT_FACTOR_MIN_MONTHS,
+    )
     relationship_payload = None
     if relation.status == "ok" and relation.correlation is not None:
         relationship_payload = {
             "status": relation.status,
-            "factor_observations": relation.factor_observations,
+            "observations": relation.observations,
+            "start": relation.start,
+            "end": relation.end,
+            "sample_fingerprint_sha256": relation.sample_fingerprint_sha256,
             "matrix": _matrix_payload(relation.correlation),
         }
     elif relation.symbols:
         relationship_payload = {
             "status": relation.status,
-            "factor_observations": relation.factor_observations,
+            "observations": relation.observations,
+            "start": relation.start,
+            "end": relation.end,
+            "sample_fingerprint_sha256": relation.sample_fingerprint_sha256,
             "matrix": None,
         }
 
