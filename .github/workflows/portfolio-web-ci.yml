@@ -53,15 +53,17 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Apply precise Wrangler advisory fix
+      - name: Apply precise Cloudflare dev-tool advisory fix
         if: ${{ github.event.pull_request.head.ref == 'fix/phase5-correctness-convergence' }}
         env:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          npm install --save-dev --save-exact wrangler@4.120.1
+          npm install --save-dev --save-exact \
+            wrangler@4.120.1 \
+            @cloudflare/workers-types@5.20260810.1
           changed="$(git diff --name-only)"
           if [ -z "$changed" ]; then
-            echo "Wrangler advisory fix already applied."
+            echo "Cloudflare dev-tool advisory fix already applied."
           else
             echo "$changed"
             while IFS= read -r path; do
@@ -76,7 +78,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add package.json package-lock.json
-            git commit -m "chore: update Wrangler to patched 4.120.1"
+            git commit -m "chore: update patched Cloudflare dev tooling"
             git push origin "HEAD:${HEAD_BRANCH}"
           fi
       - name: Verify post-fix audit state
@@ -92,7 +94,7 @@ jobs:
             console.log(`P5_SEC_POST_FIX_${label.toUpperCase()}_NAMES: ${JSON.stringify(Object.keys(data.vulnerabilities || {}))}`);
           }
           NODE
-          npm ls wrangler miniflare undici --all || true
+          npm ls wrangler miniflare undici @cloudflare/workers-types --all || true
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
