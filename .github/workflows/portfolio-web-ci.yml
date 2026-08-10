@@ -52,5 +52,12 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
+      - name: Upload generated Portfolio assets for synchronization
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-production-assets
+          path: public/portfolio
+          if-no-files-found: error
+          retention-days: 1
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
