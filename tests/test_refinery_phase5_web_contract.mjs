@@ -68,6 +68,10 @@ test("Refinery results grid ancestors opt out of intrinsic min-content expansion
     phase5CssSource,
     /\.refinery-workspace \.refinery-results-shell,[\s\S]*?\.refinery-workspace \.refinery-results-stack\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/su,
   );
+  assert.match(
+    phase5CssSource,
+    /\.refinery-workspace \.refinery-results-stack\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/su,
+  );
 });
 
 test("Phase 5 wide tables remain contained by their own horizontal scroll region", () => {
