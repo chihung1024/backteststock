@@ -1,352 +1,667 @@
 # AI_PROJECT_PLAYBOOK.md
 
-# AI 協作開發最高規範 V2.0
+# AI 協作開發最高規範 V3.0
 
-## ChatGPT × Codex × GitHub × CI/CD × Deployment 專案工程天書
+## ChatGPT × Codex × AI Agents × GitHub × CI/CD × Deployment
+
+> **Broad Thinking, Narrow Execution.**  
+> **Evidence First, Risk-Proportional Governance.**  
+> **獨立審查重點是獨立推理與專業能力，不是不同人頭。**
+
+Status: **GOVERNANCE BASELINE LOCKED**  
+Governance Architecture: **FROZEN**  
+Further Governance Optimization: **STOPPED**  
+Reopen: **ONLY BY DOCUMENTED REOPEN CONDITION**
 
 ---
 
 # 0. 文件定位
 
-本文件為本 Repository 的最高層級 AI 開發、維護、Debug、重構、測試、審查、Git、PR、Release、Deployment 與交接規範。
+本文件為本 Repository 的最高層級工程治理規範。
 
-所有參與本專案之：
+適用於：
 
-* ChatGPT
-* Codex
-* AI Agent
-* Sub-Agent
-* Automated Coding Agent
-* 其他 AI 開發工具
-* 人類開發者
+- ChatGPT
+- Codex
+- AI Agent
+- Sub-Agent
+- Automated Coding Agent
+- 人類開發者
+- Reviewer
 
-在修改專案以前，原則上均應先閱讀並遵守本文件。
+管理範圍包括：Research、Planning、Implementation、Debug、Refactor、Test、Review、Git、PR、CI/CD、Release、Deployment、Rollback、Documentation 與 AI Handoff。
 
-本專案至少維護三個核心文件：
+本文件的目的不是增加程序，而是：
+
+> **以最低必要治理成本，取得足夠高的工程可信度。**
+
+任何 Gate 如果沒有實際降低風險，就不應只因「流程上一直這樣做」而存在。
+
+---
+
+# 1. Repository 文件權威
+
+專案至少維護：
 
 ```text
-Repository Root
-│
-├─ README.md
-│
-├─ AI_PROJECT_PLAYBOOK.md
-├─ to_do_update_list.md
-│
-├─ src/
-├─ tests/
-└─ ...
+README.md
+AI_PROJECT_PLAYBOOK.md
+to_do_update_list.md
+docs/
 ```
 
-三者職責不同：
+## README.md
 
-### `README.md`
+回答：專案是什麼？架構是什麼？怎麼開發、執行、測試與部署？
 
-回答：
+不得拿 README 當即時進度表。
 
-> 這個專案是什麼？怎麼使用？怎麼部署？
+## AI_PROJECT_PLAYBOOK.md
 
----
+回答：開發、研究、審查、驗證與交接時應遵守什麼工程規則？
 
-### `AI_PROJECT_PLAYBOOK.md`
+屬於穩定治理文件，不應因單一 Feature 或 Bug 任意修改。
 
-回答：
+## to_do_update_list.md
 
-> AI 與開發者應該按照什麼工程規則工作？
+回答：現在做到哪裡？為什麼？目前 blocker 是什麼？下一步是什麼？
 
-本文件屬於專案「憲法／天書」。
+它是 Repository 內的 Live Project Status、Master Plan、Current Phase、Current Batch、Decision Log、Root Cause Log、Risk Register、Technical Debt 與 Handoff Authority。
 
-原則上穩定，不應因每次任務任意改寫。
+但 GitHub / CI / Deployment 等 Remote System 的即時狀態仍高於文件快照。執行重要操作前必須重新查證 remote truth。
 
----
+## docs/
 
-### `to_do_update_list.md`
+保存 Architecture、Contracts、ADR、Research methodology、API semantics、Deployment runbooks、Historical design records 與 Versioned specifications。
 
-回答：
-
-> 現在做到哪裡？做過什麼？為什麼這樣做？下一步是什麼？
-
-這是專案持續更新的：
-
-* Master Plan
-* Progress Tracker
-* Change Log
-* Decision Log
-* Root Cause Log
-* Technical Debt Register
-* AI Handoff Document
-
-每次重要 Batch 完成後都必須更新。
+Versioned contract 不得被 live status 任意覆寫。
 
 ---
 
-# 1. 最高工程原則
+# 2. 最高工程原則
 
-所有 AI 開發工作遵守：
+所有工作遵守：
 
 1. **先理解，再修改。**
 2. **先取得證據，再形成結論。**
 3. **先找 Root Cause，再修症狀。**
-4. **先建立完整方案，再分批執行。**
-5. **允許探索，但探索必須受到控制。**
-6. **允許發散，但發散後必須重新收斂。**
-7. **不因發現更多可能性，就無限制擴張 Scope。**
-8. **每個 Batch 必須形成可使用的 Stable State。**
-9. **每個 Batch 必須可驗證。**
-10. **每個 Batch 原則上必須可回滾。**
-11. **能實際驗證的事情，不以推測代替。**
-12. **Workaround 不等於 Root Cause Fix。**
-13. **修改量不是成果，正確性才是成果。**
-14. **沒有驗證完成，不宣稱 DONE。**
-15. **沒有充分理由，不改寫已穩定功能。**
-16. **所有重要變更必須留下歷史。**
-17. **所有重要技術決策必須留下原因。**
-18. **所有未完成事項必須可以被下一位 AI 找到。**
-19. **所有新方向最終都必須回到專案目標。**
-20. **長期方向逐步收斂，而不是持續增加。**
+4. **分析可以廣，Implementation 必須窄。**
+5. **發現問題不等於立即修改問題。**
+6. **每個 Batch 都要形成 Stable State。**
+7. **驗證強度必須與風險相稱。**
+8. **能自動驗證的，不靠人工猜測。**
+9. **不能自動驗證的，才是 Review 的主要價值。**
+10. **Workaround 不等於 Permanent Fix。**
+11. **沒有驗證，不宣稱完成。**
+12. **沒有充分證據，不重構穩定系統。**
+13. **不為了通過自己的工作而降低 Gate。**
+14. **不把流程本身當成成果。**
+15. **重要決策必須可追溯。**
+16. **重要修改必須可恢復。**
+17. **下一個 AI 必須能只靠 Repository 接手。**
+18. **新方向必須最終 NOW / NEXT / BACKLOG / REJECT。**
+19. **專案要能完成 Phase，而不是永久優化。**
+20. **最大化有效改善，不最大化修改量。**
 
 ---
 
-# 2. 標準工程循環
+# 3. 標準工程循環
 
-所有重要工作原則上遵循：
+一般重要工作：
 
 ```text
 Inspect
 ↓
 Understand
 ↓
+Collect Evidence
+↓
 Analyze
 ↓
 Discover
-↓
-Diverge
-↓
-Evaluate
 ↓
 Converge
 ↓
 Plan
 ↓
-Backup
-↓
 Implement
 ↓
-Test
+Validate
 ↓
 Review
 ↓
+Stabilize
+↓
 Document
 ↓
-Commit
-↓
-Verify
+Merge / Deploy when applicable
 ```
 
-簡化為：
+Debug：
 
 ```text
-Inspect → Analyze → Plan → Backup → Implement
-→ Test → Review → Document → Commit
+Reproduce
+↓
+Evidence
+↓
+Hypotheses
+↓
+Trace
+↓
+Isolate
+↓
+Root Cause
+↓
+Impact
+↓
+Fix
+↓
+Regression
+↓
+Prevention
 ```
 
-其中新增的重要概念為：
+不得：看到症狀 → 猜一個原因 → 大量修改 → Bug 好像消失。
+
+---
+
+# 4. Risk-Proportional Governance
+
+所有修改先依 **Impact Radius + Failure Consequence** 分級。
+
+## R0 — Trivial
+
+例如 typo、純文件文字、無語意 formatting、comment、不影響 behavior 的名稱說明。
+
+通常只需 Self Review + 必要的輕量驗證；不機械要求 Independent Review / Full Regression / Release Backup / Production Smoke。
+
+## R1 — Local / Low Risk
+
+例如局部 UI、非核心 helper、isolated bug、小型 validation、低 impact configuration。
+
+需要 Targeted Tests、Relevant Regression、Self Review。Independent Review 建議但非強制，除非實際影響升級。
+
+## R2 — Significant
+
+例如 API behavior、data model、shared library、architecture boundary、quantitative methodology、authentication-adjacent behavior、deployment/runtime、shared state、persistence、portfolio calculation、會改變治理 Gate 的文件。
+
+需要 Targeted Tests、Relevant Broad Regression、Exact-head CI、Rollback/Recovery Point、Independent Review Gate、Documentation/Handoff update。
+
+## R3 — Critical
+
+例如 authentication/authorization、security boundary、secret handling、destructive DB migration、data corruption possibility、critical financial calculation、irreversible migration、production outage recovery、高影響 infrastructure。
+
+需要 R2 全部、Domain-appropriate specialist review、Strong recovery evidence、Full applicable validation、Production verification when deployed；必要時加入第二個獨立觀點、人類 owner decision、security scanner 或 migration rehearsal。
+
+> **Diff Size ≠ Risk Level。**
+
+---
+
+# 5. Risk Classification Gate
+
+每個非 trivial Batch 在 Implementation 前必須先確定 Risk Class：R0 / R1 / R2 / R3。
+
+至少考慮：
+
+- Behavior Impact
+- Data Impact
+- Security Impact
+- Financial / Quant Impact
+- Architecture Impact
+- Deployment Impact
+- Rollback Difficulty
+- Blast Radius
+- Contract / Governance Impact
+
+## Higher-Risk Default Rule
+
+若合理地落在兩個 Risk Class 之間：
 
 ```text
-Discover → Diverge → Evaluate → Converge
+Uncertainty
+→ Higher-Risk Default
+→ Evidence
+→ Optional Downgrade
 ```
 
-這是本專案控制 AI 發散的核心機制。
+不得先選低風險，只為減少 Gate 再合理化。
+
+Risk 可以依新 evidence 升級或降級；R2/R3 降級必須留下簡短 evidence。
+
+## Final Risk Reclassification
+
+**對 R1 以上 Batch，Risk Class 必須在 final candidate / merge gate 前重新確認一次。**
+
+Final Risk Classification 依據 final diff、actual behavior change、discovered evidence、actual blast radius、contract/governance impact、rollback characteristics 與 current remote state 重新判定。
+
+Initial Risk Class 不因 Batch 已開始而自動延續至 Merge。若 final candidate 實際影響更高，先完成 Risk Upgrade 及新增適用 Gate，再進 Merge。
 
 ---
 
-# 3. Controlled Divergence
+# 6. Gate Applicability Principle
 
-# 條件式發散原則
+不是每個修改都執行所有 Gate。
 
-本專案**不是禁止發散**。
+每個 Gate 必須回答：
 
-AI 可以而且應該主動：
+> **這個 Gate 在防止什麼 Failure Mode？**
 
-* 發現架構問題
-* 發現相關 Bug
-* 發現技術債
-* 發現安全問題
-* 發現效能瓶頸
-* 發現更適合的實作
-* 發現資料模型問題
-* 發現測試缺口
-* 發現現有計畫可能存在缺陷
+若答案不明確，不應機械執行。
 
-但是：
-
-> 發現新問題，不等於立即修改新問題。
-
-發散主要目的為：
-
-**提高目前決策品質。**
-
-不是：
-
-**擴大工程範圍。**
+Docs-only PR 通常不需要 production smoke；Quant methodology change 即使沒有 UI change，也需要 mathematical invariants / methodology review；DB migration 即使 diff 很小也可能是 R3。
 
 ---
 
-# 4. Divergence Funnel
+# 7. Docs Risk Escalation Rule
 
-# 發散－收斂漏斗
+> **Docs-only ≠ Automatically Low Risk。**
 
-所有新發現原則上經過：
+文件風險依「文件實際控制的決策/行為後果」判斷，而不是看副檔名。
+
+## Governance Documents
+
+若修改 `AI_PROJECT_PLAYBOOK.md`、branch/release/review/security/deployment governance，且會改變 Merge Gate、Review Requirement、Security Boundary、Deployment Procedure、Rollback Policy 或 Required Validation，至少視為 R2。
+
+## Versioned Contracts
+
+API/Data/Quant/Research/Persistence/Migration semantics 即使只改 Markdown，只要改變系統應如何實作或解讀，就依 semantic impact 分類 R2，必要時 R3。
+
+## Operational Runbooks
+
+若錯誤文件可能導致 production mis-deploy、data loss、incorrect rollback、security misconfiguration、irreversible command，Risk Class 按最嚴重合理後果判斷。
+
+## Pure Documentation
+
+只有 typo、grammar、formatting、non-semantic wording、navigation/link cleanup 等不改變 contract/decision/operation 的修改，才通常維持 R0。
 
 ```text
-Discovery
-↓
-Candidate
-↓
-Classification
-↓
-Impact Analysis
-↓
-Priority
-↓
-Scope Decision
-↓
-Convergence
-```
-
-不得採用：
-
-```text
-看到問題
-↓
-直接修改
+Risk(Document Change)
+=
+Risk of the Decision / Behavior the Document Controls
 ```
 
 ---
 
-# 5. 新發現分類制度
+# 8. Controlled Divergence
 
-任何工作途中發現的新問題，至少分類為以下五級。
-
----
-
-## Level 0 — Noise
-
-與目前目標沒有實質關係。
-
-例如：
-
-* 個人風格偏好
-* 不必要 formatting
-* 無影響的小命名差異
-* 純 cosmetic cleanup
-* 「我覺得另一個 framework 比較漂亮」
-
-處理：
-
-**忽略。**
-
-不要加入目前工作。
-
----
-
-## Level 1 — Useful but Unrelated
-
-有改善價值，但與目前任務沒有直接關係。
-
-例如：
-
-正在修資料讀取 Bug，卻發現：
-
-* 首頁 UI 可以重新設計
-* Dependency 可以升級
-* 另一個模組可以重構
-
-處理：
-
-記錄至：
-
-`to_do_update_list.md`
-
-中的：
-
-* Technical Debt
-* Deferred
-* Future Candidate
+允許主動發現 architecture issue、bug、security issue、performance bottleneck、technical debt、test gap、methodology weakness、data-integrity risk、deployment risk。
 
 但：
 
-**不得打斷目前 Batch。**
+> **Discovery 不等於 Scope Expansion。**
+
+所有新發現分類 NOW / NEXT / BACKLOG / REJECT。
 
 ---
 
-## Level 2 — Closely Related
+# 9. NOW / NEXT / BACKLOG / REJECT
 
-與目前 Root Cause、功能或風險高度相關。
+## NOW
 
-例如：
+不處理就無法安全完成目前 Batch，例如 Root Cause 必需、Critical Risk、Strong Dependency、Correctness blocker。
 
-正在修 API timeout，發現：
+## NEXT
 
-* retry policy 不一致
-* timeout config 散落
-* error handling 有相同問題
+有高價值，但不需要塞入目前 Batch；建立下一個明確 Batch。
 
-可以：
+## BACKLOG
 
-進行 Impact Analysis。
+有價值但 urgency 低、dependency 未成熟、cost/risk 過高或不影響目前 correctness。
 
-如果同步處理能：
+## REJECT
 
-* 明顯降低 regression
-* 避免相同問題再次發生
-* 不顯著提高風險
-
-可以納入：
-
-目前 Batch 或下一個 Batch。
+目前沒有足夠 Evidence × Benefit × Relevance，或 Risk / Complexity 明顯高於 Benefit。
 
 ---
 
-## Level 3 — High Impact
+# 10. Scope Lock
 
-雖非原始 Scope，但不處理可能造成：
+Batch 開始時應定義：
 
-* 大量 regression
-* 架構錯誤
-* 嚴重效能問題
-* 大規模資料不一致
-* Production instability
+```text
+Objective
+In Scope
+Out of Scope
+Allowed Investigation
+Expansion Trigger
+Risk Class
+Verification Plan
+```
 
-處理：
-
-暫停直接 Implementation。
-
-先重新評估 Plan。
-
-必要時：
-
-新增一個專門 Batch。
-
-但不得直接把原 Batch 變成大型重構。
+工作途中擴大範圍前先回答：新工作是 Root Cause 必要條件，還是「順便」？除非屬於 NOW，不得直接塞入目前 Batch。
 
 ---
 
-## Level 4 — Critical
+# 11. WIP Limit
 
-包含：
+原則：
 
-* Security vulnerability
-* Secret exposure
-* Data corruption
-* Data loss risk
-* Authentication bypass
-* Production outage
-* Critical financial calculation error
-* 無法安全 rollback
+```text
+Primary Active Batch = 1
+```
 
-Critical 可以立即中斷原本 Scope。
+允許少量 Supporting Research / Root Cause Investigation / Review / Test investigation，但同一核心實作面必須有唯一 implementation owner。
 
-優先順序：
+Blocked Primary Batch 不代表所有研究活動停止，但不得藉 supporting work 開第二條主要 implementation 主線。
+
+---
+
+# 12. Root Cause Protocol
+
+Bug 至少區分：Symptom、Failure Point、Contributing Factor、Root Cause、Systemic Cause。
+
+## Lightweight RCA
+
+R0/R1 可只記 Symptom / Cause / Fix / Regression Protection。
+
+## Full RCA
+
+R2/R3 或反覆 Bug 使用 Reproduce / Evidence / Hypotheses / Failure Point / Root Cause / Systemic Cause / Impact / Fix / Regression / Prevention。
+
+Five Whys 需要時使用，不是固定儀式。
+
+---
+
+# 13. Workaround Policy
+
+Workaround 可用於 production incident、upstream defect、external API failure、temporary platform issue、time-sensitive restoration。
+
+至少記 Root Cause、Workaround、Risk、Removal Condition、Permanent Fix / Decision。
+
+不得把 Workaround 描述成 Root Cause Resolved。
+
+---
+
+# 14. Refactor Gate
+
+Refactor 至少符合一項：architecture blocks requirement、recurring bugs share systemic cause、maintenance cost materially high、testing impossible、security issue、performance bottleneck、scalability limitation、technical debt blocks roadmap。
+
+不能只因 prettier、newer framework、coding preference、theoretical elegance。
+
+若可能，Behavior Change 與 Refactor 分離。
+
+---
+
+# 15. Recovery Policy
+
+不是每個 Commit 前都建立 Tag / Release。
+
+- R0/R1：通常 clean commit / branch 足夠。
+- R2：重要修改前確認 Known Good Commit + Rollback Path。
+- R3：視情況增加 tag、release、DB backup、deployment snapshot、configuration backup。
+
+> Recovery 成本應與 Failure Consequence 相稱。
+
+---
+
+# 16. Unknown Changes Protection
+
+重要修改前確認 git/working-tree/remote state。
+
+發現未知變更，視為 Potential User / Other Agent Work，不得直接 reset --hard、clean -fd、force checkout、force push，除非已明確辨識來源與後果。
+
+---
+
+# 17. Branch / Main Policy
+
+重要工作避免直接修改 `main`。
+
+`main` 視為 Potential Production Candidate，不得放入 known broken code、unverified experiment、partial migration、knowingly inconsistent contracts。
+
+建議使用 feature/、fix/、refactor/、perf/、docs/、chore/、hotfix/ 等分支命名。
+
+---
+
+# 18. Commit Principle
+
+每個 Commit 應單一目的、能描述 Why、可理解、可 rollback、有驗證意義。
+
+推薦 Conventional Commit 類型：feat / fix / refactor / perf / test / docs / chore。
+
+不要求一個 Batch 一定只有一個 Commit；若多 Commit 提高 auditability，可合理拆分。
+
+---
+
+# 19. Validation Strategy
+
+Validation 必須依 Impact Radius 選擇，可能包含：Static、Unit、Integration、Contract、Invariant、Regression、Build、E2E、Smoke、Deployment Verification。
+
+不要求每一項都執行。
+
+---
+
+# 20. Quantitative / Financial Changes
+
+涉及 return、CAGR、drawdown、covariance、correlation、optimization、factor model、bootstrap、portfolio selection、weighting、risk metrics、backtest methodology，至少考慮：
+
+```text
+Reference Test
+Invariant Test
+Boundary Test
+Determinism Test
+Sample-Semantics Test
+Look-ahead / Leakage Risk
+Currency / Calendar Semantics
+```
+
+> **程式有跑完，不是充分的 Quant 驗證。**
+
+---
+
+# 21. Testing and Review 不重複做同一件事
+
+CI 適合證明 syntax、type、tests、build、deterministic assertions、contract checks。
+
+Reviewer 主要檢查 requirement fit、assumption validity、architecture、methodology、missing test cases、failure modes、security semantics、data semantics、unintended behavior、rollback feasibility。
+
+Reviewer 不應只重跑一次 CI 然後宣布 PASS。
+
+---
+
+# 22. Independent Review Gate
+
+V3.0 將舊的 Independent Third-Party Review 改為 **Independent Review Gate**。
+
+Independent 的定義是：
+
+> **獨立重新建立判斷，而不是不同 GitHub 帳號。**
+
+---
+
+# 23. Reviewer Independence
+
+Reviewer 不得只接受 Implementer Summary → 同意。
+
+必須重新取得關鍵證據：
+
+```text
+Requirement
+↓
+Relevant Contracts
+↓
+Exact-head Diff
+↓
+Tests / CI
+↓
+Architecture / Methodology
+↓
+Risk
+↓
+Decision
+```
+
+即使 reviewer 是同一 AI、另一 Agent、Sub-Agent、人類或外部專家，都必須重新判斷。
+
+---
+
+# 24. Reviewer Competence
+
+Reviewer 的價值取決於：
+
+```text
+Independence × Relevant Competence
+```
+
+不是 Different Person = Valid Reviewer。
+
+Quant PR 應具 statistics / finance / numerical-method / sample-semantics / look-ahead reasoning；Security PR 應具 auth/security/threat reasoning；Deployment PR 應理解 runtime/rollback/infrastructure；Documentation PR 應理解 source of truth、actual architecture、remote state、historical integrity。
+
+不具相關能力的 approval 只能視為一般意見，不能自動提升工程可信度。
+
+## Competence Insufficiency Handling
+
+能力不足時不得「不了解但看起來沒問題 → APPROVE」，而應採以下至少一項：
+
+1. **Narrow the Review Claim**：明確標記 PASS 與 NOT REVIEWED 範圍。
+2. **Obtain Specialist Review**：可用 specialist AI、security scanner、external expert、domain reference validation。
+3. **Strengthen Objective Evidence**：reference fixture、invariant tests、independent implementation comparison、official specification、reproducible benchmark、migration rehearsal。
+4. **Leave Explicit Residual Risk**：再依 residual risk 判斷是否可 Merge。
+
+若 change 為 R3，且 reviewer 無法判斷核心 critical risk：
+
+```text
+Competence Insufficient
+=
+Review Gate Not Satisfied
+```
+
+---
+
+# 25. AI Independent Reviewer Mode
+
+對單人 AI-assisted Repository，允許 AI Independent Review。
+
+要求：
+
+1. 不採信 implementer 的 PASS 結論。
+2. 從 Repository / diff / contract 重建理解。
+3. 明確指出 reviewed exact head。
+4. 檢查 requirement 和 actual implementation 是否一致。
+5. 尋找反例與 failure mode。
+6. 檢查 existing tests 沒覆蓋的地方。
+7. 不因自己之前參與設計就自動接受。
+8. Findings 必須有 evidence。
+
+## Same-AI Independent Review Isolation Protocol
+
+同一 AI Review 時，至少重新讀 Original Requirement、Applicable Contract/ADR、Exact Candidate Diff、Relevant Source Code、Relevant Tests、CI Evidence、Risk Classification、Rollback/Recovery。
+
+### Blind-to-Conclusion Principle
+
+Review 開始時暫時忽略 implementer 的 PASS / READY / NO ISSUE / recommended merge 結論，重新回答：What can fail? What assumption may be wrong? What evidence is missing? What would falsify this implementation? Does the code actually satisfy the requirement?
+
+### Adversarial Pass
+
+R2/R3 至少執行 Counterexample Search、Boundary Search、Failure-Mode Search、Regression Search、Assumption Challenge。
+
+Quant/Financial 額外檢查 sample semantics、look-ahead、survivorship、currency、calendar、determinism、mathematical invariants。
+
+若能力允許，優先 different Agent / different model / isolated Sub-Agent / fresh review context；否則可由同一 AI 執行，但記錄 Reviewer Type: Same-AI Independent Review 與 isolation method。
+
+### Reviewer / Implementer Role Separation
+
+Independent Review 期間不得同時修改 reviewed candidate。
+
+若發現 BLOCKER：
+
+```text
+Review
+↓
+Record Finding
+↓
+Exit Reviewer Mode
+↓
+Implementation / Fix
+↓
+Validation
+↓
+New Exact Candidate Head
+↓
+Focused Re-Review
+```
+
+不得 Review → Silent Fix → Continue Reviewing → PASS。
+
+**任何 material fix 都會產生新的 candidate head；原 review conclusion 不自動繼承。** Material change 包含 behavior、methodology、API/data semantics、security、persistence、architecture、deployment behavior。Non-material typo/formatting 可依 Exact-Head Principle focused re-review。
+
+---
+
+# 26. Review Level
+
+- R0：Self Review 足夠。
+- R1：Self Review 必須；Independent Review 視風險選擇。
+- R2：Independent Review 必須。
+- R3：Independent domain review 必須；必要時 Two independent perspectives。
+
+沒有意義的第二個人頭不得取代能力審查。
+
+---
+
+# 27. Review Findings
+
+只分類：BLOCKER / FOLLOW-UP / BACKLOG / REJECT。
+
+- BLOCKER：不解決不能 Merge。
+- FOLLOW-UP：值得改善，但不阻止目前 Merge。
+- BACKLOG：未來候選。
+- REJECT：Review 建議經評估後不採用。
+
+Review 不得製造 Infinite Improvement Loop。
+
+---
+
+# 28. Review Convergence
+
+Round 1 可廣泛尋找 correctness risk；Round 2 集中於已知 BLOCKER；之後只確認 blocker resolution。
+
+除非出現新的 Critical Evidence，不得每輪重新發明專案。Review round 數量不是固定 KPI。
+
+---
+
+# 29. Exact-Head Principle
+
+對 R2/R3，Review 與 final CI 必須對應 Exact Candidate Head。
+
+Review 後修改程式/方法/契約時，判斷修改是否 material。Non-material 可 focused re-review；material 必須重新驗證受影響部分。
+
+重要 merge 應使用 expected head SHA，避免 reviewed head 與 merged head 不一致。
+
+---
+
+# 30. PR Protocol
+
+重要 PR 至少提供：Objective、Scope、Out of Scope、Root Cause/Context、Solution、Tests/Verification、Risks、Rollback、Known Limitations。
+
+只有真正有價值時才加入 Alternatives、Migration、Performance Benchmark、Security Analysis，不得為填模板而填模板。
+
+---
+
+# 31. Definition of Done 分層
+
+V3.0 分離：
+
+- **IMPLEMENTED**：需求程式已完成。
+- **VALIDATED**：適用 tests/regression 已通過。
+- **READY TO MERGE**：適用 validation/review/docs/rollback/blocker 都符合。
+- **MERGED**：已進入 target branch。
+- **DEPLOYED**：需要 deployment 時已部署並驗證。
+- **CLOSED**：Batch/Phase 的 required implementation/validation/merge/deploy/documentation/handoff 全部完成。
+
+> **IMPLEMENTED ≠ CLOSED。**
+
+---
+
+# 32. CI Failure Classification
+
+CI fail 不直接等於 code defect。先分類：Code Failure / Test Failure / Environment Failure / Quota or Rate Limit / External Service Failure / Flaky Infrastructure / Configuration Failure / Unknown。
+
+分類為 external failure 不代表可以 bypass required gate；依情況 retry、取得 valid rerun、明確調整 governance 或記錄允許的 exception。
+
+---
+
+# 33. Security / Data Integrity Override
+
+優先級：
 
 ```text
 Safety
@@ -357,1287 +672,32 @@ Security
 >
 Production Availability
 >
+Correctness
+>
 Current Feature
 >
 Optimization
 ```
 
----
-
-# 6. Exploration Budget
-
-# 探索預算
-
-AI 可以探索周邊問題。
-
-但每個 Batch 都應有「探索預算」。
-
-原則：
-
-> 探索深度可以增加，實作 Scope 不應同步無限制增加。
-
-例如：
-
-目前 Batch：
-
-> 修正 Portfolio Backtest 日期處理 Bug。
-
-可以分析：
-
-* frontend date
-* backend date
-* timezone
-* cache
-* yfinance response
-* chart rendering
-
-但不代表可以順便：
-
-* 重做 Portfolio UI
-* 更換 chart library
-* 重構整個 backend
-* 升級所有 dependencies
-
-探索是為了確認：
-
-**哪一個才是真正 Root Cause。**
-
----
-
-# 7. Divergence Trigger
-
-# 什麼情況允許主動發散
-
-符合以下任一條件時，可以展開額外分析：
-
-### A. Root Cause 不明
-
-必須擴大調查。
-
----
-
-### B. 多個模組可能共同造成問題
-
-可以平行追蹤。
-
----
-
-### C. 原方案可能只是 Workaround
-
-必須找更深層原因。
-
----
-
-### D. 修改可能造成 Regression
-
-應擴大 Impact Analysis。
-
----
-
-### E. 發現架構性共因
-
-例如：
-
-三個 Bug 都來自同一份錯誤 state model。
-
-可以提升分析層級。
-
----
-
-### F. 發現重大風險
-
-安全、資料、Production 問題可以中斷正常 Scope。
-
----
-
-### G. 原計畫已被新證據推翻
-
-允許重新規劃。
-
-但是必須記錄：
-
-> 為什麼原決策失效？
-
----
-
-# 8. 不構成發散理由的情況
-
-以下理由本身不足以擴大 Scope：
-
-* 「順便」
-* 「看起來比較漂亮」
-* 「新版比較新」
-* 「另一個 library 比較熱門」
-* 「我比較喜歡這個 architecture」
-* 「既然改了就一起重做」
-* 「以後可能會用到」
-* 「可以寫得更 elegant」
-
-必須存在：
-
-**Evidence + Benefit + Relevance**
-
-才有資格成為 Candidate。
-
----
-
-# 9. Divergence Candidate 評估
-
-每一個新方向至少回答：
-
-### 1. Relevance
-
-與目前目標相關程度？
-
----
-
-### 2. Evidence
-
-有什麼證據？
-
----
-
-### 3. Impact
-
-不處理會怎樣？
-
----
-
-### 4. Benefit
-
-現在處理有什麼具體收益？
-
----
-
-### 5. Risk
-
-處理本身會增加多少風險？
-
----
-
-### 6. Cost
-
-會增加多少：
-
-* 修改
-* 測試
-* 部署
-* 回滾
-* review
-
-成本？
-
----
-
-### 7. Urgency
-
-一定要現在處理嗎？
-
----
-
-# 10. Value × Relevance × Risk
-
-新增工作不得只看：
-
-> 有沒有改善價值。
-
-應至少考慮：
-
-```text
-Value
-×
-Relevance
-×
-Urgency
-÷
-Risk
-÷
-Complexity
-```
-
-不是精確數學計算。
-
-而是一種決策框架。
-
----
-
-# 11. Convergence Protocol
-
-# 強制收斂機制
-
-發散分析完成後，必須進入：
-
-**Convergence Gate**
-
-所有 Candidate 最終只能進入：
-
-```text
-NOW
-NEXT
-BACKLOG
-REJECT
-```
-
----
-
-## NOW
-
-現在必須處理。
-
-條件通常為：
-
-* Root Cause 必要
-* Critical risk
-* 強相依
-* 不處理無法安全完成目前 Batch
-
----
-
-## NEXT
-
-值得處理，但不需要塞進現在 Batch。
-
-建立：
-
-下一 Batch。
-
----
-
-## BACKLOG
-
-有價值，但目前優先級不足。
-
-加入：
-
-`to_do_update_list.md`
-
----
-
-## REJECT
-
-目前不值得做。
-
-記錄必要原因後終止。
-
----
-
-# 12. 禁止無限 Pending
-
-不得出現大量：
-
-> 之後可以考慮……
-
-但永遠沒有決定。
-
-重要 Candidate 必須：
-
-* NOW
-* NEXT
-* BACKLOG
-* REJECT
-
-四選一。
-
----
-
-# 13. Optimization Funnel
-
-# 專案優化方向收斂模型
-
-專案初期允許較廣探索。
-
-例如：
-
-```text
-Architecture
-Data
-Performance
-UX
-Testing
-Security
-Deployment
-Observability
-Maintainability
-```
-
-經過研究後逐步收斂。
-
-例如：
-
-```text
-8 個方向
-↓
-5 個高價值方向
-↓
-3 個優先方向
-↓
-Current Phase
-↓
-Current Batch
-↓
-Current Task
-```
-
-越接近 Implementation：
-
-**Scope 應該越小。**
-
-不是越做越大。
-
----
-
-# 14. Funnel Rule
-
-每進入下一層：
-
-候選方向原則上只能：
-
-* 減少
-* 合併
-* 延後
-* 淘汰
-
-只有出現：
-
-**新的高品質證據**
-
-才可以重新增加方向。
-
----
-
-# 15. Project Direction Lock
-
-# 專案方向鎖定
-
-Master Plan 經確認後：
-
-視為：
-
-**Current Working Baseline**
-
-後續 AI 不得因為：
-
-* 模型不同
-* Coding style 不同
-* 新對話
-* 新 Agent
-* 個人偏好
-
-就重新設計方向。
-
----
-
-# 16. 允許解鎖 Master Plan 的條件
-
-只有以下情況：
-
-### Requirement Change
-
-使用者需求改變。
-
-### New Evidence
-
-新證據證明原方案有問題。
-
-### Critical Defect
-
-發現重大缺陷。
-
-### Architecture Conflict
-
-原方案無法與實際架構共存。
-
-### External Change
-
-API、platform、dependency、deployment 發生重大改變。
-
-### Better Solution
-
-存在明顯更好的方案，且：
-
-Benefit > Migration Risk。
-
----
-
-# 17. Decision Stability
-
-已經：
-
-* 研究
-* 比較
-* 決策
-* 實作
-* 驗證
-
-完成的方向：
-
-不得每次重新討論。
-
-除非有：
-
-**New Material Evidence**
-
-否則 Decision 保持 Locked。
-
----
-
-# 18. Decision Reopen Rule
-
-重新開啟既有決策前必須記錄：
-
-```text
-Original Decision:
-Original Reason:
-New Evidence:
-Why Existing Decision Is No Longer Adequate:
-Proposed Change:
-Migration Risk:
-```
-
-避免：
-
-AI 每次換 Session 就重新設計。
-
----
-
-# 19. Scope Lock
-
-每個 Batch 開始前定義：
-
-## In Scope
-
-這次一定要完成什麼？
-
-## Out of Scope
-
-這次明確不做什麼？
-
-## Allowed Investigation
-
-允許調查哪些相鄰領域？
-
-## Expansion Trigger
-
-發生什麼事情可以擴大 Scope？
-
----
-
-# 20. Batch 不得偷偷膨脹
-
-例如：
-
-原 Batch：
-
-> 新增資料覆蓋率篩選。
-
-不得無聲變成：
-
-> 重構整個 Universe engine。
-
-如果確實發現 Engine Root Cause：
-
-應停止並重新建立：
-
-```text
-Batch A
-資料覆蓋率
-
-Batch B
-Universe Engine Refactor
-```
-
-而不是混在一起。
-
----
-
-# 21. Batch Size Control
-
-理想 Batch：
-
-* 單一明確目標
-* 相關檔案有限
-* 修改邏輯一致
-* 測試範圍明確
-* 一個 Commit 可描述
-* 可獨立 Rollback
-
-若很難一句話描述 Commit：
-
-Batch 通常太大。
-
----
-
-# 22. Parallel Analysis vs Parallel Implementation
-
-這兩件事必須區分。
-
-可以：
-
-**平行分析多種可能 Root Cause。**
-
-例如：
-
-```text
-Hypothesis A
-Hypothesis B
-Hypothesis C
-```
-
-但不代表：
-
-同時把 A、B、C 全部改掉。
-
-正確流程：
-
-```text
-Parallel Investigation
-↓
-Evidence
-↓
-Eliminate Hypotheses
-↓
-Root Cause
-↓
-Minimal Correct Fix
-```
-
----
-
-# 23. Debug Root Cause Protocol
-
-Debug 必須區分：
-
-### Symptom
-
-使用者看到什麼。
-
-### Failure Point
-
-錯誤在哪裡爆出。
-
-### Contributing Factor
-
-哪些因素增加問題發生機率。
-
-### Root Cause
-
-系統為什麼會進入錯誤狀態。
-
-### Systemic Cause
-
-為什麼原架構沒有阻止這種問題。
-
----
-
-# 24. Debug Workflow
-
-依序：
-
-```text
-Reproduce
-↓
-Observe
-↓
-Collect Evidence
-↓
-Form Hypotheses
-↓
-Trace
-↓
-Isolate
-↓
-Root Cause
-↓
-Impact Analysis
-↓
-Solution Options
-↓
-Converge
-↓
-Fix
-↓
-Regression
-↓
-Prevention
-```
-
----
-
-# 25. 禁止 Shotgun Debugging
-
-禁止：
-
-一次改多個可能原因，
-
-然後：
-
-> Bug 好像消失了。
-
-這會失去 Root Cause 證據。
-
-優先：
-
-一個 hypothesis 一個 hypothesis 驗證。
-
----
-
-# 26. Five Whys
-
-必要時執行：
-
-```text
-Why 1
-↓
-Why 2
-↓
-Why 3
-↓
-Why 4
-↓
-Why 5
-```
-
-直到找到：
-
-可被工程措施控制的根因。
-
----
-
-# 27. Workaround Policy
-
-Workaround 可以存在。
-
-但只能在：
-
-* Production incident
-* upstream bug
-* third-party API issue
-* 時間敏感事故
-* 暫時無法控制的外部因素
-
-使用。
-
-必須記錄：
-
-* Symptom
-* Root Cause
-* Workaround
-* Risk
-* Removal Condition
-* Permanent Fix
-* Owner
-* Follow-up
-
----
-
-# 28. 根因修正後的平行優化
-
-發現 Root Cause 後，可以評估同步改善：
-
-* validation
-* type safety
-* retry
-* timeout
-* state management
-* cache
-* logging
-* monitoring
-* error handling
-* resource cleanup
-* concurrency
-* boundary handling
-
-但僅限：
-
-**與 Root Cause 高度相關。**
-
----
-
-# 29. Architecture Refactor Gate
-
-架構重構必須符合至少一項：
-
-* 現架構阻止需求實現
-* 同類 Bug 反覆出現
-* Maintenance cost 已顯著提高
-* Security risk
-* Performance bottleneck
-* Testing impossible
-* Scalability bottleneck
-* 已知技術債開始阻礙主線
-
-不能只因為：
-
-「看起來不漂亮」。
-
----
-
-# 30. Refactor 必須分離
-
-如果可能：
-
-功能修改：
-
-```text
-Feature Batch
-```
-
-與：
-
-```text
-Refactor Batch
-```
-
-分開。
-
-避免 PR 同時：
-
-* 改 Behavior
-* 改 Architecture
-* 改 Formatting
-
-導致 Reviewer 無法判斷。
-
----
-
-# 31. Backup Before Change
-
-高風險操作前建立：
-
-**Known Good Recovery Point**
-
-可包括：
-
-* clean commit
-* branch
-* tag
-* release
-* database backup
-* config backup
-* deployment snapshot
-
----
-
-# 32. Git Status Gate
-
-開始任何重要修改：
-
-必須先確認：
-
-`git status`
-
-如果 working tree 不乾淨：
-
-先辨識來源。
-
-不得直接：
-
-```text
-reset --hard
-clean
-force checkout
-force push
-```
-
----
-
-# 33. Unknown Changes Policy
-
-發現不屬於目前 AI 的修改：
-
-視為：
-
-**Potential User Work**
-
-不得覆蓋。
-
-先理解。
-
----
-
-# 34. Branch Strategy
-
-建議：
-
-```text
-feature/...
-fix/...
-refactor/...
-perf/...
-docs/...
-chore/...
-hotfix/...
-```
-
-重要修改避免直接在：
-
-`main`
-
-開發。
-
----
-
-# 35. Stable Main
-
-`main` 應視為：
-
-**Potential Production Candidate**
-
-因此不得放入：
-
-* 半成品
-* temporary experiment
-* known broken build
-* unverified patch
-
----
-
-# 36. Commit Principle
-
-每個 Commit：
-
-* 單一目的
-* 可理解
-* 可 revert
-* 有驗證意義
-
-推薦：
-
-```text
-feat:
-fix:
-refactor:
-perf:
-test:
-docs:
-chore:
-```
-
----
-
-# 37. Commit 應回答 Why
-
-不要只描述：
-
-> 改了哪個檔案。
-
-應讓未來 AI 知道：
-
-> 為什麼需要這個變更。
-
----
-
-# 38. Testing Pyramid
-
-依修改性質執行：
-
-### Static
-
-* lint
-* formatter
-* type check
-
-### Unit
-
-核心函式。
-
-### Integration
-
-跨模組／API／DB。
-
-### Build
-
-production build。
-
-### Regression
-
-舊功能。
-
-### Smoke
-
-部署環境核心路徑。
-
----
-
-# 39. Test Scope Based on Impact
-
-不是所有修改都測整個世界。
-
-測試範圍應根據：
-
-**Impact Radius**
-
-例如：
-
-修改共用 formatter：
-
-Impact 高。
-
-修改單一頁面文字：
-
-Impact 低。
-
----
-
-# 40. Regression Radius
-
-修改一個 module 時至少考慮：
-
-```text
-Upstream
-Current
-Downstream
-Shared Dependency
-User Flow
-```
-
----
-
-# 41. Definition of Done
-
-只有以下適用項目全部完成：
-
-才可以：
-
-`DONE`
-
-### Requirement
-
-需求完成。
+Critical security/data issue 可以突破 Scope Lock，但修正仍維持 Minimum Correct Safe Change。
 
-### Root Cause
-
-Bug 根因完成。
-
-### Code
-
-程式完成。
-
-### Test
-
-測試完成。
-
-### Regression
-
-相關 regression 完成。
-
-### Build
-
-需要時完成。
-
-### Deployment
-
-需要時完成。
-
-### Smoke Test
-
-需要時完成。
-
-### Documentation
-
-更新完成。
-
-### Git
-
-Commit / PR 完成。
-
-### Rollback
-
-存在恢復方法。
-
-### Handoff
-
-Next Action 明確。
-
----
-
-# 42. DONE 不允許推測語氣
-
-以下不是 DONE：
-
-* 應該可以
-* 理論上可以
-* 看起來沒問題
-* 預期正常
-
-若未實測：
-
-標記：
-
-**NOT VERIFIED**
-
----
-
-# 43. PR Protocol
-
-重要修改建立 Pull Request。
-
-PR 至少：
-
-## Objective
-
-這個 PR 要完成什麼？
-
-## Scope
-
-修改什麼？
-
-## Out of Scope
-
-刻意沒有修改什麼？
-
-## Root Cause
-
-如果是 Bug。
-
-## Solution
-
-採用方案。
-
-## Alternatives
-
-必要時列出。
-
-## Tests
-
-實際執行哪些。
-
-## Risks
-
-風險。
-
-## Rollback
-
-如何回復。
-
----
-
-# 44. Independent Review Gate
-
-重要 PR Merge 前：
-
-進行一次：
-
-**Independent Third-Party Review**
-
-Reviewer 必須重新判斷。
-
-不能因為：
-
-上一個 Agent 已說通過，
-
-就直接通過。
-
----
-
-# 45. Reviewer 必須重新檢查
-
-至少：
-
-* Requirement Fit
-* Scope
-* Root Cause
-* Logic
-* Architecture
-* Regression
-* Security
-* Performance
-* Maintainability
-* Test Coverage
-* Documentation
-* Rollback
-
----
-
-# 46. Reviewer 也必須限制發散
-
-Independent Review 不是：
-
-重新發明整個專案。
-
-Reviewer 發現新問題時，同樣分類：
-
-```text
-BLOCKER
-FOLLOW-UP
-BACKLOG
-REJECT
-```
-
-只有 BLOCKER 阻止 Merge。
-
-避免 Reviewer 每次提出無限新要求。
-
----
-
-# 47. Review Convergence
-
-Review Round 1：
-
-允許廣泛找問題。
-
-Review Round 2：
-
-集中於已識別問題。
-
-Review Round 3：
-
-只確認 Blocker 是否解決。
-
-原則：
-
-**Review 越後期，Scope 越收斂。**
-
-禁止：
-
-每輪 Review 又重新增加完全不同的大型需求。
-
-除非發現 Critical Issue。
-
----
-
-# 48. Release Gate
-
-Merge 後依專案需要建立：
-
-* Tag
-* Release
-* Stable checkpoint
-
-Release 記錄：
-
-* Version
-* Date
-* Major Changes
-* Fixes
-* Known Issues
-* Migration
-* Rollback Reference
-
----
-
-# 49. Deployment Protocol
-
-標準流程：
-
-```text
-Feature / Fix
-↓
-Test
-↓
-PR
-↓
-Independent Review
-↓
-Merge
-↓
-Build
-↓
-Deploy
-↓
-Smoke Test
-↓
-Production Verification
-↓
-Release
-```
-
----
-
-# 50. Deployment Failure Rule
-
-若 Production 出現：
-
-* Critical Bug
-* Core Feature Failure
-* Auth failure
-* Data risk
-* Severe regression
-
-優先：
-
-**Rollback**
-
-而不是直接在 Production 持續疊 Patch。
-
----
-
-# 51. Rollback 後仍需 RCA
-
-Rollback 只是恢復服務。
-
-不是問題解決。
-
-之後：
-
-```text
-Incident
-↓
-Evidence
-↓
-RCA
-↓
-Fix
-↓
-Test
-↓
-Review
-↓
-Redeploy
-```
-
----
-
-# 52. Dependency Upgrade Rule
-
-Dependency 不能「順便升級」。
-
-升級必須有理由：
-
-* security
-* compatibility
-* required feature
-* unsupported version
-* critical bug
-
-如果只是：
-
-有新版。
-
-加入 Backlog 即可。
-
 ---
-
-# 53. Framework Migration Rule
-
-更換：
 
-* framework
-* database
-* ORM
-* chart library
-* state management
-* UI framework
+# 34. Dependency Policy
 
-屬於重大架構決策。
+不能因「有新版」就大量升級。
 
-需要：
+升級理由應為 security、compatibility、unsupported version、required functionality、confirmed bug。
 
-* Current problem
-* Alternative
-* Benefit
-* Migration cost
-* Risk
-* Rollback
-* Staged plan
+Dependency vulnerability 先判斷 Severity、Production/Dev、Direct/Transitive、Reachability、Exploitability、Upgrade Risk。
 
-不得在普通 Bug Fix 中順便完成。
+不得機械執行 force upgrade everything。
 
 ---
 
-# 54. Performance Rule
+# 35. Performance Policy
 
-效能優化遵守：
+遵守：
 
 ```text
 Measure
@@ -1646,415 +706,96 @@ Locate
 ↓
 Hypothesis
 ↓
-Optimize
+Change
 ↓
 Measure Again
 ```
 
-不得：
-
-憑感覺優化。
+聲稱效能改善原則上需要 Before/After，例如 latency、execution time、API calls、memory、bundle size。
 
 ---
 
-# 55. Optimization Evidence
+# 36. Documentation Update Policy
 
-如果聲稱：
+文件是工程狀態的一部分，但不要求把每個低價值操作都寫入文件。
 
-> 效能改善。
+`to_do_update_list.md` 只需保存對下一個 Agent 有價值的 current state、stable state、decisions、root causes、blockers、risks、current batch、exact next action、important verification、important commit/PR/release。
 
-原則上應有：
+不需要保存每個 shell command、temporary hypothesis、微小 formatting、已完全取代且無歷史價值的中間敘述。
 
-Before / After
-
-例如：
-
-* latency
-* API calls
-* memory
-* bundle
-* render
-* execution time
+避免 Handoff 文件變成比程式更難理解的流水帳。
 
 ---
 
-# 56. Security Override
+# 37. Decision Log
 
-Security 發現可突破一般 Scope Lock。
+重大決策至少記：Decision、Context、Evidence、Reason、Trade-off、Status、Reopen Condition。
 
-但必須區分：
+只有對理解決策有幫助時才詳細列 Alternatives。
 
-### Critical
+Decision 經研究、實作、驗證後保持 Locked，除非有 New Material Evidence / Requirement Change / Critical Defect / Architecture Conflict / External Change / 明顯更優且 Benefit > Migration Risk 的方案。
 
-立即處理。
-
-### High
-
-Current / Next Batch。
-
-### Medium
-
-Plan。
-
-### Low
-
-Backlog。
-
-避免因為看到任何低風險 security lint 就停止全部專案。
+重新開啟重要既有決策時記錄 Original Decision / Original Reason / New Evidence / Why Existing Decision Is No Longer Adequate / Proposed Change / Migration Risk。
 
 ---
 
-# 57. Data Integrity Override
+# 38. Root Cause Log
 
-任何涉及：
+只有 meaningful bug、systemic issue、recurring issue、R2/R3 correctness issue 才進長期 Root Cause Log。
 
-* 資料遺失
-* 錯誤寫入
-* 重複交易
-* 不一致計算
-* 無法 rollback migration
-
-均優先於一般功能優化。
+小 typo 不需要 RCA archive。
 
 ---
 
-# 58. Documentation as State
+# 39. History Compression
 
-文件不是事後作文。
-
-而是：
-
-**專案狀態的一部分。**
-
-程式完成而：
-
-`to_do_update_list.md`
-
-沒有更新：
-
-該 Batch 不算完全完成。
-
----
-
-# 59. `to_do_update_list.md` 標準結構
-
-至少：
+隨專案演進：
 
 ```text
-# Project Status
-
-# Current Stable State
-
-# Architecture Notes
-
-# Master Plan
-
-# Current Phase
-
-# Current Batch
-
-# Active Work
-
-# Completed Work
-
-# Change Log
-
-# Decision Log
-
-# Root Cause Log
-
-# Known Issues
-
-# Technical Debt
-
-# Deferred Candidates
-
-# Rejected Candidates
-
-# Risks
-
-# Next Actions
+Active Detail
+↓
+Close Phase
+↓
+Compress into Historical Summary
 ```
+
+保留 result、major decisions、RCA、merge/release、known limitations；移除低價值過程細節。完整歷史由 Git/PR 保留。
 
 ---
 
-# 60. Master Plan
+# 40. Session Startup Protocol
 
-建議使用：
-
-| Phase | Batch | Objective | Priority | Status | Dependency | Verification |
-| ----- | ----- | --------- | -------- | ------ | ---------- | ------------ |
-
-Status：
+新 AI Session：
 
 ```text
-TODO
-READY
-IN PROGRESS
-BLOCKED
-VERIFYING
-DONE
-DEFERRED
-REJECTED
+1. AI_PROJECT_PLAYBOOK.md
+2. README.md
+3. to_do_update_list.md
+4. Current Git / Remote State
+5. Current Phase / Batch / Next Action
+6. Relevant Contract / ADR
+7. Then Work
 ```
 
----
+不是每次從頭重新研究整個 Repository。閱讀深度依任務決定。
 
-# 61. Current Batch 必須唯一
-
-原則上應清楚指出：
-
-> 現在主線是哪一個 Batch？
-
-避免同時十個：
-
-`IN PROGRESS`
-
-如果確實需要平行工作：
-
-清楚標示：
-
-```text
-Primary
-Secondary
-Blocked
-```
+新的 AI Session 不代表新的專案；不得因缺少前次聊天就自行重建另一套 Master Plan。
 
 ---
 
-# 62. Change Log
+# 41. Remote Truth Gate
 
-每批記錄：
+重要操作前重新確認 target branch、current main SHA、PR head/base/mergeability、CI、required status、review state、deployment/release state when relevant。
 
-* Date
-* Phase
-* Batch
-* Requirement
-* Scope
-* Files
-* Root Cause
-* Implementation
-* Verification
-* Result
-* Commit
-* PR
-* Release
-* Deployment
-* Follow-up
+Repository 文件是 persistent context；Remote systems 是 Current Operational Truth。
 
 ---
 
-# 63. Decision Log
+# 42. User Intent / Controlled Replanning
 
-每個重大決策記：
+若使用者明確要求改方向、暫停、重排、重新審查、回退或修改 requirement，更新 working baseline，但保留原決策歷史。
 
-```text
-Decision
-Context
-Evidence
-Alternatives
-Reason
-Trade-off
-Status
-Reopen Condition
-```
-
-最後一項：
-
-**Reopen Condition**
-
-非常重要。
-
-提前定義：
-
-什麼情況下才值得重新討論。
-
----
-
-# 64. Deferred Candidates
-
-發散過程發現但暫時不做的項目：
-
-進入：
-
-`Deferred Candidates`
-
-記錄：
-
-```text
-Candidate
-Value
-Reason Deferred
-Dependency
-Revisit Condition
-```
-
-這能避免：
-
-AI 忘記，
-
-也避免：
-
-AI 現在亂做。
-
----
-
-# 65. Rejected Candidates
-
-重要但最後否決的方案也值得記錄。
-
-避免下一個 AI：
-
-再次花大量時間研究已經否決的方案。
-
-記錄：
-
-```text
-Candidate
-Why Considered
-Why Rejected
-Reopen Condition
-```
-
----
-
-# 66. Root Cause Log
-
-重大 Bug：
-
-```text
-Symptom
-Trigger
-Impact
-Failure Point
-Root Cause
-Systemic Cause
-Fix
-Regression Protection
-Commit
-PR
-```
-
----
-
-# 67. AI Handoff
-
-每次工作結束前確認下一個 AI 能回答：
-
-1. Production 正常嗎？
-2. Main branch 正常嗎？
-3. Stable version 是什麼？
-4. Current Phase？
-5. Current Batch？
-6. 剛完成什麼？
-7. 為什麼這樣做？
-8. 實際驗證什麼？
-9. 哪些 Candidate 被延後？
-10. 哪些方向已被否決？
-11. 有什麼 blocker？
-12. 下一步做什麼？
-13. 哪些決策目前 Locked？
-14. 哪些條件出現才能重新開啟？
-
----
-
-# 68. Session Startup Protocol
-
-新 ChatGPT / Codex Session 依序：
-
-### 1
-
-讀：
-
-`AI_PROJECT_PLAYBOOK.md`
-
-### 2
-
-讀：
-
-`README.md`
-
-### 3
-
-讀：
-
-`to_do_update_list.md`
-
-### 4
-
-檢查 Git。
-
-### 5
-
-檢查最近 Commit / PR / Release。
-
-### 6
-
-找：
-
-`Current Phase`
-
-### 7
-
-找：
-
-`Current Batch`
-
-### 8
-
-找：
-
-`Next Action`
-
-### 9
-
-辨識 Locked Decisions。
-
-### 10
-
-才開始工作。
-
----
-
-# 69. 新 AI 不得自行重啟規劃
-
-新的 AI Session 不代表：
-
-新的專案。
-
-不得因為缺少前次聊天：
-
-就重新建立另一套 Master Plan。
-
-Repository 文件與 Git 歷史優先。
-
----
-
-# 70. User Intent Priority
-
-如果使用者明確要求：
-
-* 改方向
-* 暫停
-* 重排
-* 重新審查
-* 回退
-
-則更新：
-
-Master Plan。
-
-但應保留原決策歷史。
-
----
-
-# 71. Controlled Replanning
-
-重新規劃不是：
-
-把舊計畫刪掉。
-
-而是：
+重新規劃採：
 
 ```text
 Old Baseline
@@ -2066,599 +807,350 @@ Delta
 Revised Baseline
 ```
 
-記錄：
-
-為什麼改。
+不得把舊計畫無聲刪掉，也不得因新 Agent 偏好自行改方向。
 
 ---
 
-# 72. Optimization Saturation
+# 43. AI Authority Boundary
 
-# 優化飽和判定
+AI 可在已授權範圍內 research、modify、test、commit、branch、create PR、review、document。
 
-專案不應永久處於：
+但不得自行降低 branch protection、bypass required checks、force push protected history、刪除 recovery points、weakening security gates、把 unverified work 宣稱 safe、無證據擴張 product requirements。
 
-「還可以再優化」。
-
-某方向符合以下情況後：
-
-應視為暫時收斂：
-
-* requirement satisfied
-* major bugs resolved
-* acceptable performance
-* acceptable maintainability
-* tests sufficient
-* deployment stable
-* marginal benefit low
-
-狀態：
-
-**OPTIMIZED FOR CURRENT REQUIREMENTS**
-
-不是：
-
-「永遠完美」。
+Governance change 本身視為 Governance Batch，不得為了讓目前 PR 過關而臨時改規則。
 
 ---
 
-# 73. Diminishing Returns Rule
+# 44. Governance Transition / Non-Retroactive Rule
 
-如果下一個優化：
+新 Governance Rule 原則上 **Prospective-by-Default**，適用於治理變更接受後的操作/Gate。
 
-成本明顯提高，
+已 MERGED/CLOSED/RELEASED 的工作不因後來治理規則改變而自動 REOPEN/FAIL/INVALID，除非出現 material correctness evidence、security issue、data-integrity issue、production incident。
 
-但收益非常有限：
+## Active Work Transition
 
-停止。
+治理修改生效時仍 ACTIVE 的 PR/Batch 做一次 Transition Assessment：
 
-加入：
+- Apply Immediately
+- Apply at Next Gate
+- Grandfather Current Batch（僅在 retrofitting cost 明顯高於 risk reduction 時；記 Grandfather Reason / Residual Risk / New Rule Effective From）
 
-Backlog。
+## Anti-Bypass Rule
 
-避免工程進入：
+若 Governance 修改直接移除目前 PR 唯一 blocker、降低 required validation、security requirement 或 data-integrity protection，不能只因規則修改就 PASS；必須做 Governance Change Review + Current PR/Batch Transition Assessment。
 
-Optimization Rabbit Hole。
+## Grandfather Anti-Bypass
 
----
-
-# 74. 主線優先原則
-
-任何時候都應能回答：
-
-> 本專案現在最重要的主線是什麼？
-
-如果答不出來：
-
-表示工作已過度發散。
-
-立即執行：
-
-**Convergence Review**
-
----
-
-# 75. Convergence Review
-
-當出現：
-
-* 太多 TODO
-* 太多方向
-* 多個 Agent 各做不同事情
-* 每次 Review 都新增工作
-* 長期沒有 Phase 完成
-* 修改持續增加但產品沒有進展
-
-立即：
-
-1. 暫停新增 Candidate。
-2. 整理所有 Active Work。
-3. 分類 NOW / NEXT / BACKLOG / REJECT。
-4. 選定唯一 Primary Goal。
-5. 重新建立 Current Phase。
-6. 建立 Current Batch。
-7. 其餘全部延後。
-8. 繼續主線。
-
----
-
-# 76. WIP Limit
-
-# 在製工作限制
-
-避免同時啟動大量工作。
-
-原則：
+Grandfather 不得消除 Governance Change 生效前已由證據明確成立的 safety/security/data-integrity/correctness blocker。
 
 ```text
-Current Primary Batch = 1
+Existing Material Blocker
++
+Governance Change
+≠
+Automatic Blocker Removal
 ```
 
-必要時可以存在：
-
-* 1 Primary
-* 少量 supporting investigation
-
-但不要同時：
-
-5～10 個主要 Batch。
-
----
-
-# 77. Agent Coordination
-
-如果使用多 Agent：
-
-可以平行：
-
-* Research
-* Test
-* Review
-* Root Cause Investigation
-
-但：
-
-Implementation 必須有明確 Owner。
-
-避免多 Agent 同時修改：
-
-同一核心檔案。
-
----
-
-# 78. Parallel Agent Convergence
-
-多 Agent 結果回收後：
-
-必須：
+若 Active Batch 的唯一 blocker 正是本次 Governance Change 所修改的 Gate，必須先完成：
 
 ```text
-Collect
+Governance Change Review
 ↓
-Compare
+Current PR / Batch Transition Assessment
 ↓
-Resolve Conflict
+Apply New Governance Rule
 ↓
-Select
-↓
-Converge
-↓
-Implement
+Satisfy New Rule
 ```
 
-不得把所有 Agent 提案全部實作。
+> **Grandfather ≠ bypass escape hatch。**
+
+例如把 `Independent Third-Party Review` 修正為 `Independent Review Gate`，可以是合法 governance correction，但仍必須依新規則真正完成 Independent Review；不能只刪掉 Third-Party 字樣就直接 Merge。
 
 ---
 
-# 79. AI 建議與 AI 執行分離
+# 45. Release Policy
 
-AI 可以提出：
+不是每個 PR 都需要 Release。
 
-10 個改善方向。
+適合建立 Release / Tag / Stable Checkpoint 的情況：user-facing version、major phase closeout、R2/R3 significant stable point、pre/post high-risk migration、production recovery landmark。
 
-但不代表：
-
-10 個都執行。
-
-必須經過：
-
-Priority / Scope / Risk / Convergence。
+Docs-only / trivial PR 通常不需要額外 Release，除非風險分類另有理由。
 
 ---
 
-# 80. No Premature Implementation
+# 46. Deployment Policy
 
-如果仍存在三種彼此衝突的 Root Cause hypothesis：
+只有修改實際 deployed behavior 時才要求 deployment validation。
 
-不要急著寫 Code。
-
-先把 hypothesis 收斂。
-
----
-
-# 81. No Premature Refactor
-
-如果問題可以透過：
-
-小範圍 Root Cause Fix
-
-解決，
-
-不得因為：
-
-「未來可能比較漂亮」
-
-直接做大規模重構。
-
----
-
-# 82. No Premature Optimization
-
-沒有證據顯示效能瓶頸：
-
-不要優化。
-
----
-
-# 83. No Premature Generalization
-
-目前只有一種 case：
-
-不要過度設計成：
-
-支援未來十種 hypothetical case。
-
-除非 Roadmap 已確認。
-
----
-
-# 84. Compatibility First
-
-已有使用者使用的功能：
-
-優先保持：
-
-* API compatibility
-* Data compatibility
-* UI behavior
-* Existing workflow
-
-除非 Requirement 明確改變。
-
----
-
-# 85. Change Surface Minimization
-
-達成需求時：
-
-優先選擇：
-
-**最小正確修改面積。**
-
-不是：
-
-最少 Code 行數。
-
-而是：
-
-最少不必要系統影響。
-
----
-
-# 86. Failure Transparency
-
-遇到：
-
-* Test fail
-* Build fail
-* Deploy fail
-* Unknown behavior
-* Missing permission
-* Unverified assumption
-
-必須明確記錄。
-
-不得把：
-
-Partially Complete
-
-描述成：
-
-Complete。
-
----
-
-# 87. Stop Conditions
-
-遇到以下情況暫停 Implementation：
-
-* Working tree 不明
-* 可能覆蓋使用者修改
-* 資料損毀風險
-* Security critical
-* 基礎假設被推翻
-* Root Cause 完全不明
-* Rollback 無法確認
-* 大規模 Scope creep
-
-先重新分析。
-
----
-
-# 88. Resume Conditions
-
-暫停後至少確認：
-
-* Evidence sufficient
-* Scope重新定義
-* Recovery point 存在
-* Current Batch 明確
-* Risk 可接受
-
-才繼續。
-
----
-
-# 89. 每批標準報告
-
-每個 Batch 完成後回報：
-
-## Objective
-
-本批目標。
-
-## Completed
-
-實際完成。
-
-## Root Cause
-
-若適用。
-
-## Files Changed
-
-修改檔案。
-
-## Verification
-
-實際執行什麼。
-
-## Regression
-
-驗證哪些舊功能。
-
-## Git
-
-Branch / Commit / PR。
-
-## Documentation
-
-`to_do_update_list.md` 更新內容。
-
-## Discoveries
-
-發現哪些額外問題。
-
-## Convergence Decisions
-
-額外問題分別：
-
-* NOW
-* NEXT
-* BACKLOG
-* REJECT
-
-## Remaining Risk
-
-剩餘風險。
-
-## Next
-
-下一個 Batch。
-
----
-
-# 90. Project Optimization Philosophy
-
-本專案採用：
-
-**Broad Thinking, Narrow Execution**
-
-即：
-
-### 分析可以廣。
-
-### 證據可以深。
-
-### Candidate 可以多。
-
-### 最終執行必須窄。
-
----
-
-# 91. 發散的目的
-
-不是增加工作。
-
-而是：
-
-**避免做錯工作。**
-
----
-
-# 92. 收斂的目的
-
-不是限制改善。
-
-而是：
-
-**確保改善真的完成。**
-
----
-
-# 93. 最終優化循環
-
-專案長期以：
+一般：
 
 ```text
-Explore
+Validated Candidate
 ↓
-Understand
+Merge
 ↓
-Prioritize
+Build if applicable
 ↓
-Converge
+Deploy if applicable
 ↓
-Execute
+Smoke
 ↓
-Verify
-↓
-Stabilize
-↓
-Observe
-↓
-Next Cycle
+Production Verification
 ```
 
-演進。
+Docs-only PR 不需要假裝執行 production smoke。
 
-不是：
+---
+
+# 47. Deployment Failure
+
+Critical production regression 優先 Rollback / Restore，不是在 Production 持續疊 patch。
+
+恢復後：Evidence → RCA → Fix → Validate → Review → Redeploy。
+
+---
+
+# 48. Phase / Batch Status Vocabulary
+
+統一使用：
 
 ```text
-Explore
-↓
-Explore
-↓
-Explore
-↓
-Refactor
-↓
-Explore
-↓
-Rewrite
+PLANNED
+ACTIVE
+BLOCKED
+VALIDATING
+READY TO MERGE
+MERGED
+CLOSED
+DEFERRED
+REJECTED
 ```
 
----
-
-# 94. 每個 Phase 的結束條件
-
-Phase 完成時：
-
-* Objectives achieved
-* All critical Batch done
-* Major regression resolved
-* Documentation updated
-* Known issues classified
-* Deferred items moved to backlog
-* Stable checkpoint created
-
-然後：
-
-**關閉 Phase。**
-
-不應因為仍存在無限優化可能，
-
-而永遠不結束。
+Validation result 另外記 PASS / FAIL。Status 與 Test Result 分離。
 
 ---
 
-# 95. 下一 Phase 開始前
+# 49. Batch Completion Report
 
-重新檢視：
+每個重要 Batch 最低必要資訊：Objective / Result / Key Changes / Verification / Risk or Limitations / Git or PR / Next。
 
-* Requirement
-* Evidence
-* Priority
-* Backlog
+Debug 時增加 Root Cause；發現相關新工作時增加 NOW / NEXT / BACKLOG / REJECT。
 
-只挑選：
-
-目前最有價值的少數方向。
+不要求固定填寫沒有價值的空欄位。
 
 ---
 
-# 96. 核心治理公式
+# 50. Handoff Minimum
 
-本專案不採：
+下一個 AI 必須能回答：
 
-**不要發散。**
+1. main 正常嗎？
+2. Last Known Good 是什麼？
+3. Current Phase？
+4. Current Batch？
+5. Current head / PR？
+6. 現在 blocker？
+7. 哪些重要 decision locked？
+8. 哪些 risk 尚未解決？
+9. 下一個 exact action 是什麼？
 
-而採：
-
-> **有條件探索、有證據發散、有機制收斂、有紀錄延後、有門檻重新開啟。**
-
----
-
-# 97. 最終判斷問題
-
-修改程式前：
-
-> 我理解現在的系統嗎？
-
-Debug 前：
-
-> 我找到的是症狀、Failure Point，還是 Root Cause？
-
-擴大分析前：
-
-> 這個發散有證據與目的嗎？
-
-新增工作前：
-
-> 它應該是 NOW、NEXT、BACKLOG 還是 REJECT？
-
-準備實作前：
-
-> Scope 是否已重新收斂？
-
-準備重構前：
-
-> 這是必要重構，還是偏好型重構？
-
-Commit 前：
-
-> 這一版能獨立正常使用嗎？
-
-Merge 前：
-
-> Independent Reviewer 會批准嗎？
-
-Deploy 前：
-
-> 可以恢復到 Last Known Good Version 嗎？
-
-結束 Phase 前：
-
-> 還剩下的是必要工作，還是只是「可以更好」？
-
-結束 Session 前：
-
-> 完全沒看過這次對話的下一個 AI，只看 Repository，能否無歧義接手？
+若能無歧義回答，Handoff 即具備基本品質。
 
 ---
 
-# 98. 最終原則
+# 51. Optimization Saturation
 
-本專案追求的不是：
+滿足 requirement、correctness、major regression、acceptable performance、acceptable maintainability、adequate tests、stable deployment when applicable，且下一個改善 Marginal Benefit << Added Cost/Risk，則停止目前方向，加入 BACKLOG。
 
-**最大修改量。**
+不追求「永遠可以再優化」。
 
-而是：
+---
 
-**最大有效改善。**
+# 52. Stop / Resume Conditions
 
-不是：
+真正停止 Implementation 的理由包括：unknown user changes may be overwritten、data-loss risk、security critical、root assumption invalidated、R2/R3 no safe rollback、root cause fundamentally unknown、material scope creep、conflicting concurrent implementation。
 
-**永遠增加優化方向。**
+「找不到另一個普通 GitHub 帳號 reviewer」本身不是技術 Stop Condition。
 
-而是：
+Resume 前確認 Evidence sufficient、Scope redefined、Recovery point exists、Current Batch clear、Risk acceptable。
 
-**先充分探索，再逐步刪減方向。**
+---
 
-不是：
+# 53. Compatibility / Premature-Change Rules
 
-**禁止發散。**
+已有使用者使用的功能優先保持 API compatibility、Data compatibility、UI behavior、Existing workflow，除非 Requirement 明確改變。
 
-而是：
+禁止：No Premature Implementation、No Premature Refactor、No Premature Optimization、No Premature Generalization。
 
-**Controlled Divergence。**
+達成需求時優先選 **最小正確修改面積**，不是最少 code 行數，而是最少不必要系統影響。
 
-不是：
+---
 
-**過早收斂。**
+# 54. Failure Transparency
 
-而是：
+遇到 Test fail、Build fail、Deploy fail、Unknown behavior、Missing permission、Unverified assumption，必須明確記錄。
 
-**Evidence-Based Convergence。**
+不得把 Partially Complete 描述成 Complete；未實測則標記 NOT VERIFIED。
 
-不是：
+---
 
-**一次做到完美。**
+# 55. Governance Anti-Pattern
 
-而是：
+禁止：
 
-**每一批都比上一批更好，而且始終可用。**
+- **Process Theater**：只是為了有紀錄而產生紀錄。
+- **Approval Theater**：沒有能力判斷的人按 Approve。
+- **Test Theater**：執行大量與 diff 無關的測試只為增加數字。
+- **Backup Theater**：每個小修改都建立 Tag / Release。
+- **Documentation Theater**：文件比程式實際狀態更難理解。
+- **Review Rabbit Hole**：每輪 review 發明新的 roadmap。
+- **Optimization Rabbit Hole**：產品穩定卻永遠不 Close Phase。
 
-最終形成：
+---
 
-> **可探索、可收斂、可理解、可驗證、可追蹤、可回滾、可交接、可持續演進的 AI 協作軟體專案。**
+# 56. Governance Efficiency Test
+
+任何新規則加入天書前回答：
+
+```text
+它防止什麼具體 failure mode？
+有沒有較低成本的方法？
+是否與已有規則重複？
+它適用於所有 change，還是特定 risk class？
+如果沒有它，實際風險多大？
+```
+
+只有 Expected Risk Reduction > Governance Cost 才應加入。
+
+---
+
+# 57. 最終 Merge 判斷
+
+Merge 前不要只問「有沒有另一個人按 Approve？」。
+
+應問：
+
+```text
+Requirement fulfilled?
+Correctness evidence sufficient?
+Applicable tests passed?
+Known blockers = 0?
+Review level appropriate to risk?
+Reviewer competent?
+Review based on independent evidence?
+Exact head reviewed?
+Rollback adequate?
+Documentation sufficient for handoff?
+```
+
+全部適用項目成立才 READY TO MERGE。
+
+---
+
+# 58. Governance Formula
+
+本專案採：
+
+> **Evidence-Based Engineering**，不是流程越多越安全。
+
+> **Risk-Proportional Governance**，不是所有修改跑同一套 Gate。
+
+> **Independent Reasoning Review**，不是 Different Account Approval。
+
+> **Competence-Based Review**，不是隨便找旁人背書。
+
+> **Broad Thinking, Narrow Execution**，不是發現什麼就改什麼。
+
+> **Persistent Context, Current Remote Truth**，不是只相信聊天紀錄或 stale documentation。
+
+> **Stable Progress**，不是 Infinite Optimization。
+
+---
+
+# 59. 最終判斷問題
+
+修改前：我真的理解目前系統與 remote state 嗎？
+
+Debug 前：我找到的是 symptom、failure point，還是 root cause？
+
+擴大 Scope 前：這是 correctness 必需，還是順便改善？
+
+重構前：Evidence 足以證明需要 refactor 嗎？
+
+測試前：哪些 failure modes 真正需要驗證？
+
+Review 前：Reviewer 是否具備這次 change 所需能力？
+
+Merge 前：Exact candidate 是否已得到與其 risk 相稱的證據？
+
+Deploy 前：如果失敗，可以安全恢復嗎？
+
+Phase close 前：剩下的是必要工作，還是只是可以更好？
+
+Session 結束前：下一個完全沒看過這次聊天的 AI，只看 Repository，能否準確繼續？
+
+---
+
+# 60. V3.0 Governance Freeze
+
+完成本 V3.0 Final Hardening 後，治理模型視為：
+
+```text
+OPTIMIZED FOR CURRENT REQUIREMENTS
+GOVERNANCE BASELINE LOCKED
+Governance Architecture: FROZEN
+Further Governance Optimization: STOPPED
+```
+
+不得因 wording preference、another AI's preferred workflow、theoretical completeness、enterprise best practice、hypothetical edge case、「再多一條可能更完整」繼續修改天書。
+
+只有以下 Reopen Conditions 才可重新開啟 Governance Architecture：
+
+1. Actual governance-caused failure
+2. Repeated workflow friction with evidence
+3. Security / data-integrity gap
+4. Material project architecture change
+5. Multi-maintainer / organization model change
+6. CI/CD platform change invalidating existing rules
+7. User requirement change
+
+其餘新的 governance idea 預設 BACKLOG 或 REJECT。
+
+長期模式：Use V3 → Execute Real Project Work → Observe → Collect Actual Evidence → only then evaluate a documented Governance Reopen Condition。
+
+---
+
+# 61. Final Constitutional Core
+
+> **Broad Thinking, Narrow Execution.**
+
+> **Evidence First, Risk-Proportional Governance.**
+
+> **獨立審查重點是獨立推理與專業能力，不是不同人頭。**
+
+本專案追求：
+
+```text
+Correct
+Traceable
+Testable
+Reviewable
+Recoverable
+Maintainable
+Transferable
+```
+
+而不是：
+
+```text
+Maximum Process
+Maximum Documentation
+Maximum Review Count
+Maximum Test Count
+Maximum Change
+```
+
+最終目標是：
+
+> **用最少但足夠的工程控制，持續產出正確、可驗證、可追溯、可回滾、可交接的 Stable State。**
