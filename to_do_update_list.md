@@ -6,18 +6,16 @@
 
 Primary goal: execute **C3 / Issue #79 — P0 financial/backtest correctness: one authoritative common comparison context for requested portfolios and benchmark**.
 
-Last runtime-verified production baseline before this docs-only handoff publication:
+Current runtime-verified production baseline:
 
-`79a71bb5f9d6e73a29b4f4e4598fe320dce73730`
-
-This handoff publication may advance repository `main` without changing runtime behavior. Always re-query actual `main` before implementation.
+`aeb2891e5c81377633e91fcc531152d893242d51`
 
 Closed foundations:
 
-- Phase 5 clustering/redundancy: **CLOSED / PASS / PRODUCTION VERIFIED**.
+- Phase 5 clustering/redundancy: **CLOSED / PASS / PRODUCTION VERIFIED**, including recovered hardened M4 common-sample production acceptance via #94.
 - C2 Vercel Deployment Economy: **CLOSED / PASS / INTERNAL→CANDIDATE→MAIN VERIFIED**.
 
-**Primary Active Batch after this handoff lands: C3 / #79 P0 correctness.**
+**Primary Active Batch: C3 / #79 P0 correctness.**
 
 Do not start #80, #78 or Phase 6 implementation while #79 is active.
 
@@ -28,23 +26,31 @@ Do not start #80, #78 or Phase 6 implementation while #79 is active.
 ### Runtime / production baseline
 
 - Repository: `chihung1024/backteststock`.
-- Last runtime-verified main: `79a71bb5f9d6e73a29b4f4e4598fe320dce73730`.
+- Current runtime-verified main: `aeb2891e5c81377633e91fcc531152d893242d51`.
 - #65 Phase 5 clustering/redundancy: MERGED / VERIFIED.
 - #83 scanner retryable edge-cache root fix: MERGED / VERIFIED.
 - #84 scanner settled-vs-success presentation: MERGED / VERIFIED.
 - #75 permanent Refinery production smoke / P5-CLOSE: MERGED / VERIFIED.
 - #90 Vercel Deployment Economy policy: MERGED / VERIFIED.
+- #94 Phase 5 M4 common-sample production-smoke hardening recovery: MERGED / VERIFIED.
 
-### Phase 5 final acceptance
+### Phase 5 final acceptance — CLOSED / PASS
 
-At `dd051ba793ab63260b4815ae35020cb40f55c7d5`:
+The earlier Phase 5 closeout at `dd051ba793ab63260b4815ae35020cb40f55c7d5` had green CI/deployment evidence, but a later audit found that explicit R2 blocker PR #87 had never been merged: the permanent production smoke checked the methodology marker but did not fail closed if `analysis.factor_relationships.systematic_relationship` became missing, insufficient or malformed.
 
-- Full CI #550 PASS;
-- Portfolio web CI #170 PASS;
-- Vercel production SUCCESS;
-- post-merge recovery #413 PASS;
-- Cloudflare deploy #51 PASS;
-- Russell + Portfolio v3 + Refinery v1 / Phase 5 production smokes PASS.
+That release-acceptance gap is now fully recovered at `aeb2891e5c81377633e91fcc531152d893242d51`:
+
+- old #87: CLOSED / NOT MERGED / superseded by current-main recovery;
+- internal recovery #93 at `68bac2d3780e4750732735397f7c230ea37d1bbd`: Full CI PASS, Vercel status absent as required for `internal-*`, focused R2 review PASS / BLOCKER=0;
+- candidate #94 at `3f45d44214731a7263117dc7e910371c2ca424e2`: same validated tree, Full CI PASS, genuine Vercel Preview SUCCESS, pre-merge recovery backup SUCCESS, candidate R2 review PASS / BLOCKER=0;
+- expected-head squash #94 → `main@aeb2891...`;
+- post-merge recovery backup SUCCESS;
+- post-main Full CI #562 PASS;
+- genuine Vercel production SUCCESS;
+- Cloudflare deploy #52 SUCCESS;
+- Russell 2000 production smoke PASS;
+- Portfolio v3 production smoke PASS;
+- **hardened Refinery v1 Phase 5 production smoke PASS**, enforcing `systematic_relationship.status == ok`, at least 36 common monthly observations, valid common-sample start/end, 64-hex SHA-256 sample fingerprint, and labelled finite 2×2 AAPL/MSFT relationship matrix.
 
 Phase 5 limitations remain explicit: full-period evidence is in-sample, factor evidence remains a scoped U.S.-factor co-movement diagnostic, and instrument/security master / regional factor routing / traceable theme authority remain later work.
 
@@ -120,6 +126,14 @@ C3 must restore one authoritative comparison context across this service/API bou
 ---
 
 ## 4. Current Phase / Batch
+
+### Phase 5 recovery — CLOSED / PASS / PRODUCTION VERIFIED
+
+Objective: repair the release-acceptance contradiction discovered after C2 handoff without reopening Phase 5 methodology.
+
+The only recovered scope was the two-file permanent production-smoke hardening from old #87. #94 is now merged and post-main verified at `aeb2891...`; #87 and #93 are closed without merge as historical/internal evidence. Phase 5 is again legitimately CLOSED/PASS.
+
+Reopen only with new production evidence that the hardened smoke contract itself is insufficient or incorrect.
 
 ### C2 — CLOSED / PASS
 
@@ -219,7 +233,7 @@ Expansion Trigger: public schema/persistence changes, a second independent compa
 | Phase / Batch | Objective | Status |
 | --- | --- | --- |
 | -1 through 4 | Governance, quant authority, dataset, risk math, Refinery API/UI | CLOSED / PASS |
-| 5 / #65 + #75 | Clustering/Redundancy + production closeout | CLOSED / PASS / VERIFIED |
+| 5 / #65 + #75 + #94 | Clustering/Redundancy + production closeout + recovered hardened M4 acceptance | CLOSED / PASS / VERIFIED |
 | C0 / #84/#86 | Scanner progress truth + docs truth recovery | CLOSED / PASS |
 | C2 / #90 | Vercel Deployment Economy | **CLOSED / PASS / VERIFIED** |
 | C3 / #79 | Benchmark/common-window financial correctness | **PRIMARY ACTIVE / P0 / R2** |
@@ -243,8 +257,10 @@ C2 is no longer an unlock blocker. Then start only P6-A.
 ### D-01 — Governance V3 frozen
 `AI_PROJECT_PLAYBOOK.md` remains process authority. Status: LOCKED.
 
-### D-02 — Phase 5 CLOSED
-Implementation and operational production closeout are both complete. Status: CLOSED.
+### D-02 — Phase 5 CLOSED after recovered production acceptance
+Implementation methodology was already complete, but the original closeout status was promoted too early while explicit #87 R2 smoke-hardening remained unmerged. #93/#94 recovered that blocker on current main and proved the hardened production smoke in Cloudflare deploy #52. Status: **CLOSED / VERIFIED**.
+
+Reopen only if new evidence invalidates the hardened production acceptance or Phase 5 methodology itself.
 
 ### D-03 — No branch/Vercel bypass
 Required deployment evidence must remain genuine. No no-op quota commits, force history or branch-protection weakening. Status: LOCKED.
@@ -261,9 +277,28 @@ Fix the service/API context boundary, not merely `_benchmark_payload()` with an 
 ### D-07 — Phase 6 planning saturated
 Issue #77 remains authoritative frozen Phase 6 V1 plan. Status: LOCKED.
 
+### D-08 — Phase-close freshness gate
+A Phase may not be promoted to CLOSED/PASS solely from the latest merged implementation/deployment if an explicit open BLOCKER PR/review remains unresolved. Before phase closeout, re-query open PRs/reviews and reconcile every blocker as MERGED, SUPERSEDED WITH EVIDENCE, or still OPEN. Status: **LOCKED**.
+
 ---
 
 ## 7. Root Cause Log
+
+### RC-P5-CLOSEOUT-GOV — RESOLVED / HIGH IMPACT
+
+Symptom: live handoff recorded Phase 5 CLOSED/PASS while old PR #87 still explicitly stated Phase 5 must remain open until hardened M4 production smoke was merged and production-verified.
+
+Failure point: closeout/status promotion after #75/#88 did not reconcile the still-open explicit R2 blocker.
+
+Contributing factor: the then-current production smoke was green but validated the methodology marker rather than the actual `systematic_relationship` evidence contract.
+
+Root cause: **phase-close governance did not include a final unresolved-blocker reconciliation across open PR/review state.**
+
+Systemic cause: remote truth was queried for recent main/check state but not fully converged against all explicit closeout blockers before declaring Stable State.
+
+Fix: recover #87's exact two-file smoke/test scope onto current main through #93/#94, run full internal→candidate→main gates, and prove the hardened Refinery Phase 5 smoke in production.
+
+Prevention: D-08 final phase-close freshness gate; never promote CLOSED/PASS while an explicit blocker remains unclassified.
 
 ### RC-79 — OPEN / P0
 
@@ -292,8 +327,18 @@ Scanner normalizes legacy persisted scan-job dates while optimizer validates raw
 
 ## 8. Change Log
 
+### 2026-08-12 — Phase 5 production-smoke recovery
+- audit found old #87 explicit R2 blocker had never reached main although later live state said Phase 5 CLOSED/PASS;
+- #87 closed as superseded after its exact two-file patch was recovered byte-for-byte onto current main ancestry;
+- internal #93: Full CI PASS, zero Vercel status, focused R2 review PASS / BLOCKER=0; closed without merge after promotion;
+- candidate #94: same tree, Full CI PASS, Vercel Preview SUCCESS, pre-merge backup PASS, R2 candidate review PASS / BLOCKER=0;
+- expected-head squash #94 → `main@aeb2891...`;
+- post-merge backup PASS; Full CI #562 PASS; Vercel production SUCCESS; Cloudflare deploy #52 SUCCESS;
+- Russell, Portfolio v3 and hardened Refinery v1 Phase 5 production smokes all PASS;
+- Phase 5 restored to **CLOSED / PASS / PRODUCTION VERIFIED** with the original blocker actually satisfied.
+
 ### 2026-08-11 — Phase 5 / P5-CLOSE
-#65 and #75 completed methodology implementation and permanent production Refinery acceptance; Phase 5 CLOSED/PASS.
+#65 and #75 completed methodology implementation and the initial permanent production Refinery acceptance. Later #94 recovery hardened the M4 evidence acceptance before Phase 5 final status was re-affirmed.
 
 ### 2026-08-11 — C0
 #83/#84 resolved scanner cache/progress defects; #86 rebuilt live documentation truth.
@@ -366,6 +411,7 @@ Rejected now:
 | #79 silently mixes periods/samples | P0 single-lane root-cause fix; explicit comparison context + orchestration/E2E regression |
 | Fix only patches benchmark display | require bounded history **before** simulation and audit benchmark-dependent analytics |
 | C3 expands into Portfolio redesign | Scope Lock + Expansion Trigger; preserve existing service architecture |
+| Phase close ignores an unresolved blocker | D-08 remote open-PR/review blocker reconciliation before CLOSED/PASS |
 | Internal AI work consumes Vercel quota | production-verified `internal-*` suppression; candidate-only Preview |
 | Scanner work re-expands | #80 acceptance reconciliation after #79 |
 | Phase 6 scope creep | #77 frozen; P6-A only after remaining gates |
@@ -378,8 +424,8 @@ Priority: **Safety / data integrity / production stability > current feature > o
 
 ### NOW
 
-- publish this C2 closeout / C3 handoff through the validated internal→candidate process;
-- execute only C3 / #79 after it lands.
+- finish this docs-only Phase 5 recovery closeout publication without changing runtime behavior;
+- immediately resume only C3 / #79 with C3-A reproduction/regression first.
 
 ### NEXT
 
@@ -398,7 +444,7 @@ Use §§10–11.
 
 ## 14. Next Actions / Exact Resume Point
 
-After this docs-only handoff lands:
+After this docs-only recovery closeout lands:
 
 1. re-query actual `main` and Issue #79 remote state;
 2. create `internal-p79-common-window-context` from exact current main;
