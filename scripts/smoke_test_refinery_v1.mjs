@@ -5,6 +5,7 @@ export const REFINERY_SCHEMA_VERSION = "refinery-v1-2026-08-10.3";
 export const CLUSTERING_CONTRACT_VERSION = "refinery-clustering-twd-2026-08-10.2";
 export const FACTOR_MODEL_SCOPE = "U.S.-factor co-movement diagnostic";
 export const FACTOR_CORROBORATION_POLICY = "fail_closed_without_traceable_instrument_scope_v1";
+export const FACTOR_MINIMUM_MONTHLY_OBSERVATIONS = 36;
 
 export const REFINERY_SMOKE_REQUEST = Object.freeze({
   contract_version: REFINERY_CONTRACT_VERSION,
@@ -125,6 +126,49 @@ function assertCommonContract(payload, endpoint) {
   );
 }
 
+function assertSystematicRelationshipContract(factors) {
+  const relationship = factors?.systematic_relationship;
+  assert(
+    relationship?.status === "ok",
+    "Systematic factor relationship is unavailable in the Phase 5 production smoke",
+  );
+
+  const observations = Number(relationship.observations);
+  assert(
+    Number.isSafeInteger(observations) && observations >= FACTOR_MINIMUM_MONTHLY_OBSERVATIONS,
+    `Systematic factor relationship requires at least ${FACTOR_MINIMUM_MONTHLY_OBSERVATIONS} common monthly observations`,
+  );
+
+  const start = String(relationship.start || "").trim();
+  const end = String(relationship.end || "").trim();
+  assert(/^\d{4}-\d{2}-\d{2}$/u.test(start), "Systematic factor relationship common-sample start is missing");
+  assert(/^\d{4}-\d{2}-\d{2}$/u.test(end), "Systematic factor relationship common-sample end is missing");
+  assert(start <= end, "Systematic factor relationship common-sample dates are reversed");
+
+  const fingerprint = String(relationship.sample_fingerprint_sha256 || "").trim();
+  assert(
+    /^[0-9a-f]{64}$/iu.test(fingerprint),
+    "Systematic factor relationship common-sample fingerprint is invalid",
+  );
+
+  const matrix = relationship.matrix;
+  assert(matrix && typeof matrix === "object", "Systematic factor relationship matrix is missing");
+  assert(
+    JSON.stringify(matrix.symbols) === JSON.stringify(["AAPL", "MSFT"]),
+    "Systematic factor relationship matrix labels do not match the smoke candidates",
+  );
+  assert(
+    Array.isArray(matrix.values)
+      && matrix.values.length === 2
+      && matrix.values.every((row) => Array.isArray(row) && row.length === 2),
+    "Systematic factor relationship matrix shape is invalid",
+  );
+  assert(
+    matrix.values.flat().every((value) => typeof value === "number" && Number.isFinite(value)),
+    "Systematic factor relationship matrix contains unavailable values",
+  );
+}
+
 function assertAnalyzeContract(payload) {
   assert(payload?.status === "ok", "Refinery analyze did not complete formal analysis");
   const analysis = payload.analysis;
@@ -174,6 +218,7 @@ function assertAnalyzeContract(payload) {
       `${symbol} factor model scope mismatch`,
     );
   }
+  assertSystematicRelationshipContract(factors);
 
   assert(
     analysis?.theme_relationships?.status === "unavailable_no_traceable_theme_source",
