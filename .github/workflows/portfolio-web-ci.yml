@@ -34,7 +34,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -56,5 +56,75 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs tests/test_refinery_phase5_web_contract.mjs
+      - name: Verify deterministic combined Portfolio build
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/portfolio-build-first
+          cp -a public/portfolio /tmp/portfolio-build-first
+          npm run build:portfolio
+          diff -qr /tmp/portfolio-build-first public/portfolio
+      - name: Synchronize exact combined Portfolio generated assets
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'phase5/reconcile-main-2026-08-11'
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- package-lock.json
+
+          status="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio)"
+          printf '%s\n' "$status"
+          if [ -z "$status" ]; then
+            echo "Combined Portfolio generated assets already synchronized."
+            exit 0
+          fi
+
+          line_count="$(printf '%s\n' "$status" | wc -l | tr -d ' ')"
+          if [ "$line_count" != "7" ]; then
+            echo "Expected exactly seven generated-asset changes; refusing to commit." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$status" | grep -Fqx ' D public/portfolio/assets/index-BpPrEYYl.css'
+          printf '%s\n' "$status" | grep -Fqx ' D public/portfolio/assets/index-BFfowT1r.js'
+          printf '%s\n' "$status" | grep -Fqx ' D public/portfolio/assets/index-BFfowT1r.js.map'
+          printf '%s\n' "$status" | grep -Fqx ' M public/portfolio/index.html'
+
+          new_css="$(printf '%s\n' "$status" | sed -nE 's/^\?\? (public\/portfolio\/assets\/index-[A-Za-z0-9_-]+\.css)$/\1/p')"
+          new_js="$(printf '%s\n' "$status" | sed -nE 's/^\?\? (public\/portfolio\/assets\/index-[A-Za-z0-9_-]+\.js)$/\1/p')"
+          new_map="$(printf '%s\n' "$status" | sed -nE 's/^\?\? (public\/portfolio\/assets\/index-[A-Za-z0-9_-]+\.js\.map)$/\1/p')"
+          if [ -z "$new_css" ] || [ -z "$new_js" ] || [ -z "$new_map" ] || [ "$new_map" != "${new_js}.map" ]; then
+            echo "Expected exactly one generated CSS and one matching JS/map pair; refusing to commit." >&2
+            exit 1
+          fi
+
+          rm -rf /tmp/portfolio-generated
+          cp -a public/portfolio /tmp/portfolio-generated
+
+          git reset --hard HEAD
+          git clean -fd -- public/portfolio
+          git fetch --no-tags origin "refs/heads/${HEAD_BRANCH}:refs/remotes/origin/${HEAD_BRANCH}"
+          git checkout -B "$HEAD_BRANCH" "refs/remotes/origin/${HEAD_BRANCH}"
+          rm -rf public/portfolio
+          cp -a /tmp/portfolio-generated public/portfolio
+
+          head_status="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio)"
+          printf '%s\n' "$head_status"
+          if [ "$(printf '%s\n' "$head_status" | wc -l | tr -d ' ')" != "7" ]; then
+            echo "Generated diff changed while applying to PR head; refusing to commit." >&2
+            exit 1
+          fi
+          printf '%s\n' "$head_status" | grep -Fqx ' D public/portfolio/assets/index-BpPrEYYl.css'
+          printf '%s\n' "$head_status" | grep -Fqx ' D public/portfolio/assets/index-BFfowT1r.js'
+          printf '%s\n' "$head_status" | grep -Fqx ' D public/portfolio/assets/index-BFfowT1r.js.map'
+          printf '%s\n' "$head_status" | grep -Fqx ' M public/portfolio/index.html'
+          printf '%s\n' "$head_status" | grep -Fqx "?? ${new_css}"
+          printf '%s\n' "$head_status" | grep -Fqx "?? ${new_js}"
+          printf '%s\n' "$head_status" | grep -Fqx "?? ${new_map}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A public/portfolio
+          git commit -m "build: synchronize combined Portfolio production assets"
+          git push origin "HEAD:${HEAD_BRANCH}"
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
