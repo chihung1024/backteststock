@@ -200,11 +200,7 @@ class PortfolioAPIService:
             request,
             effective_end,
         )
-        benchmark_history = (
-            histories.histories.get(request.benchmark) if request.benchmark else None
-        )
-        if benchmark_history is not None and batch.comparison_context is not None:
-            benchmark_history = batch.comparison_context.bound_history(benchmark_history)
+        benchmark_history = batch.effective_benchmark_history
         benchmark_returns = (
             benchmark_history.daily_returns if benchmark_history is not None else None
         )
