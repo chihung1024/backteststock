@@ -11,7 +11,7 @@ This document is retained as Phase 5 implementation, convergence and closeout ev
 - Correctness/security convergence PR #71: merged into the Phase 5 parent.
 - Latest-main reconciliation PR #74: merged into the Phase 5 parent before final parent validation.
 - Historical docs child PR #66: **CLOSED / SUPERSEDED / NOT MERGED**. Its useful Phase5-specific evidence was promoted; stale general docs must not be restored wholesale.
-- Later production main advanced through scanner fixes #83 and #84. These do not change the accepted Phase 5 methodology, but they make the old P5-CLOSE #75 candidate stale relative to current main and therefore require reconciliation before merge.
+- Later production runtime advanced through scanner fixes #83 and #84. These do not change the accepted Phase 5 methodology, but they make the old P5-CLOSE #75 candidate stale relative to the runtime baseline and therefore require reconciliation before merge.
 
 Repository governance V3 uses an **Independent Review Gate** based on independent reasoning, competence and exact-head evidence; it does not require a different GitHub identity.
 
@@ -151,22 +151,26 @@ Historical gates on that head:
 
 The old exact-head Vercel status failed with a Free-plan build-rate-limit target. That evidence remains historical; it is not permission to bypass the check.
 
-## 11. Current P5-CLOSE reconciliation state
+## 11. P5-CLOSE reconciliation state at C0-B branch point
 
-Production main has since advanced to:
+Last runtime-verified production baseline before the docs-only C0-B publication:
 
 `670086fdb7a74a054bdd39e69ec38aa9ad5d6e8d`
 
-through #83 and #84. Current main has fresh production evidence including Full CI, Portfolio CI, Cloudflare production deployment/smokes and a genuine Vercel production SUCCESS.
+That runtime baseline includes #83/#84 and has fresh Full CI, Portfolio CI, Cloudflare production deployment/smokes and a genuine Vercel production SUCCESS.
 
-PR #75 remains on the older branch lineage:
+C0-B itself is documentation-only and may advance the repository `main` SHA when merged. It does **not** create a new runtime baseline. Actual `main` must therefore be re-queried before #75 reconciliation.
 
-- merge base with current main: `2c9ed83cedea9aee9acc09fa3f0a2029c3004907`;
-- compare vs `main@670086f...`: **diverged**;
-- #75 is **ahead 9 / behind 2**;
-- changed scope remains four files: `.github/workflows/deploy-cloudflare.yml`, `package.json`, `scripts/smoke_test_refinery_v1.mjs`, `tests/test_refinery_smoke.mjs`.
+PR #75 branch-point compare evidence against `670086f...`:
 
-Therefore the current blocker is no longer correctly summarized as “Vercel quota only.” Before merge, #75 must be reconciled with current main and receive fresh exact-head evidence. In particular, `package.json` must preserve the scan-progress validation added by #84 while adding the Refinery smoke wiring from #75.
+- merge base: `2c9ed83cedea9aee9acc09fa3f0a2029c3004907`;
+- status: **diverged**;
+- #75: **ahead 9 / behind 2**;
+- changed scope: `.github/workflows/deploy-cloudflare.yml`, `package.json`, `scripts/smoke_test_refinery_v1.mjs`, `tests/test_refinery_smoke.mjs`.
+
+These compare counts are historical branch-point evidence only. If C0-B merges, #75 will be at least one additional docs-only commit behind repository main; run a fresh compare before acting.
+
+Therefore the current blocker is not correctly summarized as “Vercel quota only.” Before merge, #75 must be reconciled with the actual then-current main and receive fresh exact-head evidence. `package.json` must preserve the scan-progress validation added by #84 while adding the Refinery smoke wiring from #75.
 
 No Phase 5 clustering/API methodology change is required by this reconciliation.
 
@@ -211,8 +215,8 @@ Resolved:
 
 Current closeout work:
 
-- [ ] reconcile the #75 four-file smoke/deployment scope onto latest verified main;
-- [ ] confirm reconciled diff preserves all current-main scanner/package/workflow behavior;
+- [ ] re-query actual main after C0-B publication and reconcile the #75 four-file smoke/deployment scope;
+- [ ] confirm reconciled diff preserves all then-current-main scanner/package/workflow behavior;
 - [ ] fresh exact-head Full CI / Portfolio web CI / genuine required Vercel SUCCESS;
 - [ ] fresh/applicable recovery gate;
 - [ ] exact-head Independent Review BLOCKER=0;
