@@ -1,115 +1,159 @@
 # Deployment Runbook
 
-## 1. Deploy the Python APIs to Vercel
+Status: **Current deployment/runbook contract.** Live check, ruleset and deployment state must be queried before release; this file defines procedure, not a cached status page.
 
-Import `chihung1024/backteststock` into Vercel. `vercel.json` defines the current Python entrypoints, including legacy/compatibility Flask routes, Scanner/Screener, Exhaustive prepare, and the self-owned FastAPI Portfolio v3 entrypoint `api/portfolio_v3.py`.
+## 1. Vercel Python APIs
 
-Environment variables depend on the enabled features:
+`vercel.json` defines reviewed Python entrypoints including:
 
-- `GIST_RAW_URL`: optional; used by selected screener/ticker-autocomplete compatibility paths.
-- `RISK_FREE_RATE`: optional annual rate in decimal form for compatibility metric paths.
-- `BACKTEST_FRED_API_KEY` or `FRED_API_KEY`: required only for FRED-dependent Portfolio analytics.
+- legacy/compatibility Flask routes;
+- Scanner / Screener;
+- Exhaustive prepare;
+- FastAPI Portfolio v3 — `api/portfolio_v3.py`;
+- read-only FastAPI Refinery v1 — `api/refinery_v1.py`.
 
-Verify both compatibility and Portfolio v3 health surfaces as applicable:
+Environment variables depend on enabled features. Existing examples include `GIST_RAW_URL`, `RISK_FREE_RATE`, and FRED credentials used only by features that own them. Never add secrets to repository files, PR bodies, screenshots, browser bundles or chat transcripts.
+
+### Readiness / smoke surfaces
+
+Portfolio v3 exposes an explicit health route:
 
 ```text
 GET https://<vercel-project>/api/health
 GET https://<vercel-project>/api/v3/portfolio/health
 ```
 
-Portfolio v3 health must return the service/contract/schema versions and the Vercel deployment SHA when available. Health responses must not expose environment variables.
-
-## 2. Configure Cloudflare Worker
-
-Create a Cloudflare API token using the **Edit Cloudflare Workers** custom permission policy. Restrict the token to only the account and zone used by this application.
-
-In GitHub:
-
-`Settings → Secrets and variables → Actions`
-
-Create:
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-
-Do not paste token values into source files, issues, pull requests or chat messages.
-
-The token must include Workers Scripts edit and D1 edit permissions. The deploy workflow resolves a database named `backteststock-universe`, creates it in APAC when absent, applies D1 migrations, and then deploys the Worker with the resolved UUID.
-
-## 3. Configure the backend origin
-
-The Cloudflare Worker reads the non-secret Vercel origin from `vars.BACKEND_ORIGIN` in `wrangler.jsonc`. Keep the value as the public HTTPS origin without `/api`.
-
-Example:
+Refinery v1 intentionally exposes reviewed POST operations rather than a fabricated health endpoint:
 
 ```text
-https://backteststock-api.vercel.app
+POST https://<vercel-project>/api/v1/refinery/preflight
+POST https://<vercel-project>/api/v1/refinery/analyze
 ```
 
-For local development, copy `.dev.vars.example` to `.dev.vars` and point `BACKEND_ORIGIN` at the appropriate local Python process.
+Use a small valid `preflight` for Refinery readiness/contract smoke. Use bounded `analyze` only when the changed behavior requires end-to-end analysis validation.
 
-## 4. Deploy Cloudflare
+## 2. Cloudflare Worker / D1
 
-After CI passes and the pull request is merged, the `Deploy Cloudflare Worker` workflow runs automatically for matching Worker, public-asset, migration, and deployment-script changes; it can also be started manually. It:
+GitHub Actions deployment uses Cloudflare credentials stored only as repository secrets, including:
 
-- resolves or creates `backteststock-universe`;
-- applies `migrations/*.sql` remotely;
-- publishes `public/` as Cloudflare Static Assets;
-- publishes `worker/router.js` as the API entrypoint;
-- keeps Portfolio v3 behind an explicit route allowlist;
-- gives exhaustive prepare its separate larger request boundary;
-- delegates remaining compatibility proxy/security handling to `worker/index.js`.
+```text
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+```
 
-Then run `Update Universe Membership` once with `dry_run=false`. Confirm all configured sources are published in the uploaded `universe-update-report` artifact. The same workflow runs on its configured schedule.
+The deployment workflow resolves `backteststock-universe`, applies D1 migrations, publishes Worker/static assets and uses the configured backend origin.
+
+`wrangler.jsonc` stores non-secret `BACKEND_ORIGIN` as the Vercel HTTPS origin without `/api`. For local development, copy `.dev.vars.example` to `.dev.vars`; `.dev.vars` must not be committed.
+
+## 3. Validation before merge/deploy
+
+Validation scope follows `AI_PROJECT_PLAYBOOK.md` risk classification. A broad runtime/quant candidate normally includes:
+
+```bash
+python -m compileall -q api apps scripts
+ruff check api apps scripts tests
+python -m pytest -q
+npm run check
+npm run test:worker
+npm run test:score
+npm run check:portfolio
+npm run test:e2e
+npx wrangler d1 migrations apply backteststock-universe --local
+npx wrangler deploy --dry-run
+```
+
+Required GitHub checks are authoritative merge gates; local PASS is supplemental. Docs-only changes do not require invented production smoke, although repository CI may still run broad regression and provide useful evidence.
+
+## 4. Cloudflare deployment
+
+`Deploy Cloudflare Worker` runs automatically for its configured Worker/public/migration/deployment paths and can be manually dispatched when appropriate. Its current responsibilities include:
+
+- resolve/create D1;
+- apply migrations;
+- publish `public/` static assets;
+- publish Worker routing;
+- keep Portfolio v3 behind explicit routes;
+- keep Refinery v1 behind explicit POST-only routes;
+- preserve the separate Exhaustive request boundary;
+- execute configured production smoke tests.
+
+Universe membership publishing is owned by `Update Universe Membership`; validate its report before relying on a newly published membership version.
 
 ## 5. Production smoke tests
 
-Run after every relevant production deployment:
+Run only the scopes applicable to the deployment while preserving broad cross-domain checks for broad runtime releases.
+
+### Edge / compatibility / Universe
 
 ```text
-GET /api/edge-health
-GET /api/health
-GET /api/v2/universes
-POST /api/backtest with one 100% SPY portfolio
-POST /api/scan with SPY and QQQ
-POST /api/optimizer/exhaustive/prepare with a small fixed source pool
-POST /api/v2/screener with one available Universe and limit null
-GET /api/v3/portfolio/health
-GET /api/v3/portfolio/assets/search?q=2330&limit=5
-POST /api/v3/portfolio/preflight with a small mixed-market portfolio
-POST /api/v3/portfolio/backtests with the same portfolio
+GET  /api/edge-health
+GET  /api/health
+GET  /api/v2/universes
+POST /api/backtest
+POST /api/scan
+POST /api/optimizer/exhaustive/prepare
+POST /api/v2/screener
 ```
 
-The Portfolio production smoke must wait until `/api/v3/portfolio/health` reports the same deployment SHA as the GitHub commit being deployed before validating search/preflight/backtest behavior. This prevents a Cloudflare deployment from being accepted while Vercel is still serving an older backend deployment.
+### Portfolio v3
 
-Confirm:
+```text
+GET  /api/v3/portfolio/health
+GET  /api/v3/portfolio/assets/search?q=2330&limit=5
+POST /api/v3/portfolio/preflight
+POST /api/v3/portfolio/backtests
+```
 
-- Static page and `/portfolio/` load without unexpected third-party runtime dependencies.
-- Browser API requests use the Cloudflare origin.
-- `/api/debug` returns 404.
-- Error responses do not contain stack traces or environment variables.
-- Cloudflare and Vercel logs share the `x-request-id` response header where proxied.
-- Universes show `available: true`, a source date, version, and non-zero member count.
-- The Russell 2000 option visibly discloses that IWM holdings are a proxy.
-- The screener response returns every passing candidate when `limit` is `null`.
-- A browser scan of more than 100 mock candidates completes in bounded batches and paginates the final table.
-- A simulated partial `/api/scan` response requeues only the missing ticker; a saved in-progress job resumes after reload without requesting completed tickers again.
-- Exhaustive prepare reports `valuationCurrency: "TWD"`, a TWD valuation-contract version, and no silently omitted requested source ticker.
-- Portfolio v3 preflight explicitly reports per-asset success/failure and does not silently alter requested membership.
-- Portfolio v3 backtest returns contract/schema/reproducibility metadata, and its deployment SHA readiness check matches the GitHub deployment under test.
+Where deployment-SHA readiness is part of the Portfolio contract, wait until Vercel reports the expected deployment before accepting downstream Cloudflare smoke.
 
-## 6. Release backup and merge governance
+### Refinery v1
 
-`.github/workflows/release-backups.yml` is the canonical generic pre/post merge backup gate. Runtime or quantitative-methodology PRs must use the `release-backup` label so the current `main` is backed up before merge and the merged SHA is backed up afterward.
+```text
+POST /api/v1/refinery/preflight
+POST /api/v1/refinery/analyze   # when analysis behavior changed
+```
 
-Historical one-off PR backup workflows are not active governance mechanisms once superseded by the generic workflow; Git history and existing Releases preserve their evidence.
+Validate requested candidate membership, fail-closed incomplete data, schema/methodology metadata, explicit unavailable evidence and absence of stack traces/secrets. Do not use a high-cardinality production analyze as a smoke test.
 
-Before Portfolio Refinery Phase 0 starts, repository settings for `main` must enforce PR-only changes, required status checks, no force pushes, and no branch deletion. Source code cannot substitute for those repository-level controls.
+## 6. Browser / security checklist
 
-## Rollback
+As applicable, confirm:
 
-- Cloudflare: roll back to the previous Worker deployment or disable the route/custom domain.
-- Vercel: promote the previous verified deployment.
-- D1 data: point `universe_current.version_id` back to a retained prior version if only constituent data needs rollback.
-- PR-scoped rollback: restore the verified `backup-pre-pr<PR>-<SHA>` Release created by the generic release-backup gate.
-- Do not revoke or remove an old runtime path until its replacement has passed CI, production smoke, and user-journey checks.
+- root and `/portfolio/` load;
+- browser API calls remain same-origin through Cloudflare;
+- `/api/debug` remains unavailable;
+- errors do not expose stack traces/environment variables;
+- request IDs remain traceable where proxied;
+- Universe metadata/member counts are valid;
+- Exhaustive prepare preserves requested sources and TWD contract metadata;
+- Portfolio v3 preserves requested membership/reproducibility metadata;
+- Refinery workspace remains isolated from Portfolio persistence/request models.
+
+## 7. Release backup / merge governance
+
+`.github/workflows/release-backups.yml` is the generic pre/post merge recovery mechanism when the V3 risk classification/Batch requires it.
+
+Historical one-off backup/apply/diagnostic workflows are not current governance simply because GitHub retains old workflow registrations or run history. Current source-tree workflow authority is `.github/workflows/` on the candidate branch.
+
+Before an important merge:
+
+1. query actual current branch/ruleset/check state;
+2. confirm required checks apply to the exact final head;
+3. complete the review level required by V3 risk classification;
+4. confirm recovery point where required;
+5. merge only by an allowed non-bypass method;
+6. verify post-main deployment/smoke only when applicable.
+
+Do not encode volatile approval-count/strictness values here as permanent facts.
+
+## 8. Hosting quota / external CI failures
+
+A Vercel rate/quota failure is not proof of an application build defect, but it is also not permission to remove a required check. Classify external failures separately, avoid unnecessary preview churn, and require a genuine green required status when branch protection requires one.
+
+## 9. Rollback
+
+- **Cloudflare**: restore/promote the previous verified Worker deployment or disable the affected route/domain as appropriate.
+- **Vercel**: promote the previous verified deployment.
+- **D1 membership**: point `universe_current.version_id` back to a retained prior good version when only membership data requires rollback.
+- **Source**: revert/restore to the verified pre-change commit/release appropriate to the Batch risk.
+- **Production regression**: restore Last Known Good first, then RCA → fix → validate → review → redeploy.

@@ -1,31 +1,38 @@
 # Portfolio Lab 完全移植計畫
 
-本目錄是 `chihung1024/backtest` 完全移植至 `chihung1024/backteststock` 的不可省略驗收契約。最終產品必須是 `backteststock` 內的單一獨立 `/portfolio/` 專頁，並移除舊 repository、舊 GitHub Pages、舊 Vercel project 與跨專案 API 代理。
+Status: **HISTORICAL MIGRATION EVIDENCE — PR0–PR6 CLOSED. NOT LIVE PROJECT STATUS.**
 
-## 不可變更的目標
+本目錄保存 `chihung1024/backtest` 移植至 `chihung1024/backteststock` 的 migration/cutover 契約與歷史證據。現行產品/架構請以根 `README.md`、`apps/api/README.md`、相關 contract/ADR 與 `to_do_update_list.md` 為準。
+
+原計畫中的 PR7（外部舊 Pages / Vercel project / repository 下線）**不是目前 Active Batch，也不得由新 Agent 因看到本文件而自行啟動**。只有在 live roadmap 明確重新排入，並重新驗證外部資源/相依性後，才可處理。
+
+本目錄暫時保留，是因 PR2–PR6 仍含部分唯一 Portfolio ledger/API/cutover 設計證據；當這些唯一語意完整被現行 versioned authority 吸收後，可依 `docs/PROJECT_DOCUMENTATION_POLICY.md` 再移除，歷史差異由 Git 保存。
+
+## 原始不可變更目標（歷史）
 
 1. 唯一正式 repository：`chihung1024/backteststock`。
 2. 唯一正式前端：`/portfolio/` 全頁式應用，不使用 `<dialog>` 或 iframe 承載主功能。
-3. 唯一後端：`backteststock` 自有 API；正式 runtime 不得呼叫 `portfolio-backtest-api.vercel.app`。
-4. 唯一資料核心：現有 TWD History、FX、公司行為稽核、指紋與 metric-version 架構。
-5. 原專案較完整的現金流、股息、再平衡、交易成本、槓桿、XIRR、完整指標及分析功能，必須在上述核心上重新實作。
-6. Scanner、一般投組回測與 Exhaustive Optimizer 必須共享同一 TWD 資料契約，不另建第二套 Yahoo／FX 下載邏輯。
-7. 每個遷移 PR 必須完成測試、合併 `main`、正式部署驗證與 post-merge Release 後，才進入下一階段。
+3. 唯一後端：`backteststock` 自有 API；正式 runtime 不呼叫舊 Portfolio API origin。
+4. 唯一資料核心：TWD History、FX、公司行為稽核、指紋與 metric-version 架構。
+5. 原專案較完整的現金流、股息、再平衡、交易成本、槓桿、XIRR、完整指標及分析功能，在上述核心上重新實作。
+6. Scanner、一般投組回測與 Exhaustive Optimizer 共用 TWD 資料契約，不另建第二套 Yahoo／FX 下載邏輯。
 
-## 執行進度
+## 歷史執行進度
 
-| 階段 | 狀態 | 已完成內容 |
+| 階段 | 歷史狀態 | 已完成內容 |
 |---|---|---|
-| PR 0 | 已完成 | 凍結來源 commit、核心 blob SHA、35 項能力矩陣、完整 request／response contract、合成行情與 parity scenarios |
-| PR 1 | 已完成 | TWD total／price／distribution return components、Yahoo 原始組成欄位保留、History Service 整合、相容性與全套 CI 驗證 |
-| PR 2 | 已完成 | 自有 Portfolio Ledger、現金流、配息策略、成本、定期／門檻再平衡、fixed-ratio／fixed-debt 槓桿、margin liquidation、完整指標與部分成功服務 |
-| PR 3 | 已完成 | 自有 FastAPI Portfolio v3、Preflight、嚴格 schema、Edge proxy、因子／FX 分離、受約束風格、環境分析與 FRED 降級 |
-| PR 4 | 已完成 | React + TypeScript `/portfolio/` 獨立專頁、五投組／二十資產、完整設定與九個結果頁籤、儲存分享匯出、390px 響應式驗收 |
-| PR 5 | 已完成 | 主站與 Scanner 正常導覽至 `/portfolio/`，保留選股、日期、Benchmark、覆蓋率、排序、分頁與返回狀態 |
-| PR 6 | 已完成 | 刪除舊 Dialog runtime、`/api/portfolio-lab/*`、原 API 網域與 Pages 偽裝，正式切換自有 Portfolio v3 smoke |
-| PR 7 | 未開始 | 遷移通知、觀察期、外部舊 GitHub Pages／Vercel project／repository 停用與刪除 |
+| PR 0 | CLOSED | 凍結來源 commit、核心 blob SHA、能力矩陣、request/response contract、合成行情與 parity scenarios |
+| PR 1 | CLOSED | TWD total/price/distribution return components、Yahoo 原始組成欄位、History Service 整合 |
+| PR 2 | CLOSED | Portfolio Ledger、現金流、配息策略、成本、再平衡、槓桿、margin liquidation、指標與部分成功服務 |
+| PR 3 | CLOSED | FastAPI Portfolio v3、Preflight、嚴格 schema、Edge proxy、因子/FX 分離、analytics 降級 |
+| PR 4 | CLOSED | React + TypeScript `/portfolio/` 獨立專頁、設定/結果/儲存分享匯出/RWD |
+| PR 5 | CLOSED | 主站與 Scanner 導覽至 `/portfolio/` 並保留 handoff state |
+| PR 6 | CLOSED | 刪除舊 Dialog runtime、舊 portfolio-lab API/跨專案代理並切換自有 Portfolio v3 smoke |
+| PR 7 | HISTORICAL PLAN / NOT ACTIVE | 原規劃的外部舊資源停用/刪除；未經 live roadmap 重新啟動不得執行 |
 
-目前版本化契約：
+## 當時版本化契約快照
+
+以下只作 migration history；目前版本應從實作/現行 contract 查詢：
 
 - `RETURN_COMPONENT_SOURCE_VERSION = yahoo-close-events-2026-08-04.1`
 - `RETURN_COMPONENTS_CONTRACT_VERSION = twd-return-components-2026-08-04.1`
@@ -42,110 +49,29 @@
 
 `36eab9a380b69f0f3bd86c3906066f4f56e715bc`
 
-詳細檔案 blob SHA、功能清單及契約 fixture 見：
+詳細 fixture / capability evidence 保存在 `tests/fixtures/portfolio_migration/`。
 
-- `tests/fixtures/portfolio_migration/source_manifest.json`
-- `tests/fixtures/portfolio_migration/capability_matrix.json`
-- `tests/fixtures/portfolio_migration/legacy_request.json`
-- `tests/fixtures/portfolio_migration/legacy_response_shape.json`
-- `tests/fixtures/portfolio_migration/synthetic_market_data.csv`
-- `tests/fixtures/portfolio_migration/scenarios.json`
+## 歷史契約索引
 
-## 分階段執行
+- `PR2_LEDGER_METRICS.md` — Portfolio Ledger / metric migration semantics.
+- `PR3_PORTFOLIO_V3_API.md` — Portfolio v3 API migration contract.
+- `PR4_FULL_PAGE_APP.md` — full-page frontend migration contract.
+- `PR5_NAVIGATION_HANDOFF.md` — Scanner/Portfolio handoff migration contract.
+- `PR6_RUNTIME_CUTOVER.md` — runtime technical cutover evidence.
 
-| 階段 | 交付內容 | 正式功能影響 |
-|---|---|---|
-| PR 0 | 凍結來源、能力矩陣、請求／回應 fixture、合成行情與測試契約 | 無 |
-| PR 1 | TWD 報酬組成資料層：價格、配發、公司行為與 FX 可稽核分解 | 資料模型擴充，既有流程保持相容 |
-| PR 2 | Portfolio Ledger、現金流、配息策略、成本、再平衡、槓桿與完整指標 | 新自有回測核心 |
-| PR 3 | FastAPI Portfolio v3、Preflight、進階分析及型別契約 | 新自有 API |
-| PR 4 | React + TypeScript `/portfolio/` 單一獨立專頁 | 新正式介面 |
-| PR 5 | Scanner → Portfolio 正常頁面導覽與狀態保留 | 移除主要 Dialog 流程 |
-| PR 6 | 切換正式 API、刪除舊代理與舊網域 runtime 依賴 | 完成技術斬斷 |
-| PR 7 | 遷移通知、觀察期、停用並刪除原專案與舊 Vercel project | 完成下線 |
+這些文件描述 migration 時點的契約/決策，不自動凌駕後續現行 contract、tests 或 implementation。
 
-## PR 1 報酬組成契約
+## 歷史差異治理
 
-原有 Adjusted Close 總報酬仍是 Scanner、一般回測與 Optimizer 的既有真值；新增組成層不改寫其歷史結果。
+移植允許修正舊系統缺陷，但差異必須有 fixture/evidence、版本化語意與書面理由。主要原則包括：
 
-在原生報價幣別中：
+- XIRR 無解/多重解不得偽裝唯一答案；
+- partial periods 必須明示；
+- VaR/CVaR 語意明示；
+- factor/style/FX 分析須保留適當模型範圍；
+- 附加 analytics failure 不應無條件抹除有效主回測；
+- silent ticker deletion、silent period shrink 或 unavailable-as-zero 禁止。
 
-```text
-Total Return = Price Return + Distribution Return
-```
+## 歷史完成定義
 
-其中 Distribution Return 由 Yahoo 報告的現金股利與資本利得配發，以前一有效 Raw Close 換算。Price Return 定義為總報酬扣除配發報酬，確保加法恆等式精確成立，並避免將拆股造成的 Raw Close 尺度跳變誤認為投資損益。
-
-換算 TWD 時：
-
-```text
-TWD Total Return = (1 + Native Total Return) × (1 + FX Return) - 1
-TWD Distribution Return = Native Distribution Return × (1 + FX Return)
-TWD Price Return = TWD Total Return - TWD Distribution Return
-```
-
-資產與 FX 使用聯集日曆，只在各自已有真實觀察後向前填補，禁止 backward fill。這使 Portfolio Ledger 能正確比較「股息再投入」與「配息保留 TWD 現金」，而不重複計入 Adjusted Close 已內含的總報酬。
-
-## PR 2 Portfolio Ledger 契約
-
-完整事件順序、TWR 現金流處理、配息政策、再平衡、交易成本、槓桿、XIRR、VaR／CVaR、回撤事件與 partial-period 定義見：
-
-- `docs/portfolio-migration/PR2_LEDGER_METRICS.md`
-
-PR 2 僅建立自有 framework-neutral 核心，尚未切換公開 API 或當時的 Portfolio Lab 介面。
-
-## PR 3 Portfolio v3 API 契約
-
-新 API、Preflight、Edge allowlist、回應版本、因子／FX 分離、受約束風格、環境分類及 FRED 降級規則見：
-
-- `docs/portfolio-migration/PR3_PORTFOLIO_V3_API.md`
-
-PR 3 建立 `GET /api/v3/portfolio/health`、資產搜尋、Preflight 與 Backtests。Cloudflare 只轉送至 `backteststock` 自有 `BACKEND_ORIGIN`，不偽裝舊 GitHub Pages。Macro regime 在缺少必要 rolling 或 YoY 證據的月份保持未分類，不以預設分支虛構環境標籤。舊 Portfolio Lab 路徑與跨專案代理已於 PR 6 完全移除。
-
-## PR 4 全頁式應用契約
-
-`/portfolio/` 可直接開啟、重新整理及分享，使用同源 Portfolio v3 API，主功能不使用 Dialog 或 iframe。完整資產矩陣、手機聚焦編輯、模擬設定、九個結果頁籤、資料稽核、儲存／分享／匯入／匯出及無障礙規則見：
-
-- `docs/portfolio-migration/PR4_FULL_PAGE_APP.md`
-- `docs/portfolio-migration/PR4_ACCEPTANCE.md`
-
-## PR 5 Scanner handoff 契約
-
-主站與 Scanner 以正常頁面導覽進入 `/portfolio/`；選股、日期、Benchmark、資料覆蓋率與返回狀態由版本化 handoff bridge 保存，不依賴舊 Portfolio Lab runtime。
-
-## PR 6 runtime 技術斬斷
-
-正式 runtime 現在只保留 `/portfolio/` 與 `/api/v3/portfolio/*`。退役檔案、禁止字串契約與混合市場 production smoke 見：
-
-- `docs/portfolio-migration/PR6_RUNTIME_CUTOVER.md`
-- `tests/test_portfolio_runtime_cutover.mjs`
-- `scripts/smoke_test_portfolio_v3.mjs`
-
-## 差異治理
-
-「移植」不是要求複製原專案的缺陷。下列改良允許產生與舊版不同的結果，但必須：
-
-1. 在 capability matrix 標記 `improved`。
-2. 建立固定 fixture 或合成行情證明差異原因。
-3. 在 PR 說明列出舊行為、新行為與財務意義。
-4. 變更 metric／valuation contract version。
-
-預先核准的改良方向包括：
-
-- XIRR 無解或多重解明確回報，不假裝存在唯一答案。
-- 第一個不完整年度／月份明確標記 partial。
-- VaR／CVaR 明示為歷史模擬每日風險值。
-- 風格分析採真正的非負、合計 100% 受約束回歸。
-- 因子分析區分資產因子與 TWD 投資人的 FX 曝險。
-- 主回測、Benchmark 與進階分析採分級失敗，不因附加分析失敗抹除有效主結果。
-
-## 完成定義
-
-原專案只能在以下條件全部成立後刪除：
-
-- capability matrix 所有 `required` 項目均為 `implemented` 或經核准的 `improved`。
-- 正式 runtime code 不含舊 API、舊 Pages 路徑、`/api/portfolio-lab/` 或 `integrated-backtest-dialog`。
-- `/portfolio/` 可直接開啟、重新整理、分享與從 Scanner 導入。
-- 新 API production smoke 涵蓋混合市場、現金流、股息、再平衡、成本及槓桿。
-- 新舊平行對照完成，差異均有書面解釋。
-- 至少兩次正式發布或 30 天觀察期內無舊 API 依賴。
+PR0–PR6 的技術移植已完成。任何仍涉及外部舊 repository / Pages / Vercel project 的後續清理，必須重新做 current-state dependency audit，並由 live roadmap 明確排入新的 Batch；本歷史文件本身不構成執行授權。
