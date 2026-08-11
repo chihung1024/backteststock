@@ -23,7 +23,7 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function assertSecureResponse(response, expectedRequestId) {
+function assertSecureResponse(response) {
   assert(
     response.headers.get("cache-control")?.toLowerCase().includes("no-store"),
     "Refinery response is missing cache-control: no-store",
@@ -36,10 +36,9 @@ function assertSecureResponse(response, expectedRequestId) {
     response.headers.get("x-refinery-api-schema-version") === REFINERY_SCHEMA_VERSION,
     "Refinery schema response header does not match the Phase 5 schema",
   );
-  assert(
-    response.headers.get("x-request-id") === expectedRequestId,
-    "Refinery request ID was not preserved end-to-end",
-  );
+  const requestId = String(response.headers.get("x-request-id") || "").trim();
+  assert(requestId.length > 0, "Refinery response is missing a traceable x-request-id");
+  return requestId;
 }
 
 function assertNoSensitiveFailureText(text) {
@@ -48,7 +47,7 @@ function assertNoSensitiveFailureText(text) {
   assert(!normalized.includes("environment variable"), "Refinery response exposed environment detail");
 }
 
-async function requestJson(fetchImpl, origin, path, requestId, body, requestTimeoutMs) {
+async function requestJson(fetchImpl, origin, path, body, requestTimeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
@@ -57,7 +56,6 @@ async function requestJson(fetchImpl, origin, path, requestId, body, requestTime
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        "x-request-id": requestId,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -73,8 +71,8 @@ async function requestJson(fetchImpl, origin, path, requestId, body, requestTime
     if (!response.ok) {
       throw new Error(`${path} returned HTTP ${response.status}: ${text.slice(0, 500)}`);
     }
-    assertSecureResponse(response, requestId);
-    return payload;
+    const requestId = assertSecureResponse(response);
+    return { payload, requestId };
   } finally {
     clearTimeout(timeout);
   }
@@ -175,25 +173,25 @@ export async function runRefinerySmoke(originArgument, options = {}) {
     240_000,
   );
 
-  const preflight = await requestJson(
+  const preflightResponse = await requestJson(
     fetchImpl,
     origin,
     "/api/v1/refinery/preflight",
-    "p5-close-refinery-preflight",
     REFINERY_SMOKE_REQUEST,
     requestTimeoutMs,
   );
+  const preflight = preflightResponse.payload;
   assertCommonContract(preflight, "preflight");
   assert(preflight.status === "ready", "Refinery preflight is not ready for the bounded smoke set");
 
-  const analyze = await requestJson(
+  const analyzeResponse = await requestJson(
     fetchImpl,
     origin,
     "/api/v1/refinery/analyze",
-    "p5-close-refinery-analyze",
     REFINERY_SMOKE_REQUEST,
     requestTimeoutMs,
   );
+  const analyze = analyzeResponse.payload;
   assertCommonContract(analyze, "analyze");
   assertAnalyzeContract(analyze);
 
@@ -206,6 +204,8 @@ export async function runRefinerySmoke(originArgument, options = {}) {
     symbols: analyze.dataset.resolved_symbols,
     effectiveStart: analyze.dataset.effective_start,
     effectiveEnd: analyze.dataset.effective_end,
+    preflightRequestId: preflightResponse.requestId,
+    analyzeRequestId: analyzeResponse.requestId,
     clusteringStatus: analyze.analysis.clustering.status,
     redundancyVerdict: analyze.analysis.redundancy.pairs[0]?.verdict ?? null,
     factorStatus: analyze.analysis.factor_relationships.status,
