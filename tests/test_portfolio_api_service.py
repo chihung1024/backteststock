@@ -261,6 +261,14 @@ def test_multi_portfolio_benchmark_uses_the_common_comparison_window() -> None:
         "2024-01-05",
         "2024-01-05",
     ]
+    assert [item["series"][0]["date"] for item in result.results] == [
+        "2024-01-04",
+        "2024-01-04",
+    ]
+    assert [item["series"][-1]["date"] for item in result.results] == [
+        "2024-01-05",
+        "2024-01-05",
+    ]
     assert any("common-runnable-portfolios-v1" in warning for warning in result.warnings)
     assert result.benchmark is not None
     benchmark = result.benchmark
@@ -273,6 +281,11 @@ def test_multi_portfolio_benchmark_uses_the_common_comparison_window() -> None:
     )
     assert benchmark["metrics"]["initial_balance"] == pytest.approx(100.0)
     assert benchmark["metrics"]["final_balance"] == pytest.approx(110.0)
+    assert benchmark["metrics"]["total_return"] == pytest.approx(
+        benchmark["metrics"]["final_balance"]
+        / benchmark["metrics"]["initial_balance"]
+        - 1.0
+    )
     expected_cagr = (110.0 / 100.0) ** DAYS_PER_YEAR - 1.0
     assert benchmark["metrics"]["cagr"] == pytest.approx(expected_cagr)
     assert benchmark["metrics"]["total_income"] == pytest.approx(0.0)
