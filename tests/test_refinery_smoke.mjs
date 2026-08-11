@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -238,5 +239,18 @@ test("Refinery smoke rejects an otherwise valid response without a traceable Wor
       attempts: 1,
     }),
     /missing a traceable x-request-id/,
+  );
+});
+
+test("Cloudflare production deploy permanently invokes the Refinery smoke gate", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/deploy-cloudflare.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /scripts\/smoke_test_refinery_v1\.mjs/);
+  assert.match(workflow, /Smoke test production Refinery v1 Phase 5 flow/);
+  assert.match(
+    workflow,
+    /run: node scripts\/smoke_test_refinery_v1\.mjs "\$WORKER_ORIGIN"/,
   );
 });
