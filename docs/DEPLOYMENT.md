@@ -146,9 +146,27 @@ Before an important merge:
 
 Do not encode volatile approval-count/strictness values here as permanent facts.
 
-## 8. Hosting quota / external CI failures
+## 8. Hosting quota / Vercel deployment economy
 
-A Vercel rate/quota failure is not proof of an application build defect, but it is also not permission to remove a required check. Classify external failures separately, avoid unnecessary preview churn, and require a genuine green required status when branch protection requires one.
+A Vercel rate/quota failure is not proof of an application build defect, but it is also not permission to remove a required check. Classify external failures separately and require a genuine green required status when branch protection requires one.
+
+Repository policy is defined in [`VERCEL_DEPLOYMENT_ECONOMY.md`](VERCEL_DEPLOYMENT_ECONOMY.md). The core operating model is:
+
+```text
+internal-<batch>    -> implementation / RCA / repeated GitHub CI; automatic Vercel deployment disabled
+candidate-<batch>   -> converged merge candidate; Vercel Preview enabled
+main                -> production deployment
+```
+
+`vercel.json` disables Git deployments for branch names matching `internal-*`; unspecified branches remain deployment-enabled. Do not open an `internal-*` branch as the final merge candidate because the required Vercel status is intentionally absent there.
+
+For a normal Batch, target one final Preview deployment, plus at most one additional Preview after a real material blocker fix. This is an operational budget, not a substitute for risk-proportional validation.
+
+When GitHub tooling would otherwise create one remote commit per file, prefer one atomic tree commit for a coherent multi-file change. Keep iterative/temporary commits on `internal-*` whenever possible.
+
+Do not create empty commits, touch unrelated files, toggle governance, or bypass branch protection solely to retrigger Vercel after quota exhaustion. Freeze the exact candidate and wait for quota recovery or use a supported redeploy of the exact Git revision.
+
+`ignoreCommand` may be evaluated later as a secondary optimization only after its effect on required status and quota accounting is verified end to end.
 
 ## 9. Rollback
 
