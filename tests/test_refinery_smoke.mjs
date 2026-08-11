@@ -99,7 +99,7 @@ function analyzePayload({ factorEligible = false } = {}) {
   };
 }
 
-function jsonResponse(payload, requestId) {
+function jsonResponse(payload, responseRequestId) {
   return new Response(JSON.stringify(payload), {
     status: 200,
     headers: {
@@ -107,35 +107,40 @@ function jsonResponse(payload, requestId) {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "x-refinery-api-schema-version": REFINERY_SCHEMA_VERSION,
-      "x-request-id": requestId,
+      "x-request-id": responseRequestId,
     },
   });
 }
 
-function fakeFetchFactory(analyzeOptions = {}) {
+function fakeFetchFactory(analyzeOptions = {}, responseRequestIds = ["worker-preflight-id", "worker-analyze-id"]) {
   const requests = [];
+  let responseIndex = 0;
   const fetchImpl = async (url, options) => {
     const parsed = new URL(url);
-    const requestId = options.headers["x-request-id"];
     requests.push({
       path: parsed.pathname,
       method: options.method,
       body: JSON.parse(options.body),
-      requestId,
+      clientRequestId: options.headers["x-request-id"],
     });
+    const responseRequestId = responseRequestIds[responseIndex] || `worker-id-${responseIndex}`;
+    responseIndex += 1;
     if (parsed.pathname.endsWith("/preflight")) {
-      return jsonResponse(preflightPayload(), requestId);
+      return jsonResponse(preflightPayload(), responseRequestId);
     }
     if (parsed.pathname.endsWith("/analyze")) {
-      return jsonResponse(analyzePayload(analyzeOptions), requestId);
+      return jsonResponse(analyzePayload(analyzeOptions), responseRequestId);
     }
     return new Response(JSON.stringify({ error: "unexpected path" }), { status: 404 });
   };
   return { fetchImpl, requests };
 }
 
-test("Refinery smoke exercises bounded preflight and analyze contracts", async () => {
-  const { fetchImpl, requests } = fakeFetchFactory();
+test("Refinery smoke exercises bounded preflight and analyze contracts through Worker request IDs", async () => {
+  const { fetchImpl, requests } = fakeFetchFactory(
+    {},
+    ["worker-generated-preflight", "worker-generated-analyze"],
+  );
   const summary = await runRefinerySmoke("https://example.test/path", {
     fetchImpl,
     requestTimeoutMs: 5_000,
@@ -147,10 +152,13 @@ test("Refinery smoke exercises bounded preflight and analyze contracts", async (
     ["/api/v1/refinery/preflight", "/api/v1/refinery/analyze"],
   );
   assert.ok(requests.every((request) => request.method === "POST"));
+  assert.ok(requests.every((request) => request.clientRequestId === undefined));
   assert.ok(requests.every((request) => request.body.contract_version === REFINERY_CONTRACT_VERSION));
   assert.ok(requests.every((request) => request.body.symbols.join(",") === "AAPL,MSFT"));
   assert.equal(summary.schemaVersion, REFINERY_SCHEMA_VERSION);
   assert.equal(summary.clusteringContractVersion, CLUSTERING_CONTRACT_VERSION);
+  assert.equal(summary.preflightRequestId, "worker-generated-preflight");
+  assert.equal(summary.analyzeRequestId, "worker-generated-analyze");
 });
 
 test("Refinery smoke rejects factor corroboration eligibility without scope authority", async () => {
@@ -162,7 +170,7 @@ test("Refinery smoke rejects factor corroboration eligibility without scope auth
 });
 
 test("Refinery smoke rejects responses that expose traceback text", async () => {
-  const fetchImpl = async (_url, options) => new Response(
+  const fetchImpl = async () => new Response(
     JSON.stringify({ error: "Traceback: internal secret" }),
     {
       status: 502,
@@ -171,12 +179,32 @@ test("Refinery smoke rejects responses that expose traceback text", async () => 
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
         "x-refinery-api-schema-version": REFINERY_SCHEMA_VERSION,
-        "x-request-id": options.headers["x-request-id"],
+        "x-request-id": "worker-error-id",
       },
     },
   );
   await assert.rejects(
     runRefinerySmoke("https://example.test", { fetchImpl, requestTimeoutMs: 5_000 }),
     /exposed a traceback/,
+  );
+});
+
+test("Refinery smoke rejects an otherwise valid response without a traceable Worker request ID", async () => {
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    const payload = parsed.pathname.endsWith("/preflight") ? preflightPayload() : analyzePayload();
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-refinery-api-schema-version": REFINERY_SCHEMA_VERSION,
+      },
+    });
+  };
+  await assert.rejects(
+    runRefinerySmoke("https://example.test", { fetchImpl, requestTimeoutMs: 5_000 }),
+    /missing a traceable x-request-id/,
   );
 });
