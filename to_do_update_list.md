@@ -1,165 +1,102 @@
 # BacktestStock — Live Project Status & Handoff
 
-> Repository-internal live execution authority. Mutable operational facts (current SHA, PR/check state, deployment, ruleset) must be re-queried before acting. Durable architecture belongs in README/contracts/ADRs; detailed execution history remains reconstructable from Git/PR history.
+> Repository-internal live execution authority. Mutable operational facts such as current SHA, PR/check state, deployment state and ruleset state must always be re-queried before acting. Durable architecture belongs in README/contracts/ADRs; detailed execution history remains reconstructable from Git/PR history.
 
 ## 1. Primary Goal
 
-Complete the current **main documentation/governance transition**, then converge the already-corrected Phase 5 parent onto that `main` baseline, close Phase 5, and only then begin Phase 6.
+Complete **Phase 5 — Clustering & Redundancy**, merge it safely to current production `main`, complete post-main verification, and only then begin Phase 6.
 
-A separate high-priority Portfolio correctness improvement — **Issue #69 / PR #70: Common Comparison Window + side-by-side portfolio comparison** — is already implemented/validated on a stacked branch and must be transitioned to `main` after the documentation baseline is stable.
+**Primary Active Batch: PR #65 parent final validation / merge / closeout.**
 
----
-
-## 2. Current Operational Snapshot
-
-### `main`
-
-- Repository: `chihung1024/backteststock`
-- Production candidate branch: `main`
-- Current documentation/governance transition base: `main@b116b73c7dbc189fb0eae34624925fe2e16b81ae`
-- Last product-code Phase 4 closeout before that governance-only commit: `db3e692e3e4ce1962d6953988464947b35d5ef82`
-- PR #67 / `b116b73...` accidentally replaced the complete playbook with only the V3 Final Hardening fragment. PR #68 repairs this and is therefore an R2 governance-document correctness change.
-
-### Primary Active Merge/Transition Batch — DOC-CLEAN / PR #68
-
-- Branch: `docs/v3-governance-doc-cleanup`
-- PR: **#68** — `docs: restore V3 governance and clean stale documentation`
-- Risk: **R2 — Significant** because engineering-governance/document authority changes.
-- Content scope: complete V3 governance restoration, documentation authority/index cleanup, stale document removal, live handoff convergence.
-- Prior exact candidate passed Full CI and independent content review but its required Vercel status was left red by the previous free-tier daily deployment quota.
-- This live-handoff refresh intentionally creates a new meaningful candidate so CI/Vercel can revalidate after quota recovery; do not use an empty/no-op retry commit.
-- Before merge: query #68 exact head/checks again, perform focused exact-head review of this live-state-only delta, then expected-head squash merge if blocker=0.
-
-### Phase 5 parent — corrected implementation already merged into parent branch
-
-- Parent PR: **#65** — `phase5/clustering-redundancy` -> `main`
-- PR remains the Phase 5 merge authority.
-- Correctness-convergence child PR **#71** has been expected-head squash-merged into the Phase 5 parent.
-- #71 merge SHA on `phase5/clustering-redundancy`: `bd3efe66a85893981dd19af9867fd0b3559951d5`.
-- P5-CORR A–D, P5-SEC and child-level P5-VAL were completed before that merge.
-- #71 pre/post release-backup workflow executed under the `release-backup` gate; re-query remote release/run state when audit detail is needed.
-- Parent #65 must **not** merge to `main` until #68 establishes the current main documentation/governance authority and #65 is reconciled/revalidated against that new main.
-
-### Historical Phase 5 docs child — PR #66
-
-- PR #66 contains useful Phase5-specific historical review evidence but also obsolete general documentation/reviewer-gate prose.
-- Its Phase5-specific contract/review content was promoted through #71.
-- Do **not** wholesale merge #66.
-- After verifying no unique current evidence remains only in #66, close it as superseded rather than reintroducing stale README/Deployment/TODO/governance content.
-
-### High-priority Portfolio correctness — Issue #69 / PR #70
-
-- Issue #69: common comparison window + simultaneous side-by-side portfolio results.
-- PR #70: `fix/portfolio-common-comparison-window`, intentionally stacked on #68.
-- Exact reviewed implementation checkpoint: `7eda99e6383c44359fd5e49c89f7f21b5ec5f83c`.
-- Full CI #461 PASS; Portfolio web CI #99 PASS; V3 independent review PASS / BLOCKER=0.
-- Semantics: when >=2 sibling portfolios are runnable, recompute every portfolio from one shared intersection window; no post-hoc curve clipping/relabeling; single-portfolio full-history behavior preserved; no common window fails explicitly; browser shows server metrics only.
-- After #68 lands, retarget/sync #70 to `main`, re-evaluate material diff, rerun required gates, then merge/close #69 before lower-priority feature expansion.
+Do not start Phase 6 or add unrelated feature work while Phase 5 remains open.
 
 ---
 
-## 3. Stable State / Recovery
+## 2. Production / Stable State
 
-### Product baseline
+### Production `main`
 
-Last production-closeout product checkpoint before current unmerged work:
+- Repository: `chihung1024/backteststock`.
+- Current production checkpoint before Phase 5 merge: `af1cd83e41b23df745e27f39b9992e7a8a56fde0`.
+- PR #68 — V3 governance/document authority cleanup: **CLOSED / PASS / POST-MAIN VERIFIED**.
+- PR #70 / Issue #69 — Portfolio common comparison window + side-by-side comparison: **CLOSED / PASS / POST-MAIN VERIFIED**.
+- #70 production closeout passed main Full CI, Portfolio web CI, Cloudflare deploy/smoke, Vercel and post-merge backup.
 
-- Phase 4 implementation #63: `e59c1402011c7e8c940f806e79c9ce4b0da3f47f`
-- Phase 4 closeout #64: `db3e692e3e4ce1962d6953988464947b35d5ef82`
-- pre backup: `backup-pre-pr63-17f0dd88aeae`
-- post backup: `backup-post-pr63-e59c1402011c`
+### Recovery anchors
 
-### Phase 5 correction checkpoint
+- Phase 4 closeout: `db3e692e3e4ce1962d6953988464947b35d5ef82`.
+- Phase 5 corrected-parent checkpoint after PR #71: `bd3efe66a85893981dd19af9867fd0b3559951d5`.
+- Latest production main integrated into Phase 5: `af1cd83e41b23df745e27f39b9992e7a8a56fde0`.
+- Latest-main reconciliation merge into Phase 5 parent: `b52904119a2c7b85ef704ad362a50a15d0efabfd` before final status-document convergence.
 
-- Original Phase 5 correction recovery point: `0dd3c12b3097975bdcd4d36aeab5504987efbe29`
-- Corrected parent merge checkpoint after #71: `bd3efe66a85893981dd19af9867fd0b3559951d5`
-
-Do not infer production deployment from branch merge alone. `main`, required statuses, deployment and smoke state must be queried directly.
-
----
-
-## 4. Documentation Authority
-
-1. `AI_PROJECT_PLAYBOOK.md` — engineering governance; V3.0 is the locked/frozen baseline once PR #68 lands.
-2. `README.md` — durable product/architecture/run/test/deploy overview.
-3. `to_do_update_list.md` — current Phase/Batch/blockers/exact next action.
-4. `docs/PROJECT_DOCUMENTATION_POLICY.md` — documentation authority/freshness/cleanup rules.
-5. `docs/README.md` + `docs/research/README.md` — canonical navigation.
-6. `docs/quant/*`, `docs/research/*`, ADRs — versioned semantic/architecture authorities.
-7. GitHub/Vercel/Cloudflare remote state — current operational truth for mutable facts.
-
-If documentation conflicts with remote state, classify documentation drift and repair the live authority; do not infer operational facts from stale prose.
+Always re-query the actual remote head before merge. Do not treat these checkpoints as a substitute for current remote state.
 
 ---
 
-## 5. DOC-CLEAN Scope
+## 3. Phase 5 Parent — PR #65
 
-### Completed content work
+- PR: **#65 — `feat: add Phase 5 clustering and redundancy diagnostics`**.
+- head branch: `phase5/clustering-redundancy`.
+- base: current `main`.
+- risk: **R2 — quantitative methodology / API evidence / production UI integration**.
+- status: **ACTIVE — FINAL EXACT-HEAD VALIDATION**.
+- PR #65 must remain Draft until the final exact-head gates and independent review pass.
 
-- Restored the agreed **complete V3.0** playbook rather than a patch-only or newly invented compressed substitute.
-- Integrated the accepted Final Hardening controls without reopening governance architecture.
-- Added `docs/PROJECT_DOCUMENTATION_POLICY.md`, `docs/README.md`, `docs/research/README.md`.
-- Reworked root/API/deployment documentation around current Portfolio v3 + Refinery v1 boundaries.
-- Marked Phase -1 and Portfolio migration plans historical where appropriate.
-- Removed demonstrably superseded live-tree documents:
-  - `docs/OPTIMIZER_IMPLEMENTATION_STATUS.md`
-  - `docs/EXHAUSTIVE_OPTIMIZER_V2.md`
-  - `docs/PORTFOLIO_OPTIMIZER_MVP.md`
-- Retained historical material that still contains unique audit/contract value.
-- Audited workflow source: only five current YAML workflows remain and each has a real responsibility.
+### Branch ancestry is reconciled
 
-### GitHub Actions registry residue
+Latest-main reconciliation is complete:
 
-GitHub Actions UI/API still contains many historical one-off workflow registrations whose YAML source files are already absent. Treat those as operational registry residue, not source-tree authority. Clean only through a supported GitHub UI/API mutation; do not delete the five useful current workflows merely to reduce counts.
+- recovery child: `phase5/reconcile-main-2026-08-11`;
+- PR #74 latest-main reconciliation: **MERGED / PASS**;
+- current production `main@af1cd83...` is now an actual ancestor of the Phase 5 parent;
+- GitHub compare after reconciliation: `behind_by=0`, Phase 5 branch is ahead only;
+- #65 final diff therefore represents Phase 5 work rather than reintroducing already-deployed #68/#70 changes.
+
+### Historical docs child
+
+PR #66 is **CLOSED / SUPERSEDED / NOT MERGED**.
+
+Its useful Phase5-specific evidence has been promoted into current contracts/review records. Its obsolete general README/Deployment/TODO and old different-GitHub-account review wording must not be wholesale merged back into the parent.
 
 ---
 
-## 6. Phase 5 Correctness Convergence — RESOLVED in Parent Branch
+## 4. P5-CORR — CLOSED / PASS
 
-The four previously frozen correctness blockers have been implemented, tested and independently reviewed through PR #71.
+### M1 — bootstrap effective-input identity
 
-### M1 — bootstrap effective-sample identity — RESOLVED
+- one shared effective-sample preparation path;
+- exact effective symbols/dates/values fingerprint;
+- `ResearchDataset.dataset_hash` remains separate;
+- seed includes effective fingerprint + contract/linkage/cut/window/block/replicates;
+- primitive verifies supplied fingerprint against the actual effective sample.
 
-- shared effective sample preparation: numeric -> canonical symbols -> trailing window -> non-finite->NaN -> complete-case;
-- fingerprint exact effective symbols/dates/values only;
-- `ResearchDataset.dataset_hash` remains independent and is never repurposed;
-- primitive verifies supplied fingerprint matches its effective sample;
-- seed material includes input fingerprint + clustering version/linkage/cut/window/block/replicates;
-- API evidence exposes explicit bootstrap input fingerprint/window.
+### M2 — factor boundary-month exclusion
 
-### M2 — factor boundary-month exclusion — RESOLVED
-
-- policy: `boundary-month-exclusion-v1`;
-- first/last represented calendar periods excluded;
-- no exchange-calendar completeness claim;
+- `boundary-month-exclusion-v1`;
+- first and last represented calendar periods excluded;
+- no invented exchange-calendar completeness authority;
 - no fabricated pre-window return;
-- minimum 36 observations required after exclusion.
+- minimum observation rule applies after exclusion.
 
-### M4 — one global systematic relationship sample — RESOLVED
-
-- individual diagnostics may retain individual valid samples;
-- matrix uses one deterministic global common monthly sample across matrix members + factor frame;
-- relationship betas refit and `Sigma_F` computed on exactly those rows;
-- insufficient common sample fails closed;
-- no pairwise-cell fallback;
-- observations/start/end/common-sample fingerprint exposed.
-
-### M3 — factor computability vs verdict applicability — RESOLVED
+### M3 — factor computability vs verdict applicability
 
 Separate:
 
-- `factor_computable`
-- `factor_model_scope`
-- `factor_corroboration_eligible`
+- `factor_computable`;
+- `factor_model_scope`;
+- `factor_corroboration_eligible`.
 
-Current scope/policy:
+Current policy remains `fail_closed_without_traceable_instrument_scope_v1`; diagnostic factor evidence may display but cannot upgrade redundancy verdicts without traceable eligibility authority.
 
-- model = `U.S.-factor co-movement diagnostic`;
-- current corroboration policy = `fail_closed_without_traceable_instrument_scope_v1`;
-- computable diagnostic beta/R²/systematic correlation may remain visible;
-- without traceable instrument-scope authority, factor evidence cannot upgrade a redundancy verdict.
+### M4 — one global systematic relationship sample
 
-### Corrected identities
+- individual diagnostics may keep individual valid samples;
+- one returned matrix uses one global common monthly sample;
+- relationship betas and `Sigma_F` use exactly the same rows;
+- insufficient common sample fails closed;
+- no pairwise-cell sample switching.
+
+Corrected identities:
 
 ```text
 REFINERY_CLUSTERING_CONTRACT_VERSION = refinery-clustering-twd-2026-08-10.2
@@ -167,36 +104,120 @@ REFINERY_API_CONTRACT_VERSION        = refinery-v1
 REFINERY_API_SCHEMA_VERSION          = refinery-v1-2026-08-10.3
 ```
 
-No persisted Refinery workspace schema bump was introduced because persisted request/input state did not change.
+No persisted Refinery workspace schema bump was introduced.
 
 ---
 
-## 7. P5-SEC — RESOLVED in Parent Branch
+## 5. P5-SEC — CLOSED / PASS
 
-Initial audit evidence on #71:
+Precise dev-tool remediation:
 
-- full npm dependency graph: 3 vulnerability nodes = 1 high + 2 moderate;
-- production-only audit: **0 vulnerabilities**;
-- vulnerable path was dev tooling only: `wrangler@4.115.0 -> miniflare@4.20260722.1 -> undici@7.28.0`.
+- `wrangler@4.120.1`;
+- `@cloudflare/workers-types@5.20260810.1`;
+- `miniflare@5.20260804.0-alpha`;
+- transitive `undici@7.29.0`.
 
-Remediation:
+No `--force`, `--legacy-peer-deps` or blanket `npm audit fix` was used.
 
-- no `--force`, no `--legacy-peer-deps`, no blanket audit fix;
-- precise peer-compatible updates:
-  - `wrangler 4.115.0 -> 4.120.1`
-  - `@cloudflare/workers-types 5.20260729.1 -> 5.20260810.1`
-- patched transitive `undici@7.29.0`;
-- post-fix full audit: **0 vulnerabilities**;
-- post-fix production-only audit: **0 vulnerabilities**;
-- exact-head Full CI included Worker tests + Cloudflare bundle dry-run and passed.
+Fresh post-reconciliation security evidence from read-only diagnostic run #146:
 
-Security focused review: PASS / BLOCKER=0.
+- full `npm audit --json`: **0 vulnerabilities**;
+- production-only `npm audit --omit=dev --json`: **0 vulnerabilities**;
+- info / low / moderate / high / critical all 0;
+- installed remediated chain verified explicitly.
+
+`package.json` and `package-lock.json` survived latest-main reconciliation without dependency drift from the corrected Phase 5 parent.
 
 ---
 
-## 8. Phase Roadmap
+## 6. Latest-main / Generated-asset Reconciliation — CLOSED / PASS
 
-| Phase / Batch | Objective | Current status |
+The only actual three-way conflict between production main and corrected Phase 5 was generated `public/portfolio` output.
+
+Resolution discipline:
+
+1. generated assets were neutralized on a recovery child rather than hand-merged;
+2. GitHub standard three-way merge then proved source histories compatible;
+3. production #70 Portfolio source and Phase 5 Refinery source existed simultaneously;
+4. combined TypeScript/source-contract validation passed before bundle regeneration;
+5. `public/portfolio` was rebuilt from the combined source in the normal PR synthetic-merge context;
+6. two consecutive builds had to be byte-identical;
+7. generated diff was restricted to the expected CSS/JS/map/index replacement;
+8. temporary write/audit workflow logic was removed;
+9. final read-only Portfolio workflow returned to content SHA `304ba63b61b96850f3c9d8b650b7f12da39789ab`.
+
+PR #74 final evidence:
+
+- Full CI #512: PASS;
+- Portfolio web CI #148: PASS;
+- Vercel required status: SUCCESS;
+- fresh npm audit evidence: 0 / 0 vulnerabilities;
+- V3 transition review: PASS / BLOCKER=0;
+- normal merge into Phase 5 parent completed.
+
+---
+
+## 7. Parent Final Validation Evidence Before This Status Refresh
+
+On reconciled parent checkpoint `b529041...`:
+
+- Portfolio web CI #149: **PASS**;
+- Full CI #513: **PASS**;
+- required Vercel status: **SUCCESS**;
+- Release Backup Gates #368: **PASS**;
+  - `create-pre-merge-backup` actually executed and succeeded;
+  - post-merge job correctly remained skipped before merge.
+
+These checks establish that reconciliation is sound, but the final merge candidate is the **new exact head after this status-document convergence**. Therefore all required exact-head checks must be re-queried/rerun once more before #65 leaves Draft.
+
+---
+
+## 8. Exact Remaining Work for PR #65
+
+1. Query the new #65 exact head after final status-document convergence.
+2. Confirm final diff remains Phase5-only relative to current main and no temporary workflow/helper file exists.
+3. Require exact-head:
+   - Full CI PASS;
+   - Portfolio web CI PASS;
+   - required Vercel SUCCESS;
+   - pre-merge release backup still valid/successful on the current base.
+4. Re-confirm fresh security evidence remains applicable because package/lock blobs are unchanged; rerun only if dependency blobs or advisory evidence materially changes.
+5. Freeze candidate and perform **V3 Same-AI Independent Review** from current exact diff/contracts/tests/security/recovery evidence.
+6. Findings only: BLOCKER / FOLLOW-UP / BACKLOG / REJECT.
+7. Any BLOCKER: exit reviewer mode -> fix root cause -> new head -> rerun applicable gates -> focused re-review.
+8. If BLOCKER=0 and all required statuses remain green:
+   - mark #65 Ready;
+   - final TOCTOU re-check;
+   - **expected-head squash merge #65 -> main**.
+
+---
+
+## 9. P5-CLOSE — Required After #65 Main Merge
+
+Phase 5 is not CLOSED merely because the PR merges.
+
+Required post-main evidence:
+
+- query new main SHA;
+- main Full CI PASS;
+- Portfolio web CI PASS;
+- Cloudflare deploy PASS;
+- applicable Russell / Portfolio / Refinery production smoke PASS;
+- Vercel production status green;
+- post-merge release backup PASS;
+- record known limitations:
+  - full-period Phase 5 evidence is not out-of-sample validation;
+  - factor model remains a scoped U.S.-factor co-movement diagnostic;
+  - instrument master/regional factor routing/theme provider remain later work.
+- update this file to **Phase 5 CLOSED / PASS** and set the exact Phase 6 resume point.
+
+Only after this closeout may Phase 6 begin.
+
+---
+
+## 10. Roadmap
+
+| Phase / Batch | Objective | Status |
 | --- | --- | --- |
 | -1 | Governance & Architecture Hardening | CLOSED / PASS |
 | 0 | Quant Authority Freeze | CLOSED / PASS |
@@ -204,14 +225,14 @@ Security focused review: PASS / BLOCKER=0.
 | 2 | Risk Mathematics Core | CLOSED / PASS |
 | 3 | Read-only Refinery API | CLOSED / PASS |
 | 4 | Refinery Diagnostic UI | CLOSED / PASS |
-| DOC-CLEAN / #68 | V3 governance + document authority cleanup | **ACTIVE MERGE TRANSITION** |
-| Portfolio #69/#70 | Common comparison window + side-by-side results | **IMPLEMENTED / VALIDATED / STACKED** |
-| 5 / #65 | Clustering & Redundancy | **ACTIVE — CORRECTIONS MERGED TO PARENT; MAIN TRANSITION PENDING** |
+| DOC-CLEAN / #68 | V3 governance + document authority cleanup | CLOSED / PASS / POST-MAIN VERIFIED |
+| Portfolio #69/#70 | common comparison window + side-by-side results | CLOSED / PASS / POST-MAIN VERIFIED |
 | P5-CORR A–D | M1–M4 correctness convergence | CLOSED / PASS |
-| P5-SEC | dependency security triage/remediation | CLOSED / PASS |
-| P5-VAL child | #71 exact-head final validation | CLOSED / PASS before parent merge |
-| P5 parent VAL/MERGE | reconcile new main + final #65 gates | NEXT |
-| 6 | Marginal Experiments | PLANNED / BLOCKED BY PHASE 5 CLOSEOUT |
+| P5-SEC | security remediation | CLOSED / PASS |
+| P5 main reconciliation / #74 | integrate current main into corrected Phase 5 | CLOSED / PASS |
+| 5 / #65 | Clustering & Redundancy | **ACTIVE — FINAL VALIDATION / MERGE** |
+| P5-CLOSE | post-main deploy/smoke/backup/limitations | NEXT |
+| 6 | Marginal Experiments | PLANNED / BLOCKED BY P5-CLOSE |
 | 7 | Walk-Forward / Research Validity | PLANNED |
 | 8 | Selection Policy | PLANNED |
 | 9 | Sizing | PLANNED |
@@ -220,41 +241,18 @@ Security focused review: PASS / BLOCKER=0.
 
 ---
 
-## 9. Required Transition Order
-
-1. **DOC-CLEAN / #68**
-   - validate latest meaningful TODO refresh;
-   - required Vercel green;
-   - focused exact-head review;
-   - expected-head squash merge to `main`.
-2. **#70 / Portfolio correctness transition**
-   - retarget/sync to new `main`;
-   - re-evaluate material diff;
-   - exact-head CI/Vercel/review;
-   - merge + production closeout + close #69.
-3. **Phase 5 parent #65**
-   - sync/reconcile the new `main` V3/docs authority into `phase5/clustering-redundancy` without resurrecting #66 stale general docs;
-   - verify #71 corrected code/contracts remain intact;
-   - full parent exact-head CI + Portfolio web + Playwright + required Vercel + backup + independent review;
-   - expected-head squash merge #65 to `main`;
-   - post-main deploy/smoke/backup/limitations closeout.
-4. **Phase 6** only after Phase 5 is CLOSED.
-
-If #70 and #65 have no code-level dependency, their preparation may occur in parallel, but only one Primary Active implementation/merge batch should be mutated at a time.
-
----
-
-## 10. NOW / NEXT / BACKLOG / REJECT
+## 11. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-- Finish #68 retry candidate validation/review/merge with required Vercel green.
+- Final exact-head validation and Independent Review for #65.
+- Expected-head squash merge only if BLOCKER=0 and all gates are green.
 
 ### NEXT
 
-- Transition and merge validated Portfolio #70 / close #69.
-- Reconcile/revalidate Phase 5 parent #65 against the new main documentation/governance baseline.
-- Phase 5 parent merge + post-main closeout.
+- P5-CLOSE post-main verification.
+- Update live handoff to Phase 5 CLOSED / PASS.
+- Start Phase 6 only after closeout.
 
 ### BACKLOG
 
@@ -266,31 +264,31 @@ If #70 and #65 have no code-level dependency, their preparation may occur in par
 - point-in-time Universe/fundamentals in Phase 11;
 - stale historical Actions registry cleanup when a supported mutation path is available.
 
-### REJECT for current scope
+### REJECT for Phase 5
 
 - magic 0–100 redundancy score;
-- KEEP/TRIM/REPLACE before later validation;
-- Phase 6 marginal experiments inside Phase 5;
-- sizing/HRP/ERC/min-var inside Phase 5;
-- Exhaustive selection integration before validation;
-- OOS claims from full-period winners;
+- KEEP/TRIM/REPLACE;
+- Phase 6 marginal experiments;
+- sizing / HRP / ERC / min-var;
+- Exhaustive selection integration;
+- OOS claims from full-period evidence;
 - untraceable themes;
 - branch-protection/Vercel bypass;
 - forced dependency remediation;
-- deleting useful current workflows merely to reduce Actions counts;
+- hand-merging generated production bundles;
+- reopening superseded PR #66 general docs;
 - further V3 governance expansion without a documented Reopen Condition.
 
 ---
 
-## 11. Exact Resume Point
+## 12. Exact Resume Point
 
-Primary active batch: **DOC-CLEAN / PR #68**.
+Primary active batch: **PR #65 final exact-head validation**.
 
-1. Query #68 exact head, mergeability, Full CI, Vercel required status and Release Backup applicability after this live-handoff refresh.
-2. Confirm the new delta since the previously reviewed #68 candidate is limited to this live-state handoff refresh.
-3. Final risk remains R2 because the overall PR changes governance/document authority.
-4. Enter Same-AI Independent Review Mode; focused review the latest delta + re-confirm prior content-review conclusions.
-5. Findings: BLOCKER / FOLLOW-UP / BACKLOG / REJECT.
-6. If BLOCKER=0 and required checks are green: use expected-head squash merge #68 to `main`.
-7. Re-query `main` and dependent PR bases immediately after merge.
-8. Continue with #70 transition, then Phase 5 parent #65 transition/validation/merge/closeout.
+1. Query #65 current head / mergeability / changed-file scope.
+2. Wait for final exact-head Full CI + Portfolio web CI + Vercel after this document refresh.
+3. Verify Release Backup gate and security evidence applicability.
+4. Freeze candidate; perform final V3 Independent Review.
+5. BLOCKER=0 + all required statuses green -> Ready -> TOCTOU check -> expected-head squash merge to `main`.
+6. Execute P5-CLOSE post-main verification.
+7. Only after Phase 5 is recorded CLOSED / PASS begin Phase 6.

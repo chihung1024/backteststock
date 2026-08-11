@@ -8,9 +8,11 @@ on:
       - "tests/e2e/portfolio_full_page.spec.mjs"
       - "tests/e2e/refinery_workspace.spec.mjs"
       - "tests/e2e/refinery_contract.spec.mjs"
+      - "tests/e2e/refinery_phase5.spec.mjs"
       - "tests/test_portfolio_web_contract.mjs"
       - "tests/test_portfolio_route_bridge.mjs"
       - "tests/test_refinery_web_contract.mjs"
+      - "tests/test_refinery_phase5_web_contract.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/portfolio-web-ci.yml"
@@ -22,9 +24,11 @@ on:
       - "tests/e2e/portfolio_full_page.spec.mjs"
       - "tests/e2e/refinery_workspace.spec.mjs"
       - "tests/e2e/refinery_contract.spec.mjs"
+      - "tests/e2e/refinery_phase5.spec.mjs"
       - "tests/test_portfolio_web_contract.mjs"
       - "tests/test_portfolio_route_bridge.mjs"
       - "tests/test_refinery_web_contract.mjs"
+      - "tests/test_refinery_phase5_web_contract.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/portfolio-web-ci.yml"
@@ -51,6 +55,6 @@ jobs:
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
-        run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
+        run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs tests/test_refinery_phase5_web_contract.mjs
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio

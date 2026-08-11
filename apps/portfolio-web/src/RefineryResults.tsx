@@ -6,6 +6,7 @@ import type {
   RefineryCorrelationView,
   RefineryPreflightResponse,
 } from "./refineryTypes";
+import { RefineryPhase5Results } from "./RefineryPhase5Results";
 
 const MAX_FULL_CORRELATION_MATRIX_SYMBOLS = 20;
 const MAX_CORRELATION_PAIR_ROWS = 30;
@@ -336,6 +337,7 @@ export function RefineryResults({ response }: { response: RefineryAnalyzeRespons
       <RiskContributionTable response={response} />
       <CovarianceStability response={response} />
       <Correlations response={response} />
+      <RefineryPhase5Results response={response} />
     </div>
   );
 }
