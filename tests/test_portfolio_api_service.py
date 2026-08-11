@@ -199,3 +199,61 @@ def test_style_preflight_lists_proxy_dependencies_without_making_them_user_asset
     assert all(item.status == "failed" for item in result.analysis_dependencies)
     requested = set(history_service.calls[0][0])
     assert requested.issuperset({"IWD", "IWF", "IWS", "IWP", "IWN", "IWO"})
+
+
+def test_multi_portfolio_benchmark_uses_the_common_comparison_window() -> None:
+    early_index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    late_index = pd.to_datetime(["2024-01-04", "2024-01-05"])
+    histories = {
+        "EARLY": make_history("EARLY", early_index, [0.0, 0.50, 0.10, 0.10]),
+        "LATE": make_history("LATE", late_index, [0.0, 0.02]),
+        "BMK": make_history("BMK", early_index, [0.0, 0.50, 0.10, 0.10]),
+    }
+    service = PortfolioAPIService(
+        history_service=FakeHistoryService(histories),
+        factor_provider=StaticFactorProvider(pd.DataFrame()),
+        fred_provider=UnavailableFredProvider(),
+    )
+    request = PortfolioRequest.model_validate(
+        {
+            "portfolios": [
+                {
+                    "name": "Early history",
+                    "assets": [{"symbol": "EARLY", "weight": 100}],
+                },
+                {
+                    "name": "Late history",
+                    "assets": [{"symbol": "LATE", "weight": 100}],
+                },
+            ],
+            "benchmark": "BMK",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-05",
+            "initial_amount": 100,
+            "output_frequency": "daily",
+            "analytics": {
+                "factor_analysis": False,
+                "style_analysis": False,
+                "regime": "none",
+                "inflation_adjusted": False,
+                "risk_free_rate_percent": 0,
+            },
+        }
+    )
+
+    result = service.backtest(request)
+
+    assert [item["metrics"]["start"] for item in result.results] == [
+        "2024-01-04",
+        "2024-01-04",
+    ]
+    assert [item["metrics"]["end"] for item in result.results] == [
+        "2024-01-05",
+        "2024-01-05",
+    ]
+    assert any("common-runnable-portfolios-v1" in warning for warning in result.warnings)
+    assert result.benchmark is not None
+    assert result.benchmark["metrics"]["start"] == "2024-01-04"
+    assert result.benchmark["metrics"]["end"] == "2024-01-05"
