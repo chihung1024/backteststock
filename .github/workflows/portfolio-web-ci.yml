@@ -42,8 +42,6 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -54,6 +52,13 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
+      - name: Verify deterministic Portfolio build
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/portfolio-build-first
+          cp -a public/portfolio /tmp/portfolio-build-first
+          npm run build:portfolio
+          diff -qr /tmp/portfolio-build-first public/portfolio
       - name: Synchronize exact Portfolio generated assets
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/portfolio-common-comparison-window'
         env:
@@ -61,23 +66,58 @@ jobs:
         run: |
           set -euo pipefail
           git diff --exit-code -- package-lock.json
-          expected="$(cat <<'EOF'
-          public/portfolio/assets/index-DnNpSmIa.js
-          public/portfolio/assets/index-DnNpSmIa.js.map
-          public/portfolio/assets/index-Dz8nvGJz.js
-          public/portfolio/assets/index-Dz8nvGJz.js.map
-          public/portfolio/index.html
-          EOF
-          )"
-          actual="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio | sed 's/^...//' | sort)"
-          if [ -z "$actual" ]; then
+
+          status="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio)"
+          if [ -z "$status" ]; then
             echo "Portfolio generated assets already synchronized."
             exit 0
           fi
-          if ! diff -u <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual"); then
-            echo "Unexpected generated-asset diff; refusing to commit." >&2
+
+          line_count="$(printf '%s\n' "$status" | wc -l | tr -d ' ')"
+          if [ "$line_count" != "5" ]; then
+            printf '%s\n' "$status"
+            echo "Expected exactly five generated-asset changes; refusing to commit." >&2
             exit 1
           fi
+
+          printf '%s\n' "$status" | grep -Fqx ' D public/portfolio/assets/index-DnNpSmIa.js'
+          printf '%s\n' "$status" | grep -Fqx ' D public/portfolio/assets/index-DnNpSmIa.js.map'
+          printf '%s\n' "$status" | grep -Fqx ' M public/portfolio/index.html'
+
+          new_js="$(printf '%s\n' "$status" | sed -nE 's/^\?\? (public\/portfolio\/assets\/index-[A-Za-z0-9_-]+\.js)$/\1/p')"
+          new_map="$(printf '%s\n' "$status" | sed -nE 's/^\?\? (public\/portfolio\/assets\/index-[A-Za-z0-9_-]+\.js\.map)$/\1/p')"
+          if [ -z "$new_js" ] || [ -z "$new_map" ] || [ "$new_map" != "${new_js}.map" ]; then
+            printf '%s\n' "$status"
+            echo "Expected exactly one matching generated JS/map pair; refusing to commit." >&2
+            exit 1
+          fi
+          if [ "$new_js" = 'public/portfolio/assets/index-DnNpSmIa.js' ]; then
+            echo "Generated JS must replace the stale committed bundle." >&2
+            exit 1
+          fi
+
+          rm -rf /tmp/portfolio-generated
+          cp -a public/portfolio /tmp/portfolio-generated
+
+          git reset --hard HEAD
+          git clean -fd -- public/portfolio
+          git fetch --no-tags --depth=1 origin "refs/heads/${HEAD_BRANCH}:refs/remotes/origin/${HEAD_BRANCH}"
+          git checkout -B "$HEAD_BRANCH" "refs/remotes/origin/${HEAD_BRANCH}"
+          rm -rf public/portfolio
+          cp -a /tmp/portfolio-generated public/portfolio
+
+          head_status="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio)"
+          if [ "$(printf '%s\n' "$head_status" | wc -l | tr -d ' ')" != "5" ]; then
+            printf '%s\n' "$head_status"
+            echo "Generated diff changed while applying to PR head; refusing to commit." >&2
+            exit 1
+          fi
+          printf '%s\n' "$head_status" | grep -Fqx ' D public/portfolio/assets/index-DnNpSmIa.js'
+          printf '%s\n' "$head_status" | grep -Fqx ' D public/portfolio/assets/index-DnNpSmIa.js.map'
+          printf '%s\n' "$head_status" | grep -Fqx ' M public/portfolio/index.html'
+          printf '%s\n' "$head_status" | grep -Fqx "?? ${new_js}"
+          printf '%s\n' "$head_status" | grep -Fqx "?? ${new_map}"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A public/portfolio
