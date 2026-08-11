@@ -50,6 +50,74 @@ def test_multi_portfolio_service_recomputes_every_result_on_one_common_window() 
     assert any(COMPARISON_WINDOW_POLICY in warning for warning in batch.warnings)
 
 
+def test_multi_portfolio_service_carries_one_bounded_effective_benchmark_history() -> None:
+    early_index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    late_index = pd.to_datetime(["2024-01-04", "2024-01-05"])
+    histories = {
+        "EARLY": make_history("EARLY", early_index, [0.0, 0.01, 0.01, 0.01]),
+        "LATE": make_history("LATE", late_index, [0.0, 0.02]),
+        "BMK": make_history("BMK", early_index, [0.0, 0.03, 0.04, 0.05]),
+    }
+
+    batch = PortfolioLedgerService().run(
+        (
+            PortfolioSpec.from_weights("Early", {"EARLY": 1.0}),
+            PortfolioSpec.from_weights("Late", {"LATE": 1.0}),
+        ),
+        histories,
+        SimulationConfig(initial_amount=100.0),
+        benchmark="BMK",
+    )
+
+    assert batch.failures == ()
+    assert batch.comparison_context is not None
+    assert batch.effective_benchmark_history is not None
+    assert list(batch.effective_benchmark_history.daily_returns.index) == [
+        pd.Timestamp("2024-01-04"),
+        pd.Timestamp("2024-01-05"),
+    ]
+    assert batch.effective_benchmark_history.daily_returns.iloc[0] == pytest.approx(0.0)
+    assert batch.effective_benchmark_history.daily_returns.iloc[1] == pytest.approx(0.05)
+
+
+def test_late_benchmark_fails_closed_at_service_boundary_without_erasing_results() -> None:
+    common_index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    histories = {
+        "A": make_history("A", common_index, [0.0, 0.01, 0.01, 0.01]),
+        "B": make_history("B", common_index, [0.0, 0.02, 0.02, 0.02]),
+        "BMK": make_history(
+            "BMK",
+            pd.to_datetime(["2024-01-04", "2024-01-05"]),
+            [0.0, 0.03],
+        ),
+    }
+
+    batch = PortfolioLedgerService().run(
+        (
+            PortfolioSpec.from_weights("A", {"A": 1.0}),
+            PortfolioSpec.from_weights("B", {"B": 1.0}),
+        ),
+        histories,
+        SimulationConfig(initial_amount=100.0),
+        benchmark="BMK",
+    )
+
+    assert [result.name for result in batch.results] == ["A", "B"]
+    assert batch.failures == ()
+    assert batch.comparison_context is not None
+    assert batch.effective_benchmark_history is None
+    assert all(result.metrics.metrics["beta"] is None for result in batch.results)
+    assert all(result.metrics.metrics["alpha"] is None for result in batch.results)
+    assert any(
+        "benchmark BMK unavailable on common comparison window" in warning
+        for warning in batch.warnings
+    )
+
+
 def test_single_runnable_portfolio_keeps_its_full_effective_history() -> None:
     index = pd.to_datetime(
         ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
