@@ -38,6 +38,16 @@ def test_vercel_routes_use_deterministic_runtime_entrypoints():
     assert routes["/api/(.*)"] == "api/index_v2.py"
 
 
+def test_vercel_auto_deploy_suppression_is_internal_branch_only():
+    config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+    deployment_enabled = config["git"]["deploymentEnabled"]
+
+    assert isinstance(deployment_enabled, dict)
+    assert deployment_enabled == {"internal-*": False}
+    assert "candidate-*" not in deployment_enabled
+    assert "main" not in deployment_enabled
+
+
 def test_wsgi_backtest_route_is_replaced_with_deterministic_handler():
     assert (
         index_v2.app.view_functions["backtest_handler"]
