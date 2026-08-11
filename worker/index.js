@@ -9,7 +9,7 @@ const API_ROUTES = new Map([
 
 const MAX_REQUEST_BYTES = 256 * 1024;
 const API_TIMEOUT_MS = 240_000;
-const EDGE_CACHE_VERSION = "2026-08-01.1";
+const EDGE_CACHE_VERSION = "2026-08-11.1";
 const EDGE_CACHE_TTL_SECONDS = 15 * 60;
 const EDGE_CACHEABLE_ROUTES = new Set(["/api/backtest", "/api/scan"]);
 const UNIVERSE_STALE_MS = 10 * 24 * 60 * 60 * 1000;
@@ -105,10 +105,26 @@ function withEdgeCacheStatus(response, status, requestId) {
   });
 }
 
-async function cacheSuccessfulResponse(cache, key, response) {
+function isCacheableApiResponse(pathname, response) {
+  if (pathname !== "/api/scan") return true;
+
+  const requestedRaw = response.headers.get("x-scan-requested") || "";
+  const resolvedRaw = response.headers.get("x-scan-resolved") || "";
+  if (!/^\d+$/.test(requestedRaw) || !/^\d+$/.test(resolvedRaw)) return false;
+
+  const requested = Number(requestedRaw);
+  const resolved = Number(resolvedRaw);
+  return Number.isSafeInteger(requested)
+    && requested > 0
+    && Number.isSafeInteger(resolved)
+    && resolved === requested;
+}
+
+async function cacheSuccessfulResponse(cache, key, response, pathname) {
   if (!cache || response.status !== 200) return;
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return;
+  if (!isCacheableApiResponse(pathname, response)) return;
   const headers = new Headers(response.headers);
   headers.delete("x-request-id");
   headers.set("cache-control", `public, max-age=${EDGE_CACHE_TTL_SECONDS}`);
@@ -213,7 +229,7 @@ async function proxyApi(request, env, requestId) {
   if (cached) return withEdgeCacheStatus(cached, "HIT", requestId);
 
   const response = await proxyBackend(request, env, requestId, requestBody);
-  await cacheSuccessfulResponse(cache, cacheKey, response);
+  await cacheSuccessfulResponse(cache, cacheKey, response, incomingUrl.pathname);
   return withEdgeCacheStatus(response, "MISS", requestId);
 }
 
