@@ -40,19 +40,22 @@ Directory: `research/`.
 
 Use `research/README.md` for authority and reading order.
 
-Current main contracts:
+Current main contracts include:
 
 - `research/RESEARCH_DATASET_V1.md`
 - `research/REFINERY_API_V1.md`
 - `research/REFINERY_UI_V1.md`
+- `research/REFINERY_CLUSTERING_V1.md`
 
-Phase 5 clustering/redundancy work is still under PR review and must not be treated as merged production methodology until its contract/code/tests land on `main`.
+Phase 5 clustering/redundancy methodology and implementation are on production `main` and are current authorities. The separate **P5-CLOSE** operational acceptance remains tracked in `../to_do_update_list.md`; an outstanding production-smoke gate does not make the merged methodology a draft.
+
+`research/PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` is retained as implementation/convergence/closeout evidence. It is not the live task queue.
 
 ## Historical documents
 
 Historical documents should stay in the active tree only when they retain unique audit value. Superseded rollout/status drafts that add no unique value should be removed and recovered from Git history if ever needed.
 
-The `portfolio-migration/` directory is currently retained as historical migration evidence because parts of it still document unique Portfolio ledger/API migration decisions; it is not live project status.
+The `portfolio-migration/` directory is retained as historical migration evidence because parts of it document unique Portfolio ledger/API migration decisions; it is not live project status.
 
 ## Maintenance rules
 
@@ -61,4 +64,5 @@ The `portfolio-migration/` directory is currently retained as historical migrati
 3. Keep semantic versions aligned with code/tests/public schema.
 4. Remove stale redundant snapshots rather than accumulating warnings around them.
 5. Preserve unresolved decisions/root causes; rely on Git history for obsolete drafts.
-6. Update this index when canonical documents are added/removed.
+6. A merged contract may be authoritative while a post-main operational closeout is still pending; state those separately.
+7. Update this index when canonical documents are added/removed or change authority class.
