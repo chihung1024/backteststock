@@ -91,8 +91,9 @@ def _history_set(*, mutate_pre_window: bool = False, short_style: bool = False):
             style_returns[0] = 0.0
         style_index = full_index
         if short_style and style == "large_value":
-            style_index = full_index[full_index >= pd.Timestamp("2020-02-03")]
-            style_returns = style_returns[full_index >= pd.Timestamp("2020-02-03")]
+            covered = full_index >= pd.Timestamp("2020-02-03")
+            style_index = full_index[covered]
+            style_returns = style_returns[covered]
         histories[symbol] = make_history(symbol, style_index, style_returns.tolist())
 
     return histories
@@ -153,7 +154,17 @@ def test_pre_common_window_benchmark_style_and_fx_movements_do_not_leak() -> Non
     assert baseline_factor["excluded_boundary_months"] == ["2020-01", "2022-12"]
     assert baseline_factor["start"] == "2020-02-29"
     assert baseline_factor["end"] == "2022-11-30"
-    assert mutated_factor == pytest.approx(baseline_factor)
+    assert mutated_factor["sample_policy"] == baseline_factor["sample_policy"]
+    assert mutated_factor["excluded_boundary_months"] == baseline_factor["excluded_boundary_months"]
+    assert mutated_factor["observations"] == baseline_factor["observations"]
+    assert mutated_factor["start"] == baseline_factor["start"]
+    assert mutated_factor["end"] == baseline_factor["end"]
+    assert mutated_factor["factor_betas"] == pytest.approx(baseline_factor["factor_betas"])
+    assert mutated_factor["fx_betas"] == pytest.approx(baseline_factor["fx_betas"])
+    assert mutated_factor["annualized_intercept"] == pytest.approx(
+        baseline_factor["annualized_intercept"]
+    )
+    assert mutated_factor["r_squared"] == pytest.approx(baseline_factor["r_squared"])
 
     baseline_style = baseline_result["analytics"]["style"]
     mutated_style = mutated_result["analytics"]["style"]
