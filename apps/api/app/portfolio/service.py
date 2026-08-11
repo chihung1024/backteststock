@@ -45,6 +45,7 @@ class PortfolioComparisonContext:
     def bound_history(self, history: TWDAssetHistory) -> TWDAssetHistory:
         """Rebuild audited history/components on this comparison window."""
 
+        _require_history_coverage(history, self.start, self.end)
         return _history_on_common_window(history, self.start, self.end)
 
 
@@ -235,6 +236,24 @@ class PortfolioLedgerService:
             warnings=tuple(dict.fromkeys(batch_warnings)),
             comparison_context=comparison_context,
             effective_benchmark_history=benchmark_history,
+        )
+
+
+def _require_history_coverage(
+    history: TWDAssetHistory,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> None:
+    levels = pd.to_numeric(history.adjusted_close_twd, errors="coerce").dropna().sort_index()
+    if levels.empty:
+        raise ValueError("audited history has no usable valuation levels")
+    first = pd.Timestamp(levels.index[0])
+    last = pd.Timestamp(levels.index[-1])
+    if first > start or last < end:
+        raise ValueError(
+            "audited history does not cover exact common comparison interval "
+            f"{start.date().isoformat()} -> {end.date().isoformat()} "
+            f"(available {first.date().isoformat()} -> {last.date().isoformat()})"
         )
 
 
