@@ -13,8 +13,9 @@ This index identifies which document owns which semantic boundary. Current execu
 5. `../quant/RISK_MATHEMATICS_V1.md`
 6. `REFINERY_API_V1.md`
 7. `REFINERY_UI_V1.md`
-8. the active Phase contract/review plan when it exists on the working branch
+8. `REFINERY_CLUSTERING_V1.md`
 9. corresponding implementation and tests
+10. historical/convergence evidence when needed, including `PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md`
 
 ## Current main contract map
 
@@ -22,10 +23,13 @@ This index identifies which document owns which semantic boundary. Current execu
 | --- | --- |
 | `RESEARCH_DATASET_V1.md` | reproducible research-data boundary: requested/resolved/failure membership, calendars, TWD/native/FX matrices, audits, fingerprints, dataset identity |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
-| `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract |
+| `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, current response schema `.3` |
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary |
+| `REFINERY_CLUSTERING_V1.md` | current Phase 5 clustering/redundancy methodology, bootstrap/factor/common-sample evidence and descriptive redundancy semantics; current clustering contract `.2` |
 
-Phase 5 clustering/redundancy methodology is currently under review in PR #65/#66 and is **not yet a `main` authority**. When accepted, its versioned contract must be added here in the same Batch that lands it.
+Phase 5 clustering/redundancy implementation is merged to production `main` and **is a current main authority**. Operational P5-CLOSE deployment/smoke acceptance is tracked separately in root `to_do_update_list.md` and does not revert the merged methodology to draft status.
+
+`PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` is retained as implementation/convergence/closeout evidence, not as live project-status authority.
 
 ## Semantic boundaries
 
@@ -36,6 +40,10 @@ Phase 5 clustering/redundancy methodology is currently under review in PR #65/#6
 ### TWD risk vs native-currency diagnostics
 
 TWD returns remain the Taiwanese-investor valuation/risk authority. Native-currency returns may support explicitly scoped diagnostics, but computability does not by itself prove economic/model applicability.
+
+### Factor computability vs verdict applicability
+
+Current Phase 5 policy separates `factor_computable`, `factor_model_scope` and `factor_corroboration_eligible`. U.S.-factor co-movement diagnostics may be displayed while verdict corroboration remains fail-closed without traceable instrument-scope authority.
 
 ### Diagnosis vs recommendation
 
@@ -52,3 +60,5 @@ Before a research PR merges:
 - `to_do_update_list.md` records decisions and remaining risk;
 - old semantics remain reconstructable from Git history;
 - unresolved BLOCKER findings are zero.
+
+After a merge, distinguish **contract authority** from any still-pending **post-main operational closeout** rather than leaving the contract index in a pre-merge state.
