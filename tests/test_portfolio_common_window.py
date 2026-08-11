@@ -31,6 +31,10 @@ def test_multi_portfolio_service_recomputes_every_result_on_one_common_window() 
     )
 
     assert batch.failures == ()
+    assert batch.comparison_context is not None
+    assert batch.comparison_context.policy == COMPARISON_WINDOW_POLICY
+    assert batch.comparison_context.start == pd.Timestamp("2024-01-04")
+    assert batch.comparison_context.end == pd.Timestamp("2024-01-05")
     assert [item.metrics.metrics["start"] for item in batch.results] == [
         "2024-01-04",
         "2024-01-04",
@@ -61,6 +65,7 @@ def test_single_runnable_portfolio_keeps_its_full_effective_history() -> None:
     )
 
     assert batch.failures == ()
+    assert batch.comparison_context is None
     assert batch.results[0].metrics.metrics["start"] == "2024-01-02"
     assert batch.results[0].metrics.metrics["end"] == "2024-01-05"
     assert not any(COMPARISON_WINDOW_POLICY in warning for warning in batch.warnings)
@@ -90,6 +95,7 @@ def test_no_common_window_fails_all_otherwise_runnable_portfolios_explicitly() -
     )
 
     assert batch.results == ()
+    assert batch.comparison_context is None
     assert [failure.name for failure in batch.failures] == ["Early", "Late"]
     assert all(failure.stage == "comparison_window" for failure in batch.failures)
     assert all(failure.retryable is False for failure in batch.failures)
@@ -120,5 +126,8 @@ def test_common_window_boundaries_are_explicit_even_across_different_calendars()
     )
 
     assert batch.failures == ()
+    assert batch.comparison_context is not None
+    assert batch.comparison_context.start == pd.Timestamp("2024-01-03")
+    assert batch.comparison_context.end == pd.Timestamp("2024-01-05")
     assert {item.metrics.metrics["start"] for item in batch.results} == {"2024-01-03"}
     assert {item.metrics.metrics["end"] for item in batch.results} == {"2024-01-05"}
