@@ -47,11 +47,6 @@ class PortfolioComparisonContext:
 
         return _history_on_common_window(history, self.start, self.end)
 
-    def bound_returns(self, values: pd.Series) -> pd.Series:
-        """Return the same effective return sample used by compared ledgers."""
-
-        return _bounded_returns(values, self.start, self.end)
-
 
 @dataclass(frozen=True, slots=True)
 class PortfolioBatchResult:
@@ -60,6 +55,7 @@ class PortfolioBatchResult:
     benchmark: str | None
     warnings: tuple[str, ...]
     comparison_context: PortfolioComparisonContext | None = None
+    effective_benchmark_history: TWDAssetHistory | None = None
     contract_version: str = PORTFOLIO_SERVICE_CONTRACT_VERSION
 
 
@@ -84,6 +80,7 @@ class PortfolioLedgerService:
     ) -> PortfolioBatchResult:
         validate_portfolio_batch(portfolios)
         normalized_benchmark = _normalize_symbol(benchmark) if benchmark else None
+        benchmark_history: TWDAssetHistory | None = None
         benchmark_returns: pd.Series | None = None
         batch_warnings: list[str] = []
         if normalized_benchmark:
@@ -174,10 +171,22 @@ class PortfolioLedgerService:
                     )
                     for symbol, history in histories.items()
                 }
-                if benchmark_returns is not None:
-                    benchmark_returns = comparison_context.bound_returns(
-                        benchmark_returns
-                    )
+                if benchmark_history is not None:
+                    try:
+                        benchmark_history = comparison_context.bound_history(
+                            benchmark_history
+                        )
+                    except ValueError as exc:
+                        batch_warnings.append(
+                            f"benchmark {normalized_benchmark} unavailable on common comparison window "
+                            f"{comparison_context.start.date().isoformat()} -> "
+                            f"{comparison_context.end.date().isoformat()}; "
+                            f"beta and alpha omitted: {exc}"
+                        )
+                        benchmark_history = None
+                        benchmark_returns = None
+                    else:
+                        benchmark_returns = benchmark_history.daily_returns
                 batch_warnings.append(
                     "multi-portfolio comparison recomputed from common window "
                     f"{comparison_context.start.date().isoformat()} -> "
@@ -225,6 +234,7 @@ class PortfolioLedgerService:
             benchmark=normalized_benchmark,
             warnings=tuple(dict.fromkeys(batch_warnings)),
             comparison_context=comparison_context,
+            effective_benchmark_history=benchmark_history,
         )
 
 
