@@ -95,7 +95,7 @@ test("storage failure after 300 does not roll an uninterrupted in-memory scan ba
   expect(persisted.status).toBe("running");
 });
 
-test("stale 300 checkpoint plus page reinitialization reproduces visible 400-to-300 rollback", async ({ page }) => {
+test("stale 300 checkpoint plus reload immediately auto-resumes instead of remaining visibly rolled back", async ({ page }) => {
   const tickers = buildTickers();
   let releaseFinalChunk;
   const finalChunkGate = new Promise((resolve) => {
@@ -126,9 +126,14 @@ test("stale 300 checkpoint plus page reinitialization reproduces visible 400-to-
   await page.reload();
 
   await expect(page.locator("#scan-progress-label")).toContainText(
-    "已還原 300 / 500 檔，未完成 200 檔",
+    "正在取得第 401–500 檔；已完成 400 / 500 檔",
     { timeout: 30_000 },
   );
 
+  const stillPersisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(stillPersisted.results).toHaveLength(300);
+  expect(stillPersisted.status).toBe("running");
+
   releaseFinalChunk();
+  await expect(page.locator("#scan-progress-label")).toContainText("完整取得 500 / 500 檔", { timeout: 30_000 });
 });
