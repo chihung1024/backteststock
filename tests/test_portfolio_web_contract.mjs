@@ -27,6 +27,7 @@ test("Portfolio app is standalone and uses only the self-owned v3 API", async ()
 
 test("Portfolio app exposes the complete dashboard and persistence actions", async () => {
   const results = await readFile(path.join(sourceRoot, "ResultsDashboard.tsx"), "utf8");
+  const comparison = await readFile(path.join(sourceRoot, "PortfolioComparison.tsx"), "utf8");
   const app = await readFile(path.join(sourceRoot, "App.tsx"), "utf8");
 
   for (const label of ["總覽", "資產成長", "回撤", "年度報酬", "月報酬", "現金流與收入", "配置漂移", "進階分析", "資料稽核"]) {
@@ -35,6 +36,13 @@ test("Portfolio app exposes the complete dashboard and persistence actions", asy
   for (const action of ["儲存", "分享", "匯入", "匯出模型", "匯出 CSV", "匯出 JSON"]) {
     assert.match(`${app}\n${results}`, new RegExp(action, "u"));
   }
+  assert.match(results, /<PortfolioComparison results=\{response\.results\}/u);
+  assert.match(comparison, /投資組合並排比較/u);
+  assert.match(comparison, /共同比較期間/u);
+  assert.match(comparison, /期間不一致，禁止直接比較/u);
+  assert.match(comparison, /result\.metrics\.start/u);
+  assert.match(comparison, /result\.metrics\.end/u);
+  assert.doesNotMatch(comparison, /cagr\s*=|sharpe\s*=|sortino\s*=/iu);
 });
 
 test("Portfolio allocation and responsive limits are encoded in the model and UI", async () => {

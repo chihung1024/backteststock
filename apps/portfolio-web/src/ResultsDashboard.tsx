@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { BarChart, LineChart, MonthlyHeatmap } from "./charts";
+import { PortfolioComparison } from "./PortfolioComparison";
 import type {
   AssetPreflight,
   BacktestResponse,
@@ -242,6 +243,8 @@ export function ResultsDashboard({
           <button type="button" className="secondary" onClick={onExportJson}>匯出 JSON</button>
         </div>
       </div>
+
+      <PortfolioComparison results={response.results} />
 
       <div className="result-toolbar">
         <label className="field compact-field">
