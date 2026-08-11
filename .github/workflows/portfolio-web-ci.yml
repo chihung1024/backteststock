@@ -52,6 +52,12 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit full dependency graph
+        run: npm audit --json
+      - name: Audit production dependency graph
+        run: npm audit --omit=dev --json
+      - name: Verify remediated dev-tool chain
+        run: npm ls wrangler @cloudflare/workers-types undici --all
       - name: Type-check and build Portfolio app
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
