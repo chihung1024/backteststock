@@ -171,5 +171,7 @@ def test_inflation_adjustment_has_explicit_twd_us_cpi_limitation() -> None:
 
     assert result["series"] == "CPIAUCSL"
     assert result["currency_context"] == "TWD portfolio deflated by U.S. CPI"
+    assert result["start"] == index[0].date().isoformat()
+    assert result["end"] == index[-1].date().isoformat()
     assert result["real_total_return"] < float(return_index.iloc[-1] - 1.0)
     assert result["limitations"]
