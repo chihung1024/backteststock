@@ -30,7 +30,7 @@ on:
       - ".github/workflows/portfolio-web-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: portfolio-web-ci-${{ github.ref }}
@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -52,5 +54,34 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs
+      - name: Synchronize exact Portfolio generated assets
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/portfolio-common-comparison-window'
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- package-lock.json
+          expected="$(cat <<'EOF'
+          public/portfolio/assets/index-DnNpSmIa.js
+          public/portfolio/assets/index-DnNpSmIa.js.map
+          public/portfolio/assets/index-Dz8nvGJz.js
+          public/portfolio/assets/index-Dz8nvGJz.js.map
+          public/portfolio/index.html
+          EOF
+          )"
+          actual="$(git status --porcelain=v1 --untracked-files=all -- public/portfolio | sed 's/^...//' | sort)"
+          if [ -z "$actual" ]; then
+            echo "Portfolio generated assets already synchronized."
+            exit 0
+          fi
+          if ! diff -u <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual"); then
+            echo "Unexpected generated-asset diff; refusing to commit." >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A public/portfolio
+          git commit -m "build: synchronize Portfolio production assets"
+          git push origin "HEAD:${HEAD_BRANCH}"
       - name: Verify committed production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
