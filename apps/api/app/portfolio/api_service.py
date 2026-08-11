@@ -16,6 +16,7 @@ import yfinance as yf
 from api.metrics import METRIC_DEFINITION_VERSION, series_fingerprint
 from apps.api.app.data.history_service import (
     PartialTWDHistories,
+    TWDAssetHistory,
     TWDHistoryService,
     normalize_symbol,
 )
@@ -199,10 +200,13 @@ class PortfolioAPIService:
             request,
             effective_end,
         )
+        benchmark_history = (
+            histories.histories.get(request.benchmark) if request.benchmark else None
+        )
+        if benchmark_history is not None and batch.comparison_context is not None:
+            benchmark_history = batch.comparison_context.bound_history(benchmark_history)
         benchmark_returns = (
-            histories.histories[request.benchmark].daily_returns
-            if request.benchmark and request.benchmark in histories.histories
-            else None
+            benchmark_history.daily_returns if benchmark_history is not None else None
         )
 
         results: list[dict[str, Any]] = []
@@ -230,7 +234,7 @@ class PortfolioAPIService:
                 )
             )
 
-        benchmark_payload = self._benchmark_payload(request, histories, config)
+        benchmark_payload = self._benchmark_payload(request, benchmark_history, config)
         compute_ms = (time.perf_counter() - compute_started) * 1_000.0
         warnings = [
             *self._request_warnings(request, effective_end),
@@ -371,10 +375,10 @@ class PortfolioAPIService:
     def _benchmark_payload(
         self,
         request: PortfolioRequest,
-        histories: PartialTWDHistories,
+        benchmark_history: TWDAssetHistory | None,
         config: SimulationConfig,
     ) -> dict[str, Any] | None:
-        if not request.benchmark or request.benchmark not in histories.histories:
+        if not request.benchmark or benchmark_history is None:
             return None
         spec = PortfolioSpec.from_weights(
             f"Benchmark · {request.benchmark}",
@@ -385,7 +389,11 @@ class PortfolioAPIService:
             reinvest_distributions=True,
             risk_free_rate=config.risk_free_rate,
         )
-        ledger = simulate_portfolio_ledger(spec, histories.histories, benchmark_config)
+        ledger = simulate_portfolio_ledger(
+            spec,
+            {request.benchmark: benchmark_history},
+            benchmark_config,
+        )
         report = compute_metric_report(ledger, benchmark_config)
         return self._serialize_run(
             ledger,
