@@ -63,14 +63,18 @@ test("scanner distinguishes settled progress from successful results", async ({ 
   const finalBatchRequested = new Promise((resolve) => {
     markFinalBatchRequested = resolve;
   });
+  let finalBatchRequestCount = 0;
 
   await installBaseRoutes(page);
   await page.route("**/api/scan", async (route) => {
     const payload = route.request().postDataJSON();
     const batchStart = payload.tickers[0];
     if (batchStart === tickerAt(400)) {
-      markFinalBatchRequested();
-      await finalBatchGate;
+      finalBatchRequestCount += 1;
+      if (finalBatchRequestCount === 2) {
+        markFinalBatchRequested();
+        await finalBatchGate;
+      }
     }
     const rows = failedStarts.has(batchStart)
       ? payload.tickers.map(retryableFailure)
@@ -85,8 +89,10 @@ test("scanner distinguishes settled progress from successful results", async ({ 
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
-  // Hold the final 401–500 request open so the 400-settled UI state is observable
-  // deterministically instead of racing an instantaneous mocked response.
+  // Retryable batches are requeued behind the still-pending batch. The first
+  // 401–500 request occurs while only 300 rows are settled; 301–400 then
+  // exhausts its ticker retry budget and settles as failures. Hold the second
+  // 401–500 request so the truthful 400-settled state is deterministic.
   await finalBatchRequested;
   await expect(page.locator("#scan-progress-label")).toContainText(
     "正在取得第 401–500 檔；已結算 400 / 500 檔（成功 300、失敗 100）",
