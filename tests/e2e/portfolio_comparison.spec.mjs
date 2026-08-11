@@ -65,7 +65,15 @@ function preflightPayload() {
       { name: "投資組合 2", status: "ready", symbols: ["LVHI"], missing_symbols: [], effective_start: "2016-08-10", effective_end: "2026-08-10", observations: 2605 },
       { name: "投資組合 3", status: "ready", symbols: ["VLUE"], missing_symbols: [], effective_start: "2016-08-10", effective_end: "2026-08-10", observations: 2605 },
     ],
-    benchmark: null,
+    benchmark: {
+      symbol: "SPY",
+      status: "ready",
+      quote_currency: "USD",
+      effective_start: "2016-08-10",
+      effective_end: "2026-08-10",
+      observations: 2605,
+      fingerprints: {},
+    },
     analysis_dependencies: [],
     warnings: [],
   };
@@ -88,7 +96,7 @@ function backtestPayload() {
     ],
     failures: [],
     assets: [],
-    benchmark: null,
+    benchmark: resultItem("Benchmark · SPY", 1_290_000),
     warnings: ["multi-portfolio comparison recomputed from common window 2023-12-15 -> 2026-08-10 (common-runnable-portfolios-v1)"],
     timing: { market_ms: 1, compute_ms: 1, total_ms: 2 },
     reproducibility: {},
@@ -116,6 +124,25 @@ test("multi-portfolio results show one common period and all portfolios side by 
   await expect(comparison.getByRole("columnheader", { name: "投資組合 3" })).toBeVisible();
   await expect(page.getByText("共同比較期間：")).toBeVisible();
   await expect(comparison.getByText("2023-12-15 → 2026-08-10").first()).toBeVisible();
+});
+
+test("benchmark selection stays on the same common-window evidence", async ({ page }) => {
+  await mockPortfolioApi(page);
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: "載入範例" }).click();
+  await page.getByRole("button", { name: "資料預檢" }).click();
+  await page.getByRole("button", { name: "執行回測" }).click();
+
+  const selector = page.locator("label.compact-field select");
+  await selector.selectOption({ label: "Benchmark · SPY · synthetic" });
+  await expect(selector).toHaveValue("Benchmark · SPY");
+
+  const comparison = page.getByRole("region", { name: "投資組合並排比較" });
+  await expect(comparison.getByText("2023-12-15 → 2026-08-10").first()).toBeVisible();
+  await expect(page.getByText("common-runnable-portfolios-v1", { exact: false })).toBeVisible();
+
+  const tailRisk = page.locator("article.subcard").filter({ hasText: "尾端風險" });
+  await expect(tailRisk.getByText("687", { exact: true })).toBeVisible();
 });
 
 test("390px comparison remains usable through horizontal table scrolling", async ({ page }) => {
