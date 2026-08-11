@@ -75,6 +75,9 @@ def _assert_benchmark_unavailable_without_erasing_results(result) -> None:
     assert all(item["metrics"]["beta"] is None for item in result.results)
     assert all(item["metrics"]["alpha"] is None for item in result.results)
     assert all(
+        item["metrics"]["benchmark_correlation"] is None for item in result.results
+    )
+    assert all(
         any(
             "regime analysis requires an available benchmark" in warning
             for warning in item["warnings"]
