@@ -23,6 +23,10 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function assertSecureResponse(response) {
   assert(
     response.headers.get("cache-control")?.toLowerCase().includes("no-store"),
@@ -76,6 +80,19 @@ async function requestJson(fetchImpl, origin, path, body, requestTimeoutMs) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchJson(fetchImpl, origin, path, body, requestTimeoutMs, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await requestJson(fetchImpl, origin, path, body, requestTimeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(attempt * 2_000);
+    }
+  }
+  throw lastError;
 }
 
 function assertCommonContract(payload, endpoint) {
@@ -172,24 +189,27 @@ export async function runRefinerySmoke(originArgument, options = {}) {
     options.requestTimeoutMs ?? process.env.REFINERY_REQUEST_TIMEOUT_MS,
     240_000,
   );
+  const attempts = positiveNumber(options.attempts ?? process.env.REFINERY_SMOKE_ATTEMPTS, 3);
 
-  const preflightResponse = await requestJson(
+  const preflightResponse = await fetchJson(
     fetchImpl,
     origin,
     "/api/v1/refinery/preflight",
     REFINERY_SMOKE_REQUEST,
     requestTimeoutMs,
+    attempts,
   );
   const preflight = preflightResponse.payload;
   assertCommonContract(preflight, "preflight");
   assert(preflight.status === "ready", "Refinery preflight is not ready for the bounded smoke set");
 
-  const analyzeResponse = await requestJson(
+  const analyzeResponse = await fetchJson(
     fetchImpl,
     origin,
     "/api/v1/refinery/analyze",
     REFINERY_SMOKE_REQUEST,
     requestTimeoutMs,
+    attempts,
   );
   const analyze = analyzeResponse.payload;
   assertCommonContract(analyze, "analyze");
