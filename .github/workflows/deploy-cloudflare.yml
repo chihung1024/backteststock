@@ -14,6 +14,7 @@ on:
       - "scripts/render_wrangler_config.mjs"
       - "scripts/smoke_test_production.mjs"
       - "scripts/smoke_test_portfolio_v3.mjs"
+      - "scripts/smoke_test_refinery_v1.mjs"
   workflow_dispatch:
 
 permissions:
@@ -100,6 +101,10 @@ jobs:
           WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
           EXPECTED_DEPLOYMENT_SHA: ${{ github.sha }}
         run: node scripts/smoke_test_portfolio_v3.mjs "$WORKER_ORIGIN"
+      - name: Smoke test production Refinery v1 Phase 5 flow
+        env:
+          WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
+        run: node scripts/smoke_test_refinery_v1.mjs "$WORKER_ORIGIN"
       - name: Report final deployment status
         if: ${{ always() }}
         env:
