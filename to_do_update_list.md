@@ -1,102 +1,28 @@
 # BacktestStock — Live Project Status & Handoff
 
-> Repository-internal live execution authority. Mutable operational facts such as current SHA, PR/check state, deployment state and ruleset state must always be re-queried before acting. Durable architecture belongs in README/contracts/ADRs; detailed execution history remains reconstructable from Git/PR history.
+> Repository-internal live execution authority. Mutable facts such as SHA, PR/check/deployment state and protection rules must always be re-queried before acting. Durable architecture belongs in README/contracts/ADRs; detailed execution history remains reconstructable from Git/PR history.
 
-## 1. Primary Goal
+## 1. Current objective
 
-Complete **Phase 5 — Clustering & Redundancy**, merge it safely to current production `main`, complete post-main verification, and only then begin Phase 6.
+Phase 5 implementation and methodology are merged to production `main`; the remaining primary work is **P5-CLOSE production acceptance**.
 
-**Primary Active Batch: PR #65 parent final validation / merge / closeout.**
+**Primary Active Batch: PR #75 — permanent Refinery Phase 5 production smoke gate.**
 
-Do not start Phase 6 or add unrelated feature work while Phase 5 remains open.
+Do not start Phase 6 until all explicit unlock gates in §7 are CLOSED/PASS.
 
 ---
 
-## 2. Production / Stable State
-
-### Production `main`
+## 2. Production / stable state
 
 - Repository: `chihung1024/backteststock`.
-- Current production checkpoint before Phase 5 merge: `af1cd83e41b23df745e27f39b9992e7a8a56fde0`.
+- Current production `main` checkpoint at this handoff: `2c9ed83cedea9aee9acc09fa3f0a2029c3004907` (Phase 5 parent #65 merged).
 - PR #68 — V3 governance/document authority cleanup: **CLOSED / PASS / POST-MAIN VERIFIED**.
-- PR #70 / Issue #69 — Portfolio common comparison window + side-by-side comparison: **CLOSED / PASS / POST-MAIN VERIFIED**.
-- #70 production closeout passed main Full CI, Portfolio web CI, Cloudflare deploy/smoke, Vercel and post-merge backup.
+- PR #70 / Issue #69 — Portfolio common comparison window + side-by-side results: **CLOSED / PASS / POST-MAIN VERIFIED**.
+- PR #71 — Phase 5 M1–M4 correctness/security convergence: **MERGED / PASS**.
+- PR #74 — latest-main reconciliation into the corrected Phase 5 parent: **MERGED / PASS**.
+- PR #65 — Phase 5 clustering/redundancy implementation: **MERGED TO MAIN / IMPLEMENTATION PASS**.
 
-### Recovery anchors
-
-- Phase 4 closeout: `db3e692e3e4ce1962d6953988464947b35d5ef82`.
-- Phase 5 corrected-parent checkpoint after PR #71: `bd3efe66a85893981dd19af9867fd0b3559951d5`.
-- Latest production main integrated into Phase 5: `af1cd83e41b23df745e27f39b9992e7a8a56fde0`.
-- Latest-main reconciliation merge into Phase 5 parent: `b52904119a2c7b85ef704ad362a50a15d0efabfd` before final status-document convergence.
-
-Always re-query the actual remote head before merge. Do not treat these checkpoints as a substitute for current remote state.
-
----
-
-## 3. Phase 5 Parent — PR #65
-
-- PR: **#65 — `feat: add Phase 5 clustering and redundancy diagnostics`**.
-- head branch: `phase5/clustering-redundancy`.
-- base: current `main`.
-- risk: **R2 — quantitative methodology / API evidence / production UI integration**.
-- status: **ACTIVE — FINAL EXACT-HEAD VALIDATION**.
-- PR #65 must remain Draft until the final exact-head gates and independent review pass.
-
-### Branch ancestry is reconciled
-
-Latest-main reconciliation is complete:
-
-- recovery child: `phase5/reconcile-main-2026-08-11`;
-- PR #74 latest-main reconciliation: **MERGED / PASS**;
-- current production `main@af1cd83...` is now an actual ancestor of the Phase 5 parent;
-- GitHub compare after reconciliation: `behind_by=0`, Phase 5 branch is ahead only;
-- #65 final diff therefore represents Phase 5 work rather than reintroducing already-deployed #68/#70 changes.
-
-### Historical docs child
-
-PR #66 is **CLOSED / SUPERSEDED / NOT MERGED**.
-
-Its useful Phase5-specific evidence has been promoted into current contracts/review records. Its obsolete general README/Deployment/TODO and old different-GitHub-account review wording must not be wholesale merged back into the parent.
-
----
-
-## 4. P5-CORR — CLOSED / PASS
-
-### M1 — bootstrap effective-input identity
-
-- one shared effective-sample preparation path;
-- exact effective symbols/dates/values fingerprint;
-- `ResearchDataset.dataset_hash` remains separate;
-- seed includes effective fingerprint + contract/linkage/cut/window/block/replicates;
-- primitive verifies supplied fingerprint against the actual effective sample.
-
-### M2 — factor boundary-month exclusion
-
-- `boundary-month-exclusion-v1`;
-- first and last represented calendar periods excluded;
-- no invented exchange-calendar completeness authority;
-- no fabricated pre-window return;
-- minimum observation rule applies after exclusion.
-
-### M3 — factor computability vs verdict applicability
-
-Separate:
-
-- `factor_computable`;
-- `factor_model_scope`;
-- `factor_corroboration_eligible`.
-
-Current policy remains `fail_closed_without_traceable_instrument_scope_v1`; diagnostic factor evidence may display but cannot upgrade redundancy verdicts without traceable eligibility authority.
-
-### M4 — one global systematic relationship sample
-
-- individual diagnostics may keep individual valid samples;
-- one returned matrix uses one global common monthly sample;
-- relationship betas and `Sigma_F` use exactly the same rows;
-- insufficient common sample fails closed;
-- no pairwise-cell sample switching.
-
-Corrected identities:
+Phase 5 public identities on main:
 
 ```text
 REFINERY_CLUSTERING_CONTRACT_VERSION = refinery-clustering-twd-2026-08-10.2
@@ -104,191 +30,197 @@ REFINERY_API_CONTRACT_VERSION        = refinery-v1
 REFINERY_API_SCHEMA_VERSION          = refinery-v1-2026-08-10.3
 ```
 
-No persisted Refinery workspace schema bump was introduced.
-
----
-
-## 5. P5-SEC — CLOSED / PASS
-
-Precise dev-tool remediation:
+Security remediation remains:
 
 - `wrangler@4.120.1`;
 - `@cloudflare/workers-types@5.20260810.1`;
 - `miniflare@5.20260804.0-alpha`;
-- transitive `undici@7.29.0`.
+- transitive `undici@7.29.0`;
+- last fresh full/prod npm audit evidence: **0 / 0 vulnerabilities**.
 
-No `--force`, `--legacy-peer-deps` or blanket `npm audit fix` was used.
-
-Fresh post-reconciliation security evidence from read-only diagnostic run #146:
-
-- full `npm audit --json`: **0 vulnerabilities**;
-- production-only `npm audit --omit=dev --json`: **0 vulnerabilities**;
-- info / low / moderate / high / critical all 0;
-- installed remediated chain verified explicitly.
-
-`package.json` and `package-lock.json` survived latest-main reconciliation without dependency drift from the corrected Phase 5 parent.
+Always re-query current remote truth before any merge or deployment action.
 
 ---
 
-## 6. Latest-main / Generated-asset Reconciliation — CLOSED / PASS
+## 3. P5-CLOSE — PR #75 — ACTIVE / EXTERNAL GATE BLOCKED
 
-The only actual three-way conflict between production main and corrected Phase 5 was generated `public/portfolio` output.
+PR #75 adds a permanent bounded production smoke for Refinery Phase 5 and wires it into the existing Cloudflare deployment acceptance flow.
 
-Resolution discipline:
+Last validated exact head:
 
-1. generated assets were neutralized on a recovery child rather than hand-merged;
-2. GitHub standard three-way merge then proved source histories compatible;
-3. production #70 Portfolio source and Phase 5 Refinery source existed simultaneously;
-4. combined TypeScript/source-contract validation passed before bundle regeneration;
-5. `public/portfolio` was rebuilt from the combined source in the normal PR synthetic-merge context;
-6. two consecutive builds had to be byte-identical;
-7. generated diff was restricted to the expected CSS/JS/map/index replacement;
-8. temporary write/audit workflow logic was removed;
-9. final read-only Portfolio workflow returned to content SHA `304ba63b61b96850f3c9d8b650b7f12da39789ab`.
+`5305149a40d7c3b4390589ccb23c9b8f04d07842`
 
-PR #74 final evidence:
+Known exact-head evidence:
 
-- Full CI #512: PASS;
-- Portfolio web CI #148: PASS;
-- Vercel required status: SUCCESS;
-- fresh npm audit evidence: 0 / 0 vulnerabilities;
-- V3 transition review: PASS / BLOCKER=0;
-- normal merge into Phase 5 parent completed.
+- Full CI #522: **PASS**;
+- Portfolio web CI #158: **PASS**;
+- R2 Release Backup Gates #379/#380: **PASS**;
+- Independent Review: **PASS / BLOCKER=0**;
+- source ↔ production-smoke contract parity: **PASS**;
+- changed scope: deployment workflow + smoke script/test/package validation wiring only.
 
----
+### Current blocker
 
-## 7. Parent Final Validation Evidence Before This Status Refresh
+Required GitHub `Vercel` status is failing because the Vercel Free-plan daily deployment quota was exceeded (`api-deployments-free-per-day`). This is an external platform quota blocker, not a proven build defect.
 
-On reconciled parent checkpoint `b529041...`:
+Rules while blocked:
 
-- Portfolio web CI #149: **PASS**;
-- Full CI #513: **PASS**;
-- required Vercel status: **SUCCESS**;
-- Release Backup Gates #368: **PASS**;
-  - `create-pre-merge-backup` actually executed and succeeded;
-  - post-merge job correctly remained skipped before merge.
+- no no-op/empty commit to retrigger Vercel;
+- no removal/weakening of the required `Vercel` check;
+- no generic deployment used as a substitute for the exact Git revision;
+- no merge until the exact candidate receives a genuine required Vercel SUCCESS.
 
-These checks establish that reconciliation is sound, but the final merge candidate is the **new exact head after this status-document convergence**. Therefore all required exact-head checks must be re-queried/rerun once more before #65 leaves Draft.
+When Vercel recovers: re-query head/mergeability/statuses → final TOCTOU → expected-head squash merge #75 → require new-main Full CI, Portfolio CI, Vercel production, post-merge backup and Cloudflare deployment where Russell, Portfolio and `Smoke test production Refinery v1 Phase 5 flow` actually execute and PASS. Only then record **P5-CLOSE CLOSED/PASS**.
+
+Known Phase 5 limitations to preserve at closeout:
+
+- full-period evidence is in-sample, not OOS validation;
+- factor model remains a scoped `U.S.-factor co-movement diagnostic`;
+- instrument/security master, regional factor routing and traceable theme authority remain later work.
 
 ---
 
-## 8. Exact Remaining Work for PR #65
+## 4. Vercel Deployment Economy — PR #76 — INTERNAL VALIDATION PASS
 
-1. Query the new #65 exact head after final status-document convergence.
-2. Confirm final diff remains Phase5-only relative to current main and no temporary workflow/helper file exists.
-3. Require exact-head:
-   - Full CI PASS;
-   - Portfolio web CI PASS;
-   - required Vercel SUCCESS;
-   - pre-merge release backup still valid/successful on the current base.
-4. Re-confirm fresh security evidence remains applicable because package/lock blobs are unchanged; rerun only if dependency blobs or advisory evidence materially changes.
-5. Freeze candidate and perform **V3 Same-AI Independent Review** from current exact diff/contracts/tests/security/recovery evidence.
-6. Findings only: BLOCKER / FOLLOW-UP / BACKLOG / REJECT.
-7. Any BLOCKER: exit reviewer mode -> fix root cause -> new head -> rerun applicable gates -> focused re-review.
-8. If BLOCKER=0 and all required statuses remain green:
-   - mark #65 Ready;
-   - final TOCTOU re-check;
-   - **expected-head squash merge #65 -> main**.
+Draft PR #76 validates a deployment-economy model without consuming Preview quota during internal iteration.
 
----
+Last validated internal head:
 
-## 9. P5-CLOSE — Required After #65 Main Merge
+`7ef82fa6353cbf41781449d7321a5e2739937b26`
 
-Phase 5 is not CLOSED merely because the PR merges.
+Evidence:
 
-Required post-main evidence:
+- `internal-*` is disabled through `git.deploymentEnabled` while unspecified branches remain enabled;
+- two independent internal pushes produced **GitHub Full CI PASS and zero Vercel Preview/status** (#523/#524);
+- deployment-contract regression test prevents accidental global Vercel disable;
+- focused review: **PASS / BLOCKER=0**;
+- official Vercel semantics agree with the branch-pattern policy.
 
-- query new main SHA;
-- main Full CI PASS;
-- Portfolio web CI PASS;
-- Cloudflare deploy PASS;
-- applicable Russell / Portfolio / Refinery production smoke PASS;
-- Vercel production status green;
-- post-merge release backup PASS;
-- record known limitations:
-  - full-period Phase 5 evidence is not out-of-sample validation;
-  - factor model remains a scoped U.S.-factor co-movement diagnostic;
-  - instrument master/regional factor routing/theme provider remain later work.
-- update this file to **Phase 5 CLOSED / PASS** and set the exact Phase 6 resume point.
+This internal evidence does **not** yet prove candidate/main behavior. After P5-CLOSE, reconcile with current main, promote one deliberate `candidate-*`, obtain one genuine Vercel Preview, run exact-head gates/review/recovery, merge, and verify production main deployment remains enabled.
 
-Only after this closeout may Phase 6 begin.
+Operational principle going forward: internal RCA/iteration should not consume Preview deployments; multi-file changes should prefer atomic commits; Vercel should validate real candidates rather than every intermediate AI edit.
 
 ---
 
-## 10. Roadmap
+## 5. Priority correctness / reliability work after Deployment Economy
+
+### #79 — P0 correctness — benchmark bypasses common comparison window
+
+**Priority: first product fix after Deployment Economy.**
+
+Confirmed production defect: requested portfolios are recomputed on the common comparison window, while `PortfolioAPIService._benchmark_payload()` can re-simulate the benchmark from the original full history. This can mix different periods under one common-window warning and corrupt comparability of final balance, CAGR, income and tail-risk sample counts.
+
+Execution authority: Issue #79 body plus the frozen implementation/review comments recorded on GitHub. Key invariant: one authoritative effective bounded/reset benchmark source must serve portfolio benchmark metrics, benchmark serialization and benchmark-dependent analytics while common-window mode is active.
+
+### #80 — P1 reliability — 500-symbol scan stops after 300
+
+User production observation: `已還原 300 / 500 檔，未完成 200 檔` with a resumable button instead of completing all five 100-symbol chunks.
+
+Confirmed architecture:
+
+- frontend chunk size = 100;
+- backend `/api/scan` max request = 100;
+- therefore 300 is **not** a configured cap;
+- existing tests cover 101/125-symbol multi-chunk happy paths and one-symbol repeated 503 termination, but not a 500-symbol five-chunk run or a fourth-chunk failure/resume scenario.
+
+Issue #80 owns RCA and mandatory tests. Do not “fix” by increasing chunk size; find the orchestration/interruption root cause and preserve exact pending/result invariants.
+
+### #78 — UX correctness — selected scanner symbols not auto-loaded into optimizer
+
+After #79 and #80, fix scanner → optimizer manual-selection handoff using one shared scan-job normalization/provenance authority. Preserve fail-closed provenance and add legacy saved-job → select 20 → optimizer exact 20 regression.
+
+---
+
+## 6. Documentation / governance state
+
+- `AI_PROJECT_PLAYBOOK.md` V3 remains the governance constitution; **do not reopen it** merely because operational status changed.
+- `docs/README.md` is documentation navigation, not live status.
+- `docs/research/README.md` owns the current research contract map.
+- `docs/research/PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` is Phase 5 convergence/closeout evidence, not the live task queue.
+- Historical `docs/portfolio-migration/*` and `docs/PHASE_MINUS1_GOVERNANCE.md` remain only for unique audit value.
+- PR #66 remains **CLOSED / SUPERSEDED / NOT MERGED**; never wholesale restore its stale general docs.
+
+---
+
+## 7. Roadmap / unlock gates
 
 | Phase / Batch | Objective | Status |
 | --- | --- | --- |
-| -1 | Governance & Architecture Hardening | CLOSED / PASS |
-| 0 | Quant Authority Freeze | CLOSED / PASS |
-| 1 | ResearchDatasetV1 | CLOSED / PASS |
-| 2 | Risk Mathematics Core | CLOSED / PASS |
-| 3 | Read-only Refinery API | CLOSED / PASS |
-| 4 | Refinery Diagnostic UI | CLOSED / PASS |
-| DOC-CLEAN / #68 | V3 governance + document authority cleanup | CLOSED / PASS / POST-MAIN VERIFIED |
-| Portfolio #69/#70 | common comparison window + side-by-side results | CLOSED / PASS / POST-MAIN VERIFIED |
-| P5-CORR A–D | M1–M4 correctness convergence | CLOSED / PASS |
-| P5-SEC | security remediation | CLOSED / PASS |
-| P5 main reconciliation / #74 | integrate current main into corrected Phase 5 | CLOSED / PASS |
-| 5 / #65 | Clustering & Redundancy | **ACTIVE — FINAL VALIDATION / MERGE** |
-| P5-CLOSE | post-main deploy/smoke/backup/limitations | NEXT |
-| 6 | Marginal Experiments | PLANNED / BLOCKED BY P5-CLOSE |
+| -1 through 4 | Governance, quant authority, dataset, risk math, Refinery API/UI | CLOSED / PASS |
+| 5 / #65 | Clustering & Redundancy implementation | MERGED / IMPLEMENTATION PASS |
+| P5-CLOSE / #75 | permanent Refinery production smoke + final acceptance | **ACTIVE — VERCEL QUOTA BLOCKED** |
+| Deployment Economy / #76 | internal/candidate/main Preview control | INTERNAL PASS / CANDIDATE PROOF PENDING |
+| #79 | Benchmark/common-window correctness | P0 / IMPLEMENTATION-READY / BLOCKED BY ABOVE |
+| #80 | 500-symbol scan completion reliability | P1 / RCA + IMPLEMENTATION PLANNING |
+| #78 | Scanner selection → optimizer handoff | HIGH / IMPLEMENTATION-READY |
+| 6 / #77 | Marginal Experiments | SPEC FROZEN / SATURATED / LOCKED |
 | 7 | Walk-Forward / Research Validity | PLANNED |
 | 8 | Selection Policy | PLANNED |
 | 9 | Sizing | PLANNED |
 | 10 | Validated Exhaustive Integration | PLANNED |
 | 11 | Point-in-Time Universe / Fundamentals | PLANNED |
 
+**Phase 6 unlock requires all of:**
+
+1. P5-CLOSE #75 CLOSED/PASS;
+2. Deployment Economy merged/post-main verified;
+3. #79 CLOSED/PASS;
+4. #80 CLOSED/PASS;
+5. #78 CLOSED/PASS.
+
+Then re-read current main + this live handoff + Issue #77 body and start **only P6-A: contract + one-fetch common experiment sample**.
+
 ---
 
-## 11. NOW / NEXT / BACKLOG / REJECT
+## 8. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-- Final exact-head validation and Independent Review for #65.
-- Expected-head squash merge only if BLOCKER=0 and all gates are green.
+- Keep #75 exact candidate frozen while Vercel quota is the only blocker.
+- Continue non-deployment RCA/spec/test-design/document-quality work that does not create a second runtime implementation lane.
+- Maintain #76 internal evidence without claiming candidate/main proof.
 
 ### NEXT
 
-- P5-CLOSE post-main verification.
-- Update live handoff to Phase 5 CLOSED / PASS.
-- Start Phase 6 only after closeout.
+1. #75 final merge and production closeout when Vercel succeeds.
+2. #76 candidate promotion / merge / production verification.
+3. #79 P0 correctness.
+4. #80 P1 scan reliability.
+5. #78 optimizer handoff.
+6. P6-A only after all unlock gates pass.
 
 ### BACKLOG
 
 - instrument/security master and regional factor routing;
 - traceable theme taxonomy/provider;
 - globally distributed Refinery rate limiting;
-- Vercel preview quota optimization;
+- Cloudflare deploy timeout-vs-retry-budget formal alignment;
 - Actions immutable-SHA pinning review;
 - point-in-time Universe/fundamentals in Phase 11;
-- stale historical Actions registry cleanup when a supported mutation path is available.
+- stale historical Actions registry cleanup if a supported mutation path becomes available;
+- single-portfolio + shorter-benchmark strict-comparison policy (separate from #79 multi-portfolio defect).
 
-### REJECT for Phase 5
+### REJECT / guardrails
 
-- magic 0–100 redundancy score;
-- KEEP/TRIM/REPLACE;
-- Phase 6 marginal experiments;
-- sizing / HRP / ERC / min-var;
-- Exhaustive selection integration;
-- OOS claims from full-period evidence;
-- untraceable themes;
 - branch-protection/Vercel bypass;
+- no-op quota-retry commits;
+- hand-merging generated bundles;
 - forced dependency remediation;
-- hand-merging generated production bundles;
-- reopening superseded PR #66 general docs;
+- magic 0–100 redundancy score;
+- hidden KEEP/TRIM/REPLACE or sizing recommendations before their validated phases;
+- OOS claims from full-period evidence;
+- reopening superseded #66 general docs;
 - further V3 governance expansion without a documented Reopen Condition.
 
 ---
 
-## 12. Exact Resume Point
+## 9. Exact resume point
 
-Primary active batch: **PR #65 final exact-head validation**.
-
-1. Query #65 current head / mergeability / changed-file scope.
-2. Wait for final exact-head Full CI + Portfolio web CI + Vercel after this document refresh.
-3. Verify Release Backup gate and security evidence applicability.
-4. Freeze candidate; perform final V3 Independent Review.
-5. BLOCKER=0 + all required statuses green -> Ready -> TOCTOU check -> expected-head squash merge to `main`.
-6. Execute P5-CLOSE post-main verification.
-7. Only after Phase 5 is recorded CLOSED / PASS begin Phase 6.
+1. Re-query PR #75 exact head and required Vercel status.
+2. If Vercel remains the same quota failure, do not mutate #75; continue only safe supporting work.
+3. If Vercel is genuine SUCCESS with head unchanged, execute #75 TOCTOU → expected-head merge → complete production acceptance.
+4. Reconcile/promote #76 into one deliberate Vercel-enabled candidate and post-main verify.
+5. Execute #79 from its frozen Issue authority.
+6. Execute #80 from its RCA/mandatory-test authority.
+7. Execute #78.
+8. Only then unlock Issue #77 / P6-A.
