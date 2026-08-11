@@ -19,15 +19,15 @@ class EmptyFactorProvider:
         return pd.DataFrame()
 
 
-def test_late_benchmark_fails_closed_without_erasing_valid_common_window_results() -> None:
+def _run_with_benchmark(benchmark_index: pd.DatetimeIndex):
     common_index = pd.to_datetime(
         ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
     )
-    benchmark_index = pd.to_datetime(["2024-01-04", "2024-01-05"])
+    benchmark_returns = [0.0, *([0.03] * (len(benchmark_index) - 1))]
     histories = {
         "A": make_history("A", common_index, [0.0, 0.01, 0.01, 0.01]),
         "B": make_history("B", common_index, [0.0, 0.02, 0.02, 0.02]),
-        "BMK": make_history("BMK", benchmark_index, [0.0, 0.03]),
+        "BMK": make_history("BMK", benchmark_index, benchmark_returns),
     }
     service = PortfolioAPIService(
         history_service=FakeHistoryService(histories),
@@ -53,9 +53,10 @@ def test_late_benchmark_fails_closed_without_erasing_valid_common_window_results
             },
         }
     )
+    return service.backtest(request)
 
-    result = service.backtest(request)
 
+def _assert_benchmark_unavailable_without_erasing_results(result) -> None:
     assert [item["name"] for item in result.results] == ["A", "B"]
     assert [item["metrics"]["start"] for item in result.results] == [
         "2024-01-02",
@@ -68,11 +69,31 @@ def test_late_benchmark_fails_closed_without_erasing_valid_common_window_results
     assert result.benchmark is None
     assert any(
         "benchmark BMK unavailable on common comparison window" in warning
+        and "does not cover exact common comparison interval" in warning
         for warning in result.warnings
     )
     assert all(item["metrics"]["beta"] is None for item in result.results)
     assert all(item["metrics"]["alpha"] is None for item in result.results)
     assert all(
-        any("regime analysis requires an available benchmark" in warning for warning in item["warnings"])
+        any(
+            "regime analysis requires an available benchmark" in warning
+            for warning in item["warnings"]
+        )
         for item in result.results
     )
+
+
+def test_late_benchmark_fails_closed_without_erasing_valid_common_window_results() -> None:
+    result = _run_with_benchmark(
+        pd.to_datetime(["2024-01-04", "2024-01-05"])
+    )
+
+    _assert_benchmark_unavailable_without_erasing_results(result)
+
+
+def test_short_end_benchmark_fails_closed_without_stretching_missing_tail() -> None:
+    result = _run_with_benchmark(
+        pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    )
+
+    _assert_benchmark_unavailable_without_erasing_results(result)
