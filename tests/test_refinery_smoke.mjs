@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   CLUSTERING_CONTRACT_VERSION,
   FACTOR_CORROBORATION_POLICY,
+  FACTOR_MINIMUM_MONTHLY_OBSERVATIONS,
   FACTOR_MODEL_SCOPE,
   REFINERY_CONTRACT_VERSION,
   REFINERY_SCHEMA_VERSION,
@@ -39,6 +40,23 @@ function factorAsset() {
   };
 }
 
+function systematicRelationship() {
+  return {
+    status: "ok",
+    observations: 48,
+    start: "2022-01-31",
+    end: "2025-12-31",
+    sample_fingerprint_sha256: "b".repeat(64),
+    matrix: {
+      symbols: ["AAPL", "MSFT"],
+      values: [
+        [1, 0.72],
+        [0.72, 1],
+      ],
+    },
+  };
+}
+
 function preflightPayload() {
   return {
     contract_version: REFINERY_CONTRACT_VERSION,
@@ -50,10 +68,11 @@ function preflightPayload() {
   };
 }
 
-function analyzePayload({ factorEligible = false } = {}) {
+function analyzePayload({ factorEligible = false, relationship = undefined } = {}) {
   const assetA = factorAsset();
   const assetB = factorAsset();
   if (factorEligible) assetA.factor_corroboration_eligible = true;
+  const systematic = relationship === undefined ? systematicRelationship() : relationship;
   return {
     contract_version: REFINERY_CONTRACT_VERSION,
     schema_version: REFINERY_SCHEMA_VERSION,
@@ -87,11 +106,7 @@ function analyzePayload({ factorEligible = false } = {}) {
         factor_model_scope: FACTOR_MODEL_SCOPE,
         factor_corroboration_policy: FACTOR_CORROBORATION_POLICY,
         assets: { AAPL: assetA, MSFT: assetB },
-        systematic_relationship: {
-          status: "ok",
-          observations: 48,
-          sample_fingerprint_sha256: "b".repeat(64),
-        },
+        systematic_relationship: systematic,
       },
       theme_relationships: {
         status: "unavailable_no_traceable_theme_source",
@@ -160,6 +175,7 @@ test("Refinery smoke exercises bounded preflight and analyze contracts through W
   assert.equal(summary.clusteringContractVersion, CLUSTERING_CONTRACT_VERSION);
   assert.equal(summary.preflightRequestId, "worker-generated-preflight");
   assert.equal(summary.analyzeRequestId, "worker-generated-analyze");
+  assert.equal(summary.factorRelationshipStatus, "ok");
 });
 
 test("Refinery smoke retries a transient request failure before validating the contract", async () => {
@@ -192,6 +208,50 @@ test("Refinery smoke rejects factor corroboration eligibility without scope auth
     runRefinerySmoke("https://example.test", { fetchImpl, requestTimeoutMs: 5_000 }),
     /AAPL factor evidence unexpectedly became verdict-eligible/,
   );
+});
+
+test("Refinery smoke rejects invalid M4 common-sample systematic relationship evidence", async () => {
+  const valid = systematicRelationship();
+  const invalidCases = [
+    {
+      name: "missing relationship",
+      relationship: null,
+      expected: /Systematic factor relationship is unavailable/,
+    },
+    {
+      name: "insufficient common observations",
+      relationship: { ...valid, observations: FACTOR_MINIMUM_MONTHLY_OBSERVATIONS - 1 },
+      expected: /requires at least 36 common monthly observations/,
+    },
+    {
+      name: "missing common start",
+      relationship: { ...valid, start: null },
+      expected: /common-sample start is missing/,
+    },
+    {
+      name: "invalid common-sample fingerprint",
+      relationship: { ...valid, sample_fingerprint_sha256: "not-a-sha256" },
+      expected: /common-sample fingerprint is invalid/,
+    },
+    {
+      name: "missing labelled matrix",
+      relationship: { ...valid, matrix: null },
+      expected: /matrix is missing/,
+    },
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const { fetchImpl } = fakeFetchFactory({ relationship: invalidCase.relationship });
+    await assert.rejects(
+      runRefinerySmoke("https://example.test", {
+        fetchImpl,
+        requestTimeoutMs: 5_000,
+        attempts: 1,
+      }),
+      invalidCase.expected,
+      invalidCase.name,
+    );
+  }
 });
 
 test("Refinery smoke rejects responses that expose traceback text", async () => {
