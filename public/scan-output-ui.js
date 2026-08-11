@@ -7,13 +7,19 @@ import {
 import {
   deriveScanCoverage,
 } from "./scan-coverage.js?v=20260803.2";
+import {
+  rewriteScanProgressMessage,
+  rewriteScanStatusMessage,
+} from "./scan-progress-ui.js?v=20260811.1";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const timingHistory = [];
 const baseFetch = window.fetch.bind(window);
 let timingScheduled = false;
 let tableScheduled = false;
+let statusScheduled = false;
 let tableObserver;
+let statusObserver;
 
 const BASE_RESULT_HEADERS = [
   "ticker",
@@ -223,6 +229,34 @@ function scheduleTiming() {
   });
 }
 
+function decorateStatusMessages() {
+  const job = readSavedJob();
+  if (!job) return;
+
+  const progress = document.querySelector("#scan-progress-label");
+  if (progress) {
+    const current = progress.textContent || "";
+    const next = rewriteScanProgressMessage(current, job);
+    if (next !== current) progress.textContent = next;
+  }
+
+  const status = document.querySelector("#scan-error");
+  if (status) {
+    const current = status.textContent || "";
+    const next = rewriteScanStatusMessage(current, job);
+    if (next !== current) status.textContent = next;
+  }
+}
+
+function scheduleStatusDecoration() {
+  if (statusScheduled) return;
+  statusScheduled = true;
+  requestAnimationFrame(() => {
+    statusScheduled = false;
+    decorateStatusMessages();
+  });
+}
+
 function decorateTable() {
   const table = document.querySelector("#scan-table");
   const body = table?.tBodies?.[0];
@@ -301,12 +335,14 @@ window.fetch = async function fetchWithScanTiming(input, init) {
       if (timingHistory.length > 30) timingHistory.shift();
       scheduleTiming();
       scheduleTableDecoration();
+      scheduleStatusDecoration();
     }
     return response;
   } catch (error) {
     if (isScan) {
       timingHistory.push({ count, elapsedMs: performance.now() - startedAt, status: 0, phases: {} });
       scheduleTiming();
+      scheduleStatusDecoration();
     }
     throw error;
   }
@@ -385,8 +421,14 @@ function initialize() {
   document.querySelector("#export-scan-audit")?.addEventListener("click", handleAuditExport, true);
   tableObserver = new MutationObserver(scheduleTableDecoration);
   tableObserver.observe(document.body, { childList: true, subtree: true });
+  statusObserver = new MutationObserver(scheduleStatusDecoration);
+  ["#scan-progress-label", "#scan-error"].forEach((selector) => {
+    const element = document.querySelector(selector);
+    if (element) statusObserver.observe(element, { childList: true, characterData: true, subtree: true });
+  });
   scheduleTiming();
   scheduleTableDecoration();
+  scheduleStatusDecoration();
 }
 
 if (document.readyState === "loading") {
