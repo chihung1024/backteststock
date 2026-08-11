@@ -22,7 +22,7 @@ from apps.api.app.portfolio.models import (
     validate_portfolio_batch,
 )
 
-PORTFOLIO_SERVICE_CONTRACT_VERSION = "portfolio-service-twd-2026-08-11.1"
+PORTFOLIO_SERVICE_CONTRACT_VERSION = "portfolio-service-twd-2026-08-11.2"
 COMPARISON_WINDOW_POLICY = "common-runnable-portfolios-v1"
 
 
@@ -35,11 +35,31 @@ class PortfolioRunResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PortfolioComparisonContext:
+    """Authoritative effective sample for one comparable multi-portfolio batch."""
+
+    policy: str
+    start: pd.Timestamp
+    end: pd.Timestamp
+
+    def bound_history(self, history: TWDAssetHistory) -> TWDAssetHistory:
+        """Rebuild audited history/components on this comparison window."""
+
+        return _history_on_common_window(history, self.start, self.end)
+
+    def bound_returns(self, values: pd.Series) -> pd.Series:
+        """Return the same effective return sample used by compared ledgers."""
+
+        return _bounded_returns(values, self.start, self.end)
+
+
+@dataclass(frozen=True, slots=True)
 class PortfolioBatchResult:
     results: tuple[PortfolioRunResult, ...]
     failures: tuple[PortfolioFailure, ...]
     benchmark: str | None
     warnings: tuple[str, ...]
+    comparison_context: PortfolioComparisonContext | None = None
     contract_version: str = PORTFOLIO_SERVICE_CONTRACT_VERSION
 
 
@@ -113,8 +133,7 @@ class PortfolioLedgerService:
                 continue
             runnable.append((portfolio, aligned.start, aligned.end))
 
-        comparison_start: pd.Timestamp | None = None
-        comparison_end: pd.Timestamp | None = None
+        comparison_context: PortfolioComparisonContext | None = None
         simulation_histories: Mapping[str, TWDAssetHistory] = histories
         if len(runnable) >= 2:
             comparison_start = max(item[1] for item in runnable)
@@ -137,6 +156,11 @@ class PortfolioLedgerService:
                 runnable = []
                 batch_warnings.append(detail)
             else:
+                comparison_context = PortfolioComparisonContext(
+                    policy=COMPARISON_WINDOW_POLICY,
+                    start=comparison_start,
+                    end=comparison_end,
+                )
                 compared_symbols = {
                     symbol
                     for portfolio, _, _ in runnable
@@ -144,21 +168,21 @@ class PortfolioLedgerService:
                 }
                 simulation_histories = {
                     symbol: (
-                        _history_on_common_window(history, comparison_start, comparison_end)
+                        comparison_context.bound_history(history)
                         if symbol in compared_symbols
                         else history
                     )
                     for symbol, history in histories.items()
                 }
                 if benchmark_returns is not None:
-                    benchmark_returns = benchmark_returns.loc[
-                        comparison_start:comparison_end
-                    ]
+                    benchmark_returns = comparison_context.bound_returns(
+                        benchmark_returns
+                    )
                 batch_warnings.append(
                     "multi-portfolio comparison recomputed from common window "
-                    f"{comparison_start.date().isoformat()} -> "
-                    f"{comparison_end.date().isoformat()} "
-                    f"({COMPARISON_WINDOW_POLICY})"
+                    f"{comparison_context.start.date().isoformat()} -> "
+                    f"{comparison_context.end.date().isoformat()} "
+                    f"({comparison_context.policy})"
                 )
 
         results: list[PortfolioRunResult] = []
@@ -200,6 +224,7 @@ class PortfolioLedgerService:
             failures=tuple(failures),
             benchmark=normalized_benchmark,
             warnings=tuple(dict.fromkeys(batch_warnings)),
+            comparison_context=comparison_context,
         )
 
 
