@@ -55,10 +55,24 @@ async function installBaseRoutes(page) {
 test("scanner distinguishes settled progress from successful results", async ({ page }) => {
   const tickers = buildTickers();
   const failedStarts = new Set([tickerAt(300), tickerAt(400)]);
+  let releaseFinalBatch;
+  const finalBatchGate = new Promise((resolve) => {
+    releaseFinalBatch = resolve;
+  });
+  let markFinalBatchRequested;
+  const finalBatchRequested = new Promise((resolve) => {
+    markFinalBatchRequested = resolve;
+  });
+
   await installBaseRoutes(page);
   await page.route("**/api/scan", async (route) => {
     const payload = route.request().postDataJSON();
-    const rows = failedStarts.has(payload.tickers[0])
+    const batchStart = payload.tickers[0];
+    if (batchStart === tickerAt(400)) {
+      markFinalBatchRequested();
+      await finalBatchGate;
+    }
+    const rows = failedStarts.has(batchStart)
       ? payload.tickers.map(retryableFailure)
       : payload.tickers.map(successRow);
     await fulfillJson(route, rows);
@@ -71,10 +85,14 @@ test("scanner distinguishes settled progress from successful results", async ({ 
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
+  // Hold the final 401–500 request open so the 400-settled UI state is observable
+  // deterministically instead of racing an instantaneous mocked response.
+  await finalBatchRequested;
   await expect(page.locator("#scan-progress-label")).toContainText(
     "正在取得第 401–500 檔；已結算 400 / 500 檔（成功 300、失敗 100）",
     { timeout: 30_000 },
   );
+  releaseFinalBatch();
 
   await expect(page.locator("#scan-progress-label")).toContainText(
     "回測結束：已結算 500 / 500 檔（成功 300、失敗 200、未完成 0）",
