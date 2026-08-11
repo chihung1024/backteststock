@@ -161,6 +161,30 @@ test("Refinery smoke exercises bounded preflight and analyze contracts through W
   assert.equal(summary.analyzeRequestId, "worker-generated-analyze");
 });
 
+test("Refinery smoke retries a transient request failure before validating the contract", async () => {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({ error: "temporary upstream failure" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const parsed = new URL(url);
+    const payload = parsed.pathname.endsWith("/preflight") ? preflightPayload() : analyzePayload();
+    return jsonResponse(payload, `worker-retry-${calls}`);
+  };
+
+  const summary = await runRefinerySmoke("https://example.test", {
+    fetchImpl,
+    requestTimeoutMs: 5_000,
+    attempts: 2,
+  });
+  assert.equal(calls, 3);
+  assert.equal(summary.status, "ok");
+});
+
 test("Refinery smoke rejects factor corroboration eligibility without scope authority", async () => {
   const { fetchImpl } = fakeFetchFactory({ factorEligible: true });
   await assert.rejects(
@@ -184,7 +208,11 @@ test("Refinery smoke rejects responses that expose traceback text", async () => 
     },
   );
   await assert.rejects(
-    runRefinerySmoke("https://example.test", { fetchImpl, requestTimeoutMs: 5_000 }),
+    runRefinerySmoke("https://example.test", {
+      fetchImpl,
+      requestTimeoutMs: 5_000,
+      attempts: 1,
+    }),
     /exposed a traceback/,
   );
 });
@@ -204,7 +232,11 @@ test("Refinery smoke rejects an otherwise valid response without a traceable Wor
     });
   };
   await assert.rejects(
-    runRefinerySmoke("https://example.test", { fetchImpl, requestTimeoutMs: 5_000 }),
+    runRefinerySmoke("https://example.test", {
+      fetchImpl,
+      requestTimeoutMs: 5_000,
+      attempts: 1,
+    }),
     /missing a traceable x-request-id/,
   );
 });
