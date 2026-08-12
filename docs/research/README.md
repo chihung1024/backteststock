@@ -15,7 +15,8 @@ This index identifies which document owns which semantic boundary. Current execu
 7. `REFINERY_UI_V1.md`
 8. `REFINERY_CLUSTERING_V1.md`
 9. corresponding implementation and tests
-10. historical/convergence evidence when needed, including `PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md`
+
+Closed implementation/convergence/production-acceptance narratives are reconstructed from Git/PR/Issue/Actions history when needed; they are not parallel contract authorities.
 
 ## Current main contract map
 
@@ -27,9 +28,7 @@ This index identifies which document owns which semantic boundary. Current execu
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary |
 | `REFINERY_CLUSTERING_V1.md` | current Phase 5 clustering/redundancy methodology, bootstrap/factor/common-sample evidence and descriptive redundancy semantics; current clustering contract `.2` |
 
-Phase 5 clustering/redundancy implementation is merged to production `main` and **is a current main authority**. Operational P5-CLOSE deployment/smoke acceptance is tracked separately in root `to_do_update_list.md` and does not revert the merged methodology to draft status.
-
-`PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` is retained as implementation/convergence/closeout evidence, not as live project-status authority.
+Phase 5 clustering/redundancy implementation is merged to production `main` and **is a current main authority**. Operational history is retained in GitHub PR/Issue/Actions evidence rather than a live-tree closeout plan.
 
 ## Semantic boundaries
 

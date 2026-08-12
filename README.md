@@ -52,7 +52,7 @@ apps/api/app/
 - **`apps/portfolio-web/`**：Portfolio / Refinery React + TypeScript full-page workspace source；production build 發布到 `/portfolio/`。
 - **GitHub Actions**：CI、Release backup、Universe 更新、部署 orchestration；不是應用程式 runtime。
 
-Durable runtime/quant architecture decision 見 [`docs/adr/0001-runtime-and-quant-authority.md`](docs/adr/0001-runtime-and-quant-authority.md)。`docs/PHASE_MINUS1_GOVERNANCE.md` 僅保留為歷史 Phase -1 baseline，不是現行 governance authority。
+Durable runtime/quant architecture decision 見 [`docs/adr/0001-runtime-and-quant-authority.md`](docs/adr/0001-runtime-and-quant-authority.md)。已完成的早期 phase-governance 快照由 Git history 保存，不再作為 live-tree authority。
 
 ## 2. 研究資料與量化權威
 
@@ -181,7 +181,7 @@ Portfolio v3 是 self-owned production path，使用嚴格 request/response cont
 
 Portfolio 與 Scanner/Exhaustive 共用 `apps/api/app/data/` 的 TWD 資料契約，但 Portfolio ledger/metrics 保有 path-dependent domain semantics。
 
-`docs/portfolio-migration/` 目前僅作 historical migration evidence，不是 live roadmap；待其中仍具唯一契約價值的資訊被現行 authority 完整吸收後，再依 documentation cleanup policy 移除。
+`docs/portfolio-migration/README.md` 僅保留 frozen source provenance；`PR2_LEDGER_METRICS.md` 與 `PR3_PORTFOLIO_V3_API.md` 暫留作尚未完全被專屬 current contract 取代的 ledger/API migration semantics。PR4–PR6 rollout/cutover 敘述已由 Git history、現行 implementation 與永久 regression tests 取代。
 
 ## 9. Portfolio Refinery
 
