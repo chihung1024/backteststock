@@ -1,0 +1,320 @@
+name: P78 One-Time Source Patch
+
+on:
+  push:
+    branches:
+      - internal-p78-scan-job-normalization-2026-08-12
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply exact migration-authority patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          app_path = Path("public/app.js")
+          app = app_path.read_text()
+          app_import_anchor = '''import {
+            DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
+            buildScanCoverageStats,
+            normalizeScanMinCoveragePercent,
+          } from "./scan-coverage.js?v=20260803.2";
+          '''
+          app = replace_once(
+              app,
+              app_import_anchor,
+              app_import_anchor + 'import { normalizeScanPayloadDates } from "./scan-job-normalizer.js?v=20260812.1";\n',
+              "scanner shared-normalizer import",
+          )
+          old_local_normalizer = '''function scanPayloadDate(payload, boundary) {
+            const dateKey = boundary === "start" ? "startDate" : "endDate";
+            const direct = String(payload?.[dateKey] || "").trim();
+            if (isValidLocalIsoDate(direct)) return direct;
+
+            const yearKey = boundary === "start" ? "startYear" : "endYear";
+            const monthKey = boundary === "start" ? "startMonth" : "endMonth";
+            const year = Number(payload?.[yearKey]);
+            const month = Number(payload?.[monthKey]);
+            if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+              const day = boundary === "start" ? 1 : new Date(year, month, 0).getDate();
+              const candidate = [
+                year,
+                String(month).padStart(2, "0"),
+                String(day).padStart(2, "0"),
+              ].join("-");
+              if (boundary === "end" && candidate > defaultRange.endDate) {
+                return defaultRange.endDate;
+              }
+              return candidate;
+            }
+            return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
+          }
+
+          function normalizeScanPayloadDates(payload) {
+            const startDate = scanPayloadDate(payload, "start");
+            const endDate = scanPayloadDate(payload, "end");
+            const [startYear, startMonth] = startDate.split("-").map(Number);
+            const [endYear, endMonth] = endDate.split("-").map(Number);
+            return {
+              ...payload,
+              startDate,
+              endDate,
+              startYear,
+              startMonth,
+              endYear,
+              endMonth,
+            };
+          }
+
+          '''
+          app = replace_once(app, old_local_normalizer, "", "remove scanner-local normalization authority")
+          app = replace_once(
+              app,
+              "job.payload = normalizeScanPayloadDates(job.payload);",
+              "job.payload = normalizeScanPayloadDates(job.payload, defaultRange);",
+              "restore stored scan job",
+          )
+          app = replace_once(
+              app,
+              "const normalized = normalizeScanPayloadDates(payload);",
+              "const normalized = normalizeScanPayloadDates(payload, defaultRange);",
+              "restore scan controls",
+          )
+          app_path.write_text(app)
+
+          optimizer_path = Path("public/exhaustive-optimizer.js")
+          optimizer = optimizer_path.read_text()
+          optimizer_import_anchor = '''import {
+            buildScanCoverageStats,
+            normalizeScanMinCoveragePercent,
+          } from "./scan-coverage.js?v=20260803.2";
+          '''
+          optimizer = replace_once(
+              optimizer,
+              optimizer_import_anchor,
+              optimizer_import_anchor + 'import { normalizeScanJob } from "./scan-job-normalizer.js?v=20260812.1";\n',
+              "optimizer shared-normalizer import",
+          )
+          optimizer = replace_once(
+              optimizer,
+              "const scanJob = readJson(SCAN_JOB_KEY);",
+              "const scanJob = normalizeScanJob(readJson(SCAN_JOB_KEY), rollingRange());",
+              "optimizer persisted scan normalization",
+          )
+          optimizer_path.write_text(optimizer)
+
+          helper = r'''function daysInMonth(year, month) {
+            return new Date(Date.UTC(year, month, 0)).getUTCDate();
+          }
+
+          function isValidIsoDate(value) {
+            const raw = String(value || "").trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/u.test(raw)) return false;
+            const [year, month, day] = raw.split("-").map(Number);
+            return Number.isInteger(year)
+              && Number.isInteger(month)
+              && Number.isInteger(day)
+              && month >= 1
+              && month <= 12
+              && day >= 1
+              && day <= daysInMonth(year, month);
+          }
+
+          function normalizedFallbackRange(fallbackRange) {
+            const startDate = String(fallbackRange?.startDate || "").trim();
+            const endDate = String(fallbackRange?.endDate || "").trim();
+            if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
+              throw new TypeError("fallbackRange must contain a valid startDate/endDate range");
+            }
+            return { startDate, endDate };
+          }
+
+          function scanPayloadDate(payload, boundary, fallbackRange) {
+            const dateKey = boundary === "start" ? "startDate" : "endDate";
+            const direct = String(payload?.[dateKey] || "").trim();
+            if (isValidIsoDate(direct)) return direct;
+
+            const yearKey = boundary === "start" ? "startYear" : "endYear";
+            const monthKey = boundary === "start" ? "startMonth" : "endMonth";
+            const year = Number(payload?.[yearKey]);
+            const month = Number(payload?.[monthKey]);
+            if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+              const day = boundary === "start" ? 1 : daysInMonth(year, month);
+              const candidate = [
+                year,
+                String(month).padStart(2, "0"),
+                String(day).padStart(2, "0"),
+              ].join("-");
+              if (boundary === "end" && candidate > fallbackRange.endDate) {
+                return fallbackRange.endDate;
+              }
+              return candidate;
+            }
+            return boundary === "start" ? fallbackRange.startDate : fallbackRange.endDate;
+          }
+
+          export function normalizeScanPayloadDates(payload, fallbackRange) {
+            const fallback = normalizedFallbackRange(fallbackRange);
+            const startDate = scanPayloadDate(payload, "start", fallback);
+            const endDate = scanPayloadDate(payload, "end", fallback);
+            const [startYear, startMonth] = startDate.split("-").map(Number);
+            const [endYear, endMonth] = endDate.split("-").map(Number);
+            return {
+              ...(payload && typeof payload === "object" ? payload : {}),
+              startDate,
+              endDate,
+              startYear,
+              startMonth,
+              endYear,
+              endMonth,
+            };
+          }
+
+          export function normalizeScanJob(job, fallbackRange) {
+            if (!job || typeof job !== "object") return job ?? null;
+            return {
+              ...job,
+              payload: normalizeScanPayloadDates(job.payload, fallbackRange),
+            };
+          }
+          '''
+          Path("public/scan-job-normalizer.js").write_text(helper)
+
+          test = r'''import assert from "node:assert/strict";
+          import test from "node:test";
+
+          import {
+            normalizeScanJob,
+            normalizeScanPayloadDates,
+          } from "../public/scan-job-normalizer.js";
+
+          const fallback = Object.freeze({
+            startDate: "2016-08-12",
+            endDate: "2026-08-11",
+          });
+
+          test("canonical scan dates remain authoritative", () => {
+            const payload = {
+              tickers: ["AAA"],
+              startDate: "2025-02-03",
+              endDate: "2025-07-18",
+            };
+            assert.deepEqual(normalizeScanPayloadDates(payload, fallback), {
+              ...payload,
+              startYear: 2025,
+              startMonth: 2,
+              endYear: 2025,
+              endMonth: 7,
+            });
+          });
+
+          test("legacy year/month scan dates migrate to the canonical interval", () => {
+            assert.deepEqual(
+              normalizeScanPayloadDates({
+                benchmark: "QQQ",
+                startYear: 2025,
+                startMonth: 1,
+                endYear: 2025,
+                endMonth: 12,
+              }, fallback),
+              {
+                benchmark: "QQQ",
+                startYear: 2025,
+                startMonth: 1,
+                endYear: 2025,
+                endMonth: 12,
+                startDate: "2025-01-01",
+                endDate: "2025-12-31",
+              },
+            );
+          });
+
+          test("legacy future month end is capped by the caller-supplied rolling range", () => {
+            const normalized = normalizeScanPayloadDates({
+              startYear: 2026,
+              startMonth: 7,
+              endYear: 2026,
+              endMonth: 8,
+            }, fallback);
+            assert.equal(normalized.startDate, "2026-07-01");
+            assert.equal(normalized.endDate, "2026-08-11");
+          });
+
+          test("missing dates use caller fallback without hidden time or storage access", () => {
+            const normalized = normalizeScanPayloadDates({ tickers: ["AAA"] }, fallback);
+            assert.equal(normalized.startDate, fallback.startDate);
+            assert.equal(normalized.endDate, fallback.endDate);
+          });
+
+          test("scan job normalization is immutable and preserves job provenance", () => {
+            const job = {
+              version: 3,
+              id: "legacy-job",
+              payload: {
+                tickers: ["AAA", "BBB"],
+                startYear: 2025,
+                startMonth: 1,
+                endYear: 2025,
+                endMonth: 12,
+              },
+            };
+            const normalized = normalizeScanJob(job, fallback);
+            assert.notEqual(normalized, job);
+            assert.notEqual(normalized.payload, job.payload);
+            assert.equal(normalized.id, "legacy-job");
+            assert.equal(normalized.payload.startDate, "2025-01-01");
+            assert.equal(job.payload.startDate, undefined);
+          });
+
+          test("invalid fallback fails before producing ambiguous provenance", () => {
+            assert.throws(
+              () => normalizeScanPayloadDates({}, { startDate: "bad", endDate: "2026-08-11" }),
+              /fallbackRange/,
+            );
+          });
+          '''
+          Path("tests/test_scan_job_normalizer.mjs").write_text(test)
+
+          package_path = Path("package.json")
+          package_text = package_path.read_text()
+          package_text = replace_once(
+              package_text,
+              "node --check public/scan-coverage.js && node --check public/scan-composite-score.js",
+              "node --check public/scan-coverage.js && node --check public/scan-job-normalizer.js && node --check public/scan-composite-score.js",
+              "package syntax check",
+          )
+          package_text = replace_once(
+              package_text,
+              "tests/test_scan_progress_ui.mjs tests/test_optimizer_worker_proxy.mjs",
+              "tests/test_scan_progress_ui.mjs tests/test_scan_job_normalizer.mjs tests/test_optimizer_worker_proxy.mjs",
+              "package shared-normalizer test",
+          )
+          package_path.write_text(package_text)
+          PY
+
+          node --check public/scan-job-normalizer.js
+          node --test tests/test_scan_job_normalizer.mjs
+          git diff --check
+          rm .github/workflows/p78-one-time-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/app.js public/exhaustive-optimizer.js public/scan-job-normalizer.js tests/test_scan_job_normalizer.mjs package.json .github/workflows/p78-one-time-apply.yml
+          git commit -m "fix: share restored scan job normalization"
+          git push origin HEAD:${GITHUB_REF_NAME}
