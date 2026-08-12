@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from apps.api.app.data.history_service import HistoryFailure
 from apps.api.app.portfolio.api_models import PortfolioRequest
 from apps.api.app.portfolio.api_service import PortfolioAPIService
+from apps.api.app.portfolio.metrics import DAYS_PER_YEAR
 from tests.portfolio_v3_fixtures import FakeHistoryService, make_history
 
 
@@ -199,3 +201,141 @@ def test_style_preflight_lists_proxy_dependencies_without_making_them_user_asset
     assert all(item.status == "failed" for item in result.analysis_dependencies)
     requested = set(history_service.calls[0][0])
     assert requested.issuperset({"IWD", "IWF", "IWS", "IWP", "IWN", "IWO"})
+
+
+def test_multi_portfolio_benchmark_uses_the_common_comparison_window() -> None:
+    early_index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    late_index = pd.to_datetime(["2024-01-04", "2024-01-05"])
+    histories = {
+        "EARLY": make_history("EARLY", early_index, [0.0, 0.50, 0.10, 0.10]),
+        "LATE": make_history("LATE", late_index, [0.0, 0.02]),
+        "BMK": make_history(
+            "BMK",
+            early_index,
+            [0.0, 0.50, 0.10, 0.10],
+            price_returns=[0.0, 0.30, 0.10, 0.10],
+            distribution_returns=[0.0, 0.20, 0.0, 0.0],
+        ),
+    }
+    service = PortfolioAPIService(
+        history_service=FakeHistoryService(histories),
+        factor_provider=StaticFactorProvider(pd.DataFrame()),
+        fred_provider=UnavailableFredProvider(),
+    )
+    request = PortfolioRequest.model_validate(
+        {
+            "portfolios": [
+                {
+                    "name": "Early history",
+                    "assets": [{"symbol": "EARLY", "weight": 100}],
+                },
+                {
+                    "name": "Late history",
+                    "assets": [{"symbol": "LATE", "weight": 100}],
+                },
+            ],
+            "benchmark": "BMK",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-05",
+            "initial_amount": 100,
+            "output_frequency": "daily",
+            "analytics": {
+                "factor_analysis": False,
+                "style_analysis": False,
+                "regime": "none",
+                "inflation_adjusted": False,
+                "risk_free_rate_percent": 0,
+            },
+        }
+    )
+
+    result = service.backtest(request)
+
+    assert [item["metrics"]["start"] for item in result.results] == [
+        "2024-01-04",
+        "2024-01-04",
+    ]
+    assert [item["metrics"]["end"] for item in result.results] == [
+        "2024-01-05",
+        "2024-01-05",
+    ]
+    assert [item["series"][0]["date"] for item in result.results] == [
+        "2024-01-04",
+        "2024-01-04",
+    ]
+    assert [item["series"][-1]["date"] for item in result.results] == [
+        "2024-01-05",
+        "2024-01-05",
+    ]
+    assert any("common-runnable-portfolios-v1" in warning for warning in result.warnings)
+    assert result.benchmark is not None
+    benchmark = result.benchmark
+    assert benchmark["metrics"]["start"] == "2024-01-04"
+    assert benchmark["metrics"]["end"] == "2024-01-05"
+    assert benchmark["metrics"]["observations"] == 2
+    assert benchmark["tail_risk"]["observations"] == 1
+    assert benchmark["tail_risk"]["observations"] == (
+        benchmark["metrics"]["observations"] - 1
+    )
+    assert benchmark["metrics"]["initial_balance"] == pytest.approx(100.0)
+    assert benchmark["metrics"]["final_balance"] == pytest.approx(110.0)
+    assert benchmark["metrics"]["total_return"] == pytest.approx(
+        benchmark["metrics"]["final_balance"]
+        / benchmark["metrics"]["initial_balance"]
+        - 1.0
+    )
+    expected_cagr = (110.0 / 100.0) ** DAYS_PER_YEAR - 1.0
+    assert benchmark["metrics"]["cagr"] == pytest.approx(expected_cagr)
+    assert benchmark["metrics"]["total_income"] == pytest.approx(0.0)
+    assert benchmark["series"][0]["date"] == "2024-01-04"
+    assert benchmark["series"][-1]["date"] == "2024-01-05"
+    assert benchmark["series"][-1]["cumulative_income"] == pytest.approx(0.0)
+
+
+def test_single_portfolio_keeps_full_benchmark_history_without_common_policy() -> None:
+    benchmark_index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    portfolio_index = pd.to_datetime(["2024-01-04", "2024-01-05"])
+    histories = {
+        "ONLY": make_history("ONLY", portfolio_index, [0.0, 0.02]),
+        "BMK": make_history("BMK", benchmark_index, [0.0, 0.01, 0.01, 0.01]),
+    }
+    service = PortfolioAPIService(
+        history_service=FakeHistoryService(histories),
+        factor_provider=StaticFactorProvider(pd.DataFrame()),
+        fred_provider=UnavailableFredProvider(),
+    )
+    request = PortfolioRequest.model_validate(
+        {
+            "portfolios": [
+                {
+                    "name": "Only",
+                    "assets": [{"symbol": "ONLY", "weight": 100}],
+                }
+            ],
+            "benchmark": "BMK",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-05",
+            "initial_amount": 100,
+            "output_frequency": "daily",
+            "analytics": {
+                "factor_analysis": False,
+                "style_analysis": False,
+                "regime": "none",
+                "inflation_adjusted": False,
+                "risk_free_rate_percent": 0,
+            },
+        }
+    )
+
+    result = service.backtest(request)
+
+    assert result.results[0]["metrics"]["start"] == "2024-01-04"
+    assert result.results[0]["metrics"]["end"] == "2024-01-05"
+    assert result.benchmark is not None
+    assert result.benchmark["metrics"]["start"] == "2024-01-02"
+    assert result.benchmark["metrics"]["end"] == "2024-01-05"
+    assert not any("common-runnable-portfolios-v1" in warning for warning in result.warnings)

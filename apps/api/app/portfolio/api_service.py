@@ -16,6 +16,7 @@ import yfinance as yf
 from api.metrics import METRIC_DEFINITION_VERSION, series_fingerprint
 from apps.api.app.data.history_service import (
     PartialTWDHistories,
+    TWDAssetHistory,
     TWDHistoryService,
     normalize_symbol,
 )
@@ -53,6 +54,7 @@ from apps.api.app.portfolio.metrics import (
 from apps.api.app.portfolio.models import PortfolioSpec, SimulationConfig
 from apps.api.app.portfolio.service import (
     PORTFOLIO_SERVICE_CONTRACT_VERSION,
+    PortfolioComparisonContext,
     PortfolioLedgerService,
 )
 
@@ -199,10 +201,9 @@ class PortfolioAPIService:
             request,
             effective_end,
         )
+        benchmark_history = batch.effective_benchmark_history
         benchmark_returns = (
-            histories.histories[request.benchmark].daily_returns
-            if request.benchmark and request.benchmark in histories.histories
-            else None
+            benchmark_history.daily_returns if benchmark_history is not None else None
         )
 
         results: list[dict[str, Any]] = []
@@ -212,6 +213,7 @@ class PortfolioAPIService:
                 run.ledger,
                 histories,
                 benchmark_returns,
+                comparison_context=batch.comparison_context,
                 factors=factors,
                 cpi=cpi,
                 real_gdp=real_gdp,
@@ -230,7 +232,7 @@ class PortfolioAPIService:
                 )
             )
 
-        benchmark_payload = self._benchmark_payload(request, histories, config)
+        benchmark_payload = self._benchmark_payload(request, benchmark_history, config)
         compute_ms = (time.perf_counter() - compute_started) * 1_000.0
         warnings = [
             *self._request_warnings(request, effective_end),
@@ -317,26 +319,47 @@ class PortfolioAPIService:
         histories: PartialTWDHistories,
         benchmark_returns: pd.Series | None,
         *,
+        comparison_context: PortfolioComparisonContext | None,
         factors: pd.DataFrame | None,
         cpi: pd.Series | None,
         real_gdp: pd.Series | None,
     ) -> tuple[dict[str, Any], list[str]]:
         output: dict[str, Any] = {}
         warnings: list[str] = []
+        comparison_window = (
+            (comparison_context.start, comparison_context.end)
+            if comparison_context is not None
+            else None
+        )
         if request.analytics.factor_analysis and factors is not None:
             try:
+                factor_histories = histories.histories
+                if comparison_context is not None:
+                    factor_histories = {
+                        symbol: comparison_context.bound_history(history)
+                        for symbol in ledger.symbols
+                        if (history := histories.histories.get(symbol)) is not None
+                    }
                 output["factor"] = factor_fx_regression(
                     ledger,
-                    histories.histories,
+                    factor_histories,
                     factors,
+                    comparison_window=comparison_window,
                 )
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"{ledger.name}: factor analysis unavailable: {exc}")
         if request.analytics.style_analysis:
             try:
+                style_histories = histories.histories
+                if comparison_context is not None:
+                    style_histories = {
+                        symbol: comparison_context.bound_history(history)
+                        for symbol in STYLE_PROXIES.values()
+                        if (history := histories.histories.get(symbol)) is not None
+                    }
                 output["style"] = constrained_style_analysis(
                     ledger,
-                    histories.histories,
+                    style_histories,
                 )
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"{ledger.name}: style analysis unavailable: {exc}")
@@ -371,10 +394,10 @@ class PortfolioAPIService:
     def _benchmark_payload(
         self,
         request: PortfolioRequest,
-        histories: PartialTWDHistories,
+        benchmark_history: TWDAssetHistory | None,
         config: SimulationConfig,
     ) -> dict[str, Any] | None:
-        if not request.benchmark or request.benchmark not in histories.histories:
+        if not request.benchmark or benchmark_history is None:
             return None
         spec = PortfolioSpec.from_weights(
             f"Benchmark · {request.benchmark}",
@@ -385,7 +408,11 @@ class PortfolioAPIService:
             reinvest_distributions=True,
             risk_free_rate=config.risk_free_rate,
         )
-        ledger = simulate_portfolio_ledger(spec, histories.histories, benchmark_config)
+        ledger = simulate_portfolio_ledger(
+            spec,
+            {request.benchmark: benchmark_history},
+            benchmark_config,
+        )
         report = compute_metric_report(ledger, benchmark_config)
         return self._serialize_run(
             ledger,

@@ -15,7 +15,7 @@ from apps.api.app.portfolio.api_models import RegimeType
 from apps.api.app.portfolio.ledger import PortfolioLedger
 from apps.api.app.portfolio.analytics_data import FRED_SOURCE, FRENCH_FACTOR_SOURCE
 
-PORTFOLIO_ANALYTICS_CONTRACT_VERSION = "portfolio-analytics-twd-2026-08-04.2"
+PORTFOLIO_ANALYTICS_CONTRACT_VERSION = "portfolio-analytics-twd-2026-08-12.1"
 STYLE_PROXIES = {
     "large_value": "IWD",
     "large_growth": "IWF",
@@ -31,12 +31,19 @@ def factor_fx_regression(
     ledger: PortfolioLedger,
     histories: Mapping[str, TWDAssetHistory],
     factors: pd.DataFrame,
+    *,
+    comparison_window: tuple[pd.Timestamp, pd.Timestamp] | None = None,
 ) -> dict[str, Any]:
     """Regress monthly TWD portfolio returns on U.S. factors and FX covariates.
 
     This is deliberately not presented as a pure USD Fama-French regression.
     The dependent variable remains the Taiwan investor's TWD return, while
     quote-currency/TWD monthly returns are included separately as FX factors.
+
+    When a multi-portfolio common window is active, callers must pass histories
+    already bounded/reset to that exact daily interval. Official French factors
+    are monthly full-period observations, so the first and last represented
+    calendar months are conservatively excluded from the regression sample.
     """
 
     portfolio = _monthly_compounded(ledger.daily_returns).rename("portfolio_twd")
@@ -68,6 +75,17 @@ def factor_fx_regression(
     joined = independent.join(portfolio, how="inner").replace(
         [np.inf, -np.inf], np.nan
     ).dropna()
+
+    sample_policy = "full-overlap-months"
+    excluded_boundary_months: list[str] = []
+    if comparison_window is not None:
+        start, end = (pd.Timestamp(value) for value in comparison_window)
+        boundary_periods = {start.to_period("M"), end.to_period("M")}
+        excluded_boundary_months = sorted(str(period) for period in boundary_periods)
+        joined_periods = joined.index.to_period("M")
+        joined = joined.loc[~joined_periods.isin(boundary_periods)]
+        sample_policy = "exclude-common-window-boundary-months"
+
     predictor_columns = [column for column in joined if column != "portfolio_twd"]
     minimum = max(24, len(predictor_columns) * 3)
     if len(joined) < minimum:
@@ -97,6 +115,8 @@ def factor_fx_regression(
         "regression_currency": "TWD",
         "factor_source": FRENCH_FACTOR_SOURCE,
         "factor_source_currency": "USD",
+        "sample_policy": sample_policy,
+        "excluded_boundary_months": excluded_boundary_months,
         "observations": int(len(joined)),
         "start": joined.index[0].date().isoformat(),
         "end": joined.index[-1].date().isoformat(),
