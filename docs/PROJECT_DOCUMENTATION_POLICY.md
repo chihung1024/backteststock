@@ -2,98 +2,309 @@
 
 Status: **Current documentation-governance contract**.
 
-Purpose: prevent stale handoff state, duplicated authorities, contradictory methodology text and phase-to-phase context loss. This file does not replace `AI_PROJECT_PLAYBOOK.md`; it defines how repository documents divide responsibilities and how conflicts are resolved.
+Purpose: keep repository documentation accurate, minimal, authoritative and useful to implementation. Documentation exists to support product correctness, reproducibility, operation, recovery and future handoff; it must not become a parallel project that competes with functional delivery.
 
-## 1. Documentation classes
+This file does not replace `AI_PROJECT_PLAYBOOK.md`. The Playbook owns engineering governance and risk-proportional review. This policy owns documentation authority, quality, freshness, duplication, lifecycle and handoff hygiene.
 
-### Engineering governance
+> **Functional-first rule:** document only what materially improves implementation, verification, operation, recovery, decision quality or future handoff.
 
-`AI_PROJECT_PLAYBOOK.md` owns engineering process: planning, investigation, implementation, validation, review, Git/PR, deployment and handoff. It is intentionally stable and frozen under V3.0 unless a documented Reopen Condition occurs.
+---
 
-### Product / architecture overview
+## 1. Documentation authority map
 
-`README.md` owns durable product, architecture, run/test/deploy orientation. It must avoid volatile PR/check details.
+### `AI_PROJECT_PLAYBOOK.md` — engineering governance
 
-### Live execution / handoff state
+Owns planning, investigation, implementation, validation, review, Git/PR, deployment, rollback and handoff rules.
 
-`to_do_update_list.md` owns current stable state, active Phase/Batch, blockers, decisions, risks and exact next action. It is the repository's live handoff snapshot, not the source of truth for mutable remote state.
+It is intentionally stable/frozen. Feature-specific lessons belong in contracts, ADRs, tests or the live handoff unless a documented Playbook reopen condition exists.
 
-### Versioned semantic contracts
+### `README.md` — durable product/architecture orientation
 
-`docs/quant/`, `docs/research/` and other named contract documents own externally observable or quantitative semantics. Contract/version changes must align docs, code constants, tests/fixtures and public schema where applicable.
+Owns:
 
-### ADRs
+- what the product does;
+- major runtime components;
+- how to develop, run, test and deploy;
+- links to canonical deeper documents.
 
-`docs/adr/` records structural decisions, rationale, trade-offs and reopen conditions.
+Do not use README as a live PR/check/deployment status page.
 
-### Historical records
+### `to_do_update_list.md` — live execution/handoff snapshot
 
-Historical rollout/migration material may remain only when it still provides unique audit value. A historical file must not masquerade as live status or current contract. If Git history already preserves the evidence and the live file adds no unique operational/semantic value, remove it from the active tree.
+Owns only the information needed to resume current work correctly:
+
+- current functional goal;
+- current stable production baseline;
+- one Primary Active Batch;
+- blocker, if any;
+- still-relevant locked decisions;
+- unresolved root causes / risks / technical debt;
+- short next-functional roadmap;
+- exact resume action.
+
+It is **not** an append-only project diary. Detailed completed execution history belongs in Git/PR/Issue history unless unique evidence remains necessary for a future decision.
+
+### Versioned contracts — semantic authority
+
+Named API/data/quant/research/persistence/migration documents own accepted semantics. Applicable code constants, tests/fixtures, schema/methodology output and UI labels must agree with them.
+
+### ADRs — durable structural decisions
+
+Use ADRs only for durable, non-obvious architecture decisions whose rationale/trade-offs/reopen conditions are likely to matter again. Ordinary implementation detail belongs in code/tests.
+
+### Runbooks — operational authority
+
+Deployment, migration, rollback and recovery runbooks own executable procedures. Prefer verified commands, prerequisites, failure conditions and rollback steps over narrative prose.
+
+### Historical documents
+
+Keep only when they preserve unique audit/decision value. Historical material must be clearly non-current. If Git/PR/Issue history already preserves all useful evidence, remove or archive redundant active-tree prose.
+
+---
 
 ## 2. Truth precedence
 
-### What is running/open/green right now?
+### Mutable operational state
 
-1. Current GitHub/Vercel/Cloudflare remote state.
-2. `to_do_update_list.md` snapshot.
+For questions such as what is open, merged, green or deployed now:
+
+1. current remote truth: GitHub / Vercel / Cloudflare / runtime;
+2. `to_do_update_list.md` snapshot;
 3. README / historical prose.
 
-### What should a calculation/API mean?
+Important actions must re-query applicable remote truth instead of trusting a stale snapshot.
 
-1. Accepted versioned contract / ADR.
-2. Corresponding tests/reference fixtures.
-3. Implementation.
+### Semantic meaning
 
-Contract/code drift is an engineering defect; do not silently choose one side without evidence.
+For what an API/calculation/data contract should mean:
 
-### How should an Agent work?
+1. accepted versioned contract / ADR;
+2. corresponding tests/reference fixtures;
+3. implementation.
 
-1. `AI_PROJECT_PLAYBOOK.md`.
-2. Current Batch constraints in `to_do_update_list.md`.
-3. Phase-specific review plan/contract.
+Contract/test/code drift is an engineering defect; do not silently choose one side.
 
-## 3. Freshness rules
+### Agent execution
 
-Before important work, query current main/head, PR base/head/mergeability, required checks, reviews/threads, ruleset/protection and deployment/release state as applicable.
+1. `AI_PROJECT_PLAYBOOK.md`;
+2. current constraints in `to_do_update_list.md`;
+3. accepted phase/feature contract where applicable.
 
-Update live handoff when Phase/Batch state, root cause, locked decision, methodology/schema version, blocker, verification evidence or exact next action materially changes.
+---
 
-Before merge, verify README architecture, live roadmap, contract versions, test evidence, non-goals, deferred findings, rollback/recovery and exact next action.
+## 3. Documentation quality standard
 
-## 4. Version discipline
+A document should satisfy the dimensions relevant to its class:
 
-Bump methodology/schema versions when externally observable meaning changes, including return/calendar policy, dataset/hash identity, clustering/bootstrap semantics, factor sample/applicability, verdict eligibility or public response fields.
+- **Accurate** — current claims reflect accepted semantics/current evidence, or are clearly historical/proposed.
+- **Authoritative** — the reader can identify the canonical source and distinguish authority from supporting explanation.
+- **Scoped** — one document does not absorb responsibilities already owned elsewhere.
+- **Actionable** — live/runbook material states the next action, trigger, expected result or failure condition.
+- **Verifiable** — important claims are traceable to code, tests, contracts, Issues/PRs, deployments or queryable remote state.
+- **Durable** — stable docs avoid unnecessary volatile SHAs, PR/check numbers and temporary status.
+- **Navigable** — link to canonical detail instead of copying large blocks.
+- **Concise** — preserve the minimum information required for correctness and handoff.
 
-A version bump is incomplete unless applicable locations align:
+More prose is not higher quality.
+
+---
+
+## 4. Freshness and lifecycle
+
+Documents conceptually move through:
 
 ```text
-contract document
+PROPOSED -> CURRENT -> SUPERSEDED / HISTORICAL -> REMOVED
+```
+
+This is a lifecycle model, not a requirement to add status metadata to every file.
+
+Do not leave obsolete material looking current, and do not maintain two CURRENT authorities for the same semantic question.
+
+Update `to_do_update_list.md` only when a material handoff fact changes, including:
+
+- Primary Active Batch / current functional goal;
+- blocker or root-cause classification;
+- still-relevant locked decision;
+- methodology/schema/contract version affecting current work;
+- production acceptance result;
+- exact resume action;
+- roadmap priority.
+
+Do **not** update it for every commit, temporary hypothesis or intermediate CI run.
+
+Before declaring a Phase/Issue/functional batch complete, reconcile applicable remote Issue/PR state, unresolved blocker reviews/threads, runtime verification, remaining actionable debt and next functional priority.
+
+A remote item already closed/superseded must not remain listed as NEXT merely because the handoff snapshot is stale.
+
+---
+
+## 5. Live handoff compaction
+
+Keep `to_do_update_list.md` small enough that a future Agent can understand the project state quickly.
+
+Preferred structure:
+
+```text
+1. Current Functional Goal
+2. Stable Production State
+3. Primary Active Batch
+4. Immediate Next Functional Batches
+5. Locked Decisions Still Relevant
+6. Open Root Causes / Risks / Technical Debt
+7. Exact Resume Point
+```
+
+Compress completed phase detail when:
+
+- the work is complete;
+- no reopen condition applies;
+- detailed evidence is reconstructable from Git/PR/Issue history;
+- future work does not depend on the detail itself.
+
+Never compact away an unresolved blocker, migration obligation, correctness limitation or deferred decision that still affects future work.
+
+---
+
+## 6. Duplication control
+
+Default: **link, do not copy**.
+
+Duplicate information only when local visibility is necessary for safe execution, the content is deliberately frozen/versioned, or automation validates the copies remain aligned.
+
+Avoid duplicating:
+
+- volatile PR/check/deployment state across README, TODO and phase docs;
+- methodology formulas across prose files;
+- the same roadmap in README, TODO and Issues;
+- long Issue/PR histories inside live handoff;
+- CI evidence already preserved remotely unless needed to justify an acceptance decision.
+
+When duplication is necessary, identify the canonical authority.
+
+---
+
+## 7. Version discipline
+
+Bump methodology/schema versions when externally observable meaning changes, including return/calendar policy, dataset/hash identity, quantitative methodology, factor sample/applicability, eligibility semantics, persistence interpretation or public response fields.
+
+A semantic version change is incomplete until all applicable surfaces agree:
+
+```text
+canonical contract
 <-> code constant
 <-> tests / fixtures
 <-> API methodology/schema output
 <-> UI type/label
-<-> to_do_update_list.md
+<-> live handoff when current execution depends on it
 ```
 
-Do not bump for prose-only clarification with unchanged semantics.
+Do not bump versions for prose-only clarification with unchanged semantics.
 
-## 5. Historical integrity and cleanup
+---
 
-Preserve meaningful root-cause/decision evidence, but do not keep redundant live files solely because they once existed.
+## 8. Functional-first roadmap documentation
 
-Allowed:
+Roadmaps describe **product/user capability outcomes**, not process activity.
 
-- compress completed Phase detail into a historical summary;
+Prefer items such as:
+
+```text
+Fix Scanner -> Optimizer handoff
+Enable Remove/Add/Replace structural experiments
+Verify the end-to-end research workflow
+```
+
+Do not make work NEXT merely because an old sequential roadmap says it comes next.
+
+Promote future work to NEXT only when there is a concrete functional reason, such as:
+
+- a current workflow is broken;
+- a correctness/reliability defect blocks use;
+- an existing capability lacks a necessary complementary function;
+- measured evidence supports a material product benefit;
+- an operational constraint blocks safe delivery.
+
+Otherwise keep it BACKLOG even if a prior plan listed it sequentially.
+
+Planning/review/documentation activity is supporting work, not a product milestone by itself.
+
+---
+
+## 9. Documentation review and risk
+
+Use the Playbook's existing risk classification and independent-review rules; do not create a second review system here.
+
+Additional documentation-specific review questions for material changes:
+
+1. Is this the correct canonical document for the claim/decision?
+2. Does it contradict another CURRENT authority?
+3. Does a semantic change require corresponding code/tests/schema/version changes?
+4. Could the wording cause unsafe or incorrect implementation/operation?
+5. Is the change adding process/document volume without reducing a real risk?
+6. Are failure, rollback or reopen semantics explicit where consequences justify them?
+
+For governance/contracts/runbooks, independent review should attempt to **falsify** the proposal rather than only proofread it.
+
+Docs-only does not automatically mean low risk; risk follows the decision/behavior the document controls, as defined by the Playbook.
+
+---
+
+## 10. Documentation Definition of Done
+
+A documentation change is complete when all applicable checks pass:
+
+- correct authority/file chosen;
+- claims verified against the appropriate source of truth;
+- no unresolved contradiction with another current authority;
+- unnecessary volatile detail removed;
+- canonical links/references used where duplication is unnecessary;
+- required semantic version alignment completed;
+- superseded text removed, archived or marked historical;
+- live handoff changed only when a material handoff fact changed;
+- next action explicit for live/runbook material;
+- risk-appropriate review completed.
+
+Docs-only production smoke is normally unnecessary unless the document directly controls a production procedure that cannot be safely validated another way.
+
+---
+
+## 11. Documentation debt and cleanup
+
+Documentation debt is actionable when it creates a real risk, for example:
+
+- stale status can cause the wrong work to start;
+- contradictory contracts can cause incorrect implementation;
+- missing runbook information can cause deployment/recovery failure;
+- duplicate authorities can drift;
+- missing rationale makes a durable decision likely to be accidentally reversed.
+
+Classify findings with the normal `NOW / NEXT / BACKLOG / REJECT` system.
+
+Do not create cleanup work solely for stylistic uniformity.
+
+Allowed cleanup:
+
+- compress completed phase detail;
 - rely on Git history for obsolete rollout drafts;
 - remove superseded documents when a current authority exists;
-- keep a historical document only when it contains unique evidence still needed for audit or future decisions.
+- retain historical files only when unique evidence remains useful.
 
 Not allowed:
 
-- delete unresolved technical debt without resolve/reject decision;
+- delete unresolved technical debt without a resolve/reject decision;
 - rewrite old contracts so prior semantics cannot be reconstructed;
-- retain stale status text that can mislead future Agents simply for perceived auditability.
+- retain misleading stale status for perceived auditability;
+- turn `to_do_update_list.md` into an append-only execution transcript.
 
-## 6. Writing quality
+---
 
-Documents should be specific, scoped, evidence-based, fail-closed, navigable, durable, actionable and auditable. Prefer canonical links over duplicated volatile status prose.
+## 12. Writing quality
+
+Prefer direct statements, explicit status vocabulary, canonical links, exact failure/reopen conditions and deletion of obsolete prose.
+
+Use tables only when they improve comparison. Use examples only when they clarify a contract or prevent likely misuse.
+
+The target is:
+
+> **minimum sufficient documentation with high decision value and low staleness risk.**
