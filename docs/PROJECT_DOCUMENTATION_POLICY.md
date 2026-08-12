@@ -216,7 +216,7 @@ Before declaring the work converged / closed, verify as applicable:
 3. regressions protecting the failure mode and adjacent high-risk behavior pass;
 4. required runtime / production verification passes when deployment behavior matters;
 5. newly discovered defects with material functional impact are fixed in the current lane when they are necessary to make the capability safe or to preserve the validity of its acceptance evidence;
-6. a material defect may be isolated as the next blocking item only when evidence shows the current capability can still be accepted safely and the defect is outside that acceptance boundary;
+6. a material defect may be isolated as the next blocking item only when evidence shows it is outside the current acceptance boundary, does not invalidate current acceptance, and will be addressed **before** any later work that depends on the affected behavior;
 7. no known unresolved defect is likely to invalidate the just-completed acceptance evidence or predictably break/contaminate the immediately following functional work;
 8. remaining findings are genuinely lower-priority enhancements, bounded debt or unrelated work, and are classified `NEXT / BACKLOG / REJECT` rather than silently abandoned.
 
