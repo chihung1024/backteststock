@@ -215,9 +215,10 @@ Before declaring the work converged / closed, verify as applicable:
 2. the demonstrated root cause is corrected rather than masked by a workaround;
 3. regressions protecting the failure mode and adjacent high-risk behavior pass;
 4. required runtime / production verification passes when deployment behavior matters;
-5. newly discovered defects with material functional impact are either fixed in the current lane when they are necessary to safe completion, or explicitly isolated as a blocking next item with evidence;
-6. no known unresolved defect is likely to invalidate the just-completed acceptance evidence or predictably break the immediately following functional work;
-7. remaining findings are genuinely lower-priority enhancements, bounded debt or unrelated work, and are classified `NEXT / BACKLOG / REJECT` rather than silently abandoned.
+5. newly discovered defects with material functional impact are fixed in the current lane when they are necessary to make the capability safe or to preserve the validity of its acceptance evidence;
+6. a material defect may be isolated as the next blocking item only when evidence shows the current capability can still be accepted safely and the defect is outside that acceptance boundary;
+7. no known unresolved defect is likely to invalidate the just-completed acceptance evidence or predictably break/contaminate the immediately following functional work;
+8. remaining findings are genuinely lower-priority enhancements, bounded debt or unrelated work, and are classified `NEXT / BACKLOG / REJECT` rather than silently abandoned.
 
 Do **not** use “scope control”, “minimum change”, “functional-first” or “avoid over-engineering” as justification to knowingly leave a major correctness, reliability, data-integrity or workflow defect inside the capability being closed.
 
