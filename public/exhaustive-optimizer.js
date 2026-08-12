@@ -34,6 +34,7 @@ import {
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
 } from "./scan-coverage.js?v=20260803.2";
+import { normalizeScanJob } from "./scan-job-normalizer.js?v=20260812.1";
 
 const SCAN_JOB_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
@@ -212,7 +213,7 @@ function validatedManualHandoff(manual, scanJob) {
 }
 
 function initializeSource() {
-  const scanJob = readJson(SCAN_JOB_KEY);
+  const scanJob = normalizeScanJob(readJson(SCAN_JOB_KEY), rollingRange());
   const manual = readJson(MANUAL_SELECTION_KEY);
   const queryMode = new URLSearchParams(location.search).get("mode");
   const manualRequested = queryMode === "manual";
