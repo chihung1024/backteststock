@@ -29,7 +29,7 @@ from apps.api.app.data.twd_valuation import value_adjusted_close_in_twd
 FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures"
-    / "portfolio_migration"
+    / "return_components"
     / "synthetic_market_data.csv"
 )
 
