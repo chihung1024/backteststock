@@ -98,6 +98,7 @@ test("a restored legacy v3 scan keeps the exact manual selection when optimizer 
       data_start: "2025-01-02",
       data_end: "2025-12-31",
       twd_valuation_contract_version: "test-twd-v1",
+      metric_definition_version: "2026-08-01.2",
     });
     localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
       version: 3,
