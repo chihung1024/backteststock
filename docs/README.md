@@ -21,7 +21,7 @@ Status: **Canonical documentation navigation. Not a live project-status tracker.
 - `UNIVERSE_SCANNER_V2.md` — Scanner/Universe behavior and maintenance contract.
 - `EXHAUSTIVE_OPTIMIZER_V3.md` — current exhaustive historical-search contract.
 
-`PHASE_MINUS1_GOVERNANCE.md` is a **historical phase baseline**, not current governance authority. Current governance is `../AI_PROJECT_PLAYBOOK.md`; current runtime architecture is README + ADR + implementation.
+Current engineering governance is `../AI_PROJECT_PLAYBOOK.md`; current runtime architecture is README + ADR + implementation. Superseded phase-governance snapshots are reconstructed from Git history rather than kept in the active documentation tree.
 
 ## Quantitative contracts
 
@@ -47,15 +47,13 @@ Current main contracts include:
 - `research/REFINERY_UI_V1.md`
 - `research/REFINERY_CLUSTERING_V1.md`
 
-Phase 5 clustering/redundancy methodology and implementation are on production `main` and are current authorities. The separate **P5-CLOSE** operational acceptance remains tracked in `../to_do_update_list.md`; an outstanding production-smoke gate does not make the merged methodology a draft.
-
-`research/PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` is retained as implementation/convergence/closeout evidence. It is not the live task queue.
+Phase 5 clustering/redundancy methodology is preserved by the current versioned contract, implementation and regression tests. Closed implementation/closeout narratives are reconstructed from Git/PR/Issue/Actions history instead of retained as parallel status documents.
 
 ## Historical documents
 
-Historical documents should stay in the active tree only when they retain unique audit value. Superseded rollout/status drafts that add no unique value should be removed and recovered from Git history if ever needed.
+Historical documents stay in the active tree only when they retain unique audit or semantic value. Superseded rollout/status drafts that add no unique value are removed and remain recoverable from Git history.
 
-The `portfolio-migration/` directory is retained as historical migration evidence because parts of it document unique Portfolio ledger/API migration decisions; it is not live project status.
+`portfolio-migration/README.md` retains frozen source provenance required by the permanent migration contract test. `portfolio-migration/PR2_LEDGER_METRICS.md` and `portfolio-migration/PR3_PORTFOLIO_V3_API.md` are retained because they still carry migration-era ledger/API semantics not yet replaced by a dedicated current contract. PR4–PR6 rollout/cutover narratives are historical Git evidence, not active documentation.
 
 ## Maintenance rules
 

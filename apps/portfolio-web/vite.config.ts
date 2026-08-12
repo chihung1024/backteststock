@@ -12,7 +12,7 @@ export default defineConfig({
   build: {
     outDir: resolve(root, "../../public/portfolio"),
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
     target: "es2022",
     assetsDir: "assets",
   },
