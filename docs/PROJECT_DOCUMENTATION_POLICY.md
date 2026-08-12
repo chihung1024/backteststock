@@ -6,7 +6,7 @@ Purpose: keep repository documentation accurate, minimal, authoritative and usef
 
 This file does not replace `AI_PROJECT_PLAYBOOK.md`. The Playbook owns engineering governance and risk-proportional review. This policy owns documentation authority, quality, freshness, duplication, lifecycle and handoff hygiene.
 
-> **Functional-first rule:** document only what materially improves implementation, verification, operation, recovery, decision quality or future handoff.
+> **Functional-first rule:** documentation and planning must help the project complete necessary functional work correctly. **Convergence means finish the necessary work first, remove or explicitly isolate material functional blockers, then stop unnecessary expansion. It does not mean stop early, accept a known major bug, or leave a defect that is likely to contaminate the next functional batch.**
 
 ---
 
@@ -203,7 +203,40 @@ Do not bump versions for prose-only clarification with unchanged semantics.
 
 ---
 
-## 8. Functional-first roadmap documentation
+## 8. Completion-before-convergence discipline
+
+**Convergence is an exit discipline, not an early-stop rule.**
+
+For a functional Batch, Phase or defect lane, first complete the work required to make the intended capability correct and safe. Only after that should scope be narrowed and optional improvement stop.
+
+Before declaring the work converged / closed, verify as applicable:
+
+1. the intended user-visible or system capability works through its relevant end-to-end path;
+2. the demonstrated root cause is corrected rather than masked by a workaround;
+3. regressions protecting the failure mode and adjacent high-risk behavior pass;
+4. required runtime / production verification passes when deployment behavior matters;
+5. newly discovered defects with material functional impact are either fixed in the current lane when they are necessary to safe completion, or explicitly isolated as a blocking next item with evidence;
+6. no known unresolved defect is likely to invalidate the just-completed acceptance evidence or predictably break the immediately following functional work;
+7. remaining findings are genuinely lower-priority enhancements, bounded debt or unrelated work, and are classified `NEXT / BACKLOG / REJECT` rather than silently abandoned.
+
+Do **not** use “scope control”, “minimum change”, “functional-first” or “avoid over-engineering” as justification to knowingly leave a major correctness, reliability, data-integrity or workflow defect inside the capability being closed.
+
+Conversely, once the above completion conditions are met, do not continue refactoring, documenting, redesigning or adding features merely because further improvement is possible.
+
+The intended sequence is:
+
+```text
+Understand sufficiently
+-> fix necessary root cause and coupled blockers
+-> verify functional completeness
+-> record remaining bounded debt
+-> converge
+-> move to the next functional goal
+```
+
+---
+
+## 9. Functional-first roadmap documentation
 
 Roadmaps describe **product/user capability outcomes**, not process activity.
 
@@ -223,7 +256,8 @@ Promote future work to NEXT only when there is a concrete functional reason, suc
 - a correctness/reliability defect blocks use;
 - an existing capability lacks a necessary complementary function;
 - measured evidence supports a material product benefit;
-- an operational constraint blocks safe delivery.
+- an operational constraint blocks safe delivery;
+- a newly discovered material defect would otherwise contaminate the next functional batch.
 
 Otherwise keep it BACKLOG even if a prior plan listed it sequentially.
 
@@ -231,7 +265,7 @@ Planning/review/documentation activity is supporting work, not a product milesto
 
 ---
 
-## 9. Documentation review and risk
+## 10. Documentation review and risk
 
 Use the Playbook's existing risk classification and independent-review rules; do not create a second review system here.
 
@@ -243,6 +277,7 @@ Additional documentation-specific review questions for material changes:
 4. Could the wording cause unsafe or incorrect implementation/operation?
 5. Is the change adding process/document volume without reducing a real risk?
 6. Are failure, rollback or reopen semantics explicit where consequences justify them?
+7. Could a future Agent misread “converge / scope control / functional-first” as permission to close work with a known material functional defect?
 
 For governance/contracts/runbooks, independent review should attempt to **falsify** the proposal rather than only proofread it.
 
@@ -250,7 +285,7 @@ Docs-only does not automatically mean low risk; risk follows the decision/behavi
 
 ---
 
-## 10. Documentation Definition of Done
+## 11. Documentation Definition of Done
 
 A documentation change is complete when all applicable checks pass:
 
@@ -263,13 +298,14 @@ A documentation change is complete when all applicable checks pass:
 - superseded text removed, archived or marked historical;
 - live handoff changed only when a material handoff fact changed;
 - next action explicit for live/runbook material;
+- material functional blockers are not hidden or compacted away in the name of convergence;
 - risk-appropriate review completed.
 
 Docs-only production smoke is normally unnecessary unless the document directly controls a production procedure that cannot be safely validated another way.
 
 ---
 
-## 11. Documentation debt and cleanup
+## 12. Documentation debt and cleanup
 
 Documentation debt is actionable when it creates a real risk, for example:
 
@@ -277,7 +313,8 @@ Documentation debt is actionable when it creates a real risk, for example:
 - contradictory contracts can cause incorrect implementation;
 - missing runbook information can cause deployment/recovery failure;
 - duplicate authorities can drift;
-- missing rationale makes a durable decision likely to be accidentally reversed.
+- missing rationale makes a durable decision likely to be accidentally reversed;
+- missing functional-blocker evidence can cause a future Batch to build on a known-bad foundation.
 
 Classify findings with the normal `NOW / NEXT / BACKLOG / REJECT` system.
 
@@ -295,11 +332,12 @@ Not allowed:
 - delete unresolved technical debt without a resolve/reject decision;
 - rewrite old contracts so prior semantics cannot be reconstructed;
 - retain misleading stale status for perceived auditability;
-- turn `to_do_update_list.md` into an append-only execution transcript.
+- turn `to_do_update_list.md` into an append-only execution transcript;
+- remove or downgrade a known material functional defect merely to make a phase appear converged.
 
 ---
 
-## 12. Writing quality
+## 13. Writing quality
 
 Prefer direct statements, explicit status vocabulary, canonical links, exact failure/reopen conditions and deletion of obsolete prose.
 
@@ -307,4 +345,4 @@ Use tables only when they improve comparison. Use examples only when they clarif
 
 The target is:
 
-> **minimum sufficient documentation with high decision value and low staleness risk.**
+> **minimum sufficient documentation with high decision value and low staleness risk, after necessary functional completeness has been achieved.**
