@@ -6,13 +6,10 @@ function isValidIsoDate(value) {
   const raw = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(raw)) return false;
   const [year, month, day] = raw.split("-").map(Number);
-  return Number.isInteger(year)
-    && Number.isInteger(month)
-    && Number.isInteger(day)
-    && month >= 1
-    && month <= 12
-    && day >= 1
-    && day <= daysInMonth(year, month);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
 }
 
 function normalizedFallbackRange(fallbackRange) {

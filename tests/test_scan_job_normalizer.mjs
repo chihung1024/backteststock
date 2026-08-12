@@ -26,6 +26,15 @@ test("canonical scan dates remain authoritative", () => {
   });
 });
 
+test("direct ISO validation preserves the scanner's prior Date semantics", () => {
+  const normalized = normalizeScanPayloadDates({
+    startDate: "0099-01-01",
+    endDate: "2025-07-18",
+  }, fallback);
+  assert.equal(normalized.startDate, fallback.startDate);
+  assert.equal(normalized.endDate, "2025-07-18");
+});
+
 test("legacy year/month scan dates migrate to the canonical interval", () => {
   assert.deepEqual(
     normalizeScanPayloadDates({
