@@ -4,24 +4,20 @@
 
 ## 1. Current Functional Goal
 
-**Next functional goal: Issue #78 — restore Scanner selected-tickers → Optimizer manual handoff.**
+**Primary functional goal: Phase 6 / Issue #77 — deliver the usable Remove-One / Add-One / Replace-One Refinery MVP.**
 
-The repository has completed the prior P0 Portfolio common-window correctness lane. Do not reopen #79 or #80 without new evidence.
+#79, #80 and #78 are closed. Do not reopen them without new production evidence.
 
 ### Completion-before-convergence rule
 
-**Convergence is an exit discipline, not an early-stop rule.**
+Convergence is an exit discipline, not an early-stop rule. For each functional batch:
 
-For every functional batch:
-
-1. complete the necessary root-cause fix;
-2. fix coupled material blockers required for safe acceptance;
+1. complete the necessary root-cause / capability work;
+2. clear coupled material blockers required for safe acceptance;
 3. run relevant regression and end-to-end verification;
-4. perform production/runtime verification when behavior depends on deployment;
-5. do not leave a known material defect that invalidates acceptance or predictably contaminates the next dependent functional batch;
+4. perform production/runtime verification when deployment affects behavior;
+5. do not leave a known material defect that invalidates acceptance or predictably contaminates the next dependent batch;
 6. only then classify remaining work as NEXT / BACKLOG / REJECT and stop unnecessary expansion.
-
-`scope control`, `minimum change`, `functional-first` and `avoid over-engineering` are not permission to close work with a known major correctness, reliability, data-integrity or workflow defect.
 
 ---
 
@@ -29,147 +25,108 @@ For every functional batch:
 
 Repository: `chihung1024/backteststock`.
 
-Last **functionally production-verified** runtime baseline:
+Current **functionally production-verified** runtime baseline:
 
-`aba00c70215c451954487096b4d0b88fa50d48b0`
+`bd35440a2ec4419677bbbb0433df2e23a729c757`
 
 Important closed foundations:
 
 - Phase -1 through 4: governance, TWD/quant authority, ResearchDataset, Refinery API/UI — CLOSED/PASS.
 - Phase 5 / #65 + #75 + #94: clustering/redundancy + hardened production acceptance — CLOSED/PASS/PRODUCTION VERIFIED.
-- #83 + #84 + #80: scanner retry/cache/progress/reliability acceptance — CLOSED/PASS.
+- #83 + #84 + #80: scanner retry/cache/progress/reliability — CLOSED/PASS.
 - #90: Vercel Deployment Economy — CLOSED/PASS/VERIFIED.
 - #79 + PR #98: Portfolio multi-runnable common-window authority — CLOSED/PASS/PRODUCTION VERIFIED.
+- #78 + PR #104: Scanner selected-tickers → Optimizer restored-job handoff — CLOSED/PASS/PRODUCTION VERIFIED.
 
-### #79 final production evidence
+### #78 final acceptance evidence
 
-Merged PR #98 → `main@aba00c70215c451954487096b4d0b88fa50d48b0`.
+`main@bd35440a2ec4419677bbbb0433df2e23a729c757` is deployed through Vercel production and Cloudflare Worker/static assets.
 
-Post-main:
+Dedicated production-browser acceptance against `backteststock.chired.workers.dev` verified:
 
-- Full CI #596 PASS;
-- genuine Vercel production deployment SUCCESS;
-- production contract verification against `backteststock.chired.workers.dev` served exact merged SHA;
-- raw history starts intentionally differed: SPY `2019-01-02`, QQQM `2020-10-13`;
-- effective common window: `2020-10-13 -> 2021-03-31`;
-- requested portfolios: 122 observations each;
-- benchmark: 122 observations on same metrics/series interval;
-- benchmark tail-risk: 121 observations;
-- `common-runnable-portfolios-v1` warning present;
-- final-balance / total-return identity PASS.
+- restored legacy `scan-job-v3` remains raw in persisted storage;
+- Scanner manual selection writes canonical provenance;
+- `/optimizer.html?mode=manual` receives exactly `AAA, BBB`;
+- canonical dates are `2025-01-01 -> 2025-12-31`;
+- benchmark remains `QQQ`;
+- ordinary `/optimizer.html` still receives full source `AAA, BBB, CCC`.
 
-Evidence-only PR #100 was closed without merge after the production check. Internal #97 was also closed without merge after #98 completed.
-
-Cloudflare was not redeployed for #98 because changed paths did not match its production deploy trigger; the existing Worker proxies the Vercel backend.
+Root cause was closed with one shared pure scan-job date normalization authority. Strict sourceJobId / membership / coverage / benchmark / TWD validation remains intact; persistence schema and optimizer math were not changed.
 
 ---
 
-## 3. Primary Active Batch — #78 Scanner → Optimizer Handoff
+## 3. Primary Active Batch — Phase 6 / #77 MVP
 
-Issue #78: user-selected Scanner rows do not reliably auto-populate the Optimizer when the source scan job was restored from an older persisted `backteststock-scan-job-v3` shape.
+Issue #77 is now titled **Phase 6 MVP: common-sample marginal Remove-One / Add-One / Replace-One experiments**.
 
-Priority: **HIGH user-visible workflow regression / implementation-ready.**
+The old opening `PLANNING / BLOCKED / do not implement yet` banner in its long body is historical stale status. An authoritative 2026-08-12 status override records that all blockers are complete and implementation is **READY / PRIMARY ACTIVE**.
 
-Initial risk: **R1**, unless implementation changes persisted schema/version or broader optimizer semantics.
+The detailed V1 specification remains **FROZEN / SATURATED**. Do not restart broad planning or expand the feature set without implementation evidence.
 
-### Root Cause
+### P6-A — backend usable core
 
-Historical `scan-job-v3` records can use legacy month fields:
+Deliver the smallest correct backend capability that supports explicit:
 
-```text
-startYear / startMonth
-endYear / endMonth
-```
+- Remove-One;
+- Add-One;
+- Replace-One.
 
-Scanner restoration in `public/app.js` normalizes them to canonical:
+Required invariants:
 
-```text
-startDate / endDate
-```
+- reuse existing `normalize_symbol()` authority;
+- explicit operations only; no hidden N×M replacement explosion;
+- separate operation-count and experiment-union symbol caps, chosen from measured runtime/response-size evidence;
+- one authoritative market-history union fetch per request;
+- preserve existing Phase 3–5 baseline semantics;
+- build/freeze one `daily_global` and one `weekly_global` complete-case sample across the full experiment union;
+- variants are column selection from the frozen global matrices only — never re-`dropna()` per variant;
+- distinguish existing baseline from Phase 6 `experiment_baseline`;
+- every Phase 6 delta = variant − experiment_baseline on the identical effective sample;
+- expose daily/weekly effective start/end/observations/canonical symbols/exact sample SHA-256;
+- experiment-only market-data failure fails the Phase 6 layer closed without destroying a valid Phase 3–5 baseline;
+- reuse validated covariance/effective-dimension/correlation/hierarchical-clustering primitives;
+- retained-pair raw correlations must remain invariant on the frozen sample;
+- no per-variant full Phase 5 bootstrap in minimal V1;
+- no invented weights, ranking, sizing, recommendation or magic score.
 
-The manual handoff is then written from this normalized in-memory Scanner job.
+### P6-B — user-usable Refinery UI
 
-Optimizer startup in `public/exhaustive-optimizer.js`, however, reads the raw persisted scan job and validates provenance without applying the same normalization authority.
+After P6-A contract/core is usable, add the minimum UI needed to:
 
-Result:
+- choose Remove-One / Add-One / Replace-One explicitly;
+- provide required symbol input(s);
+- run existing Refinery preflight/analyze operations;
+- compare experiment baseline vs variant;
+- show effective-dimension/correlation/cluster changes;
+- show common-sample evidence, failures and warnings clearly;
+- invalidate stale evidence when baseline or experiment input changes.
 
-```text
-Scanner / manual handoff: canonical dates
-Optimizer source job:     legacy/raw dates
-              ↓
-strict provenance comparison fails
-              ↓
-selected tickers are not loaded
-```
+Keep persisted Refinery workspace schema unchanged unless implementation evidence proves persistence is required.
 
-This is a **cross-page migration-authority split**, not an optimizer-math defect.
+### Phase 6 exit gate
 
-### Required correction
+Before closing Phase 6:
 
-Use **one shared pure scan-job payload normalization authority** for Scanner restoration and Optimizer manual-handoff validation.
-
-Required behavior:
-
-- optimizer normalizes raw persisted scan job before provenance comparison;
-- legacy and current-format scan jobs resolve to the same canonical date interpretation;
-- exact selected tickers populate in manual mode;
-- canonical start/end and benchmark populate;
-- provenance remains fail-closed for sourceJobId, ticker membership, coverage threshold, benchmark, valuation currency and source eligibility;
-- ordinary Optimizer mode remains unchanged;
-- optimizer quantitative formulas/engine remain unchanged.
-
-Do not:
-
-- bypass `validatedManualHandoff()`;
-- ignore sourceJobId;
-- fall back to the full scan pool when manual validation fails;
-- weaken membership/coverage/provenance checks;
-- solve only in obsolete `public/optimizer.js`;
-- redesign persistence unless new evidence requires it.
-
-### Mandatory verification
-
-1. legacy `scan-job-v3` migration boundary: restore Scanner → select rows → open `/optimizer.html?mode=manual` → exact selected tickers + canonical dates + benchmark;
-2. fresh current-format handoff still works;
-3. stale sourceJobId fails closed;
-4. ticker outside source scan fails closed;
-5. below-threshold ticker fails closed;
-6. ordinary optimizer mode retains current behavior;
-7. shared normalizer parity: any payload Scanner accepts as resumable/restored must receive the same canonical date/provenance interpretation before Optimizer validation;
-8. relevant browser/E2E workflow passes end to end.
-
-### Exit gate
-
-Do not close #78 merely because the selected list appears once. Before convergence, independently check for migration/provenance regressions that could break restored jobs or contaminate the next Refinery/Phase 6 workflow.
+- no-plan parity proves Phase 3–5 output did not drift;
+- Remove/Add/Replace operation validation is fail-closed;
+- common-sample identity/invariance tests pass;
+- resource caps are justified by measured deployment behavior;
+- UI can complete the three workflows;
+- focused and broad regression pass;
+- production preflight/analyze and user workflow are verified;
+- no known material defect remains that would invalidate the subsequent cross-workflow integration pass.
 
 ---
 
 ## 4. Immediate Next Functional Batches
 
-### F1 — #78 Scanner → Optimizer handoff
+### F2 — Phase 6 / #77 MVP
 
-**PRIMARY NEXT / implementation-ready.** Restore the promised user workflow with shared normalization authority.
-
-### F2 — Phase 6 / #77 Remove-One / Add-One / Replace-One MVP
-
-**NEXT AFTER #78 is safely complete.** Issue #77 is the frozen/saturated specification; do not restart broad planning.
-
-Minimal functional objective:
-
-- explicit Remove-One / Add-One / Replace-One operations;
-- one authoritative union market-data fetch;
-- one frozen global experiment common sample;
-- experiment baseline and variants use identical effective samples;
-- deterministic structural deltas using existing quant primitives;
-- localized fail-closed behavior for experiment-only data failure;
-- no hidden weighting, ranking, sizing or recommendation score;
-- usable Refinery UI for submitting and reading the three operations.
-
-Before starting, re-check that no material #78 defect would break Scanner/Optimizer inputs or provenance used by downstream workflow.
+**PRIMARY ACTIVE.** Implement P6-A backend core, then P6-B usable UI. Planning is already saturated.
 
 ### F3 — Core workflow integration
 
-After Phase 6 MVP, validate the actual user journey rather than automatically starting another methodology phase:
+After Phase 6 MVP is production verified, test the actual user journey:
 
 ```text
 Scanner
@@ -180,72 +137,48 @@ Scanner
 -> Refinery structural analysis / marginal experiments
 ```
 
-Fix material cross-module handoff/correctness defects discovered by this journey before adding dependent capabilities.
+Fix only material handoff, data-consistency, recovery or UI defects found by this journey before adding dependent capabilities.
 
 ### Phase 7+
 
-**CONDITIONAL BACKLOG, not automatic sequence.**
+**CONDITIONAL BACKLOG, not an automatic sequence.**
 
-Promote only when a concrete functional need/evidence justifies it. Examples may include OOS/walk-forward validation, selection, sizing, Exhaustive integration or point-in-time data, but completion of the previous numbered phase alone is not sufficient reason.
+Promote only when actual product use creates a concrete need. Possible future capabilities include OOS/walk-forward validation, selection, sizing, Exhaustive integration or point-in-time data; completion of Phase 6 alone is not an unlock reason.
 
 ---
 
 ## 5. Locked Decisions Still Relevant
 
-### D-01 — Governance V3 frozen
-
-`AI_PROJECT_PLAYBOOK.md` is the engineering governance authority. Do not rewrite it for feature-specific lessons without a documented reopen condition.
-
-### D-02 — Documentation quality
-
-`docs/PROJECT_DOCUMENTATION_POLICY.md` owns documentation authority/freshness/lifecycle/duplication/handoff quality.
-
-Documentation exists to prevent project memory loss and distortion, not to become a parallel project.
-
-### D-03 — Completion before convergence
-
-Fix necessary root cause + coupled material blockers + acceptance evidence first; converge only after no known material defect remains that invalidates acceptance or predictably contaminates dependent next work.
-
-### D-04 — One Primary Active Batch
-
-Keep one core implementation lane. Supporting review/research/docs may run only when they do not create a competing implementation stream.
-
-### D-05 — Deployment Economy
-
-`internal-*` branches suppress automatic Vercel Preview. Promote a converged implementation to deliberate `candidate-*` only when genuine deployment evidence is required. Keep `main` production deployment enabled.
-
-### D-06 — Phase-close freshness
-
-Before CLOSED/PASS, reconcile applicable remote open PRs, unresolved blocker reviews/threads, deployment/runtime evidence and remaining material debt. Every explicit blocker must be MERGED, SUPERSEDED WITH EVIDENCE, or still OPEN.
-
-### D-07 — Quant/data authority
-
-- `TWDHistoryService`: audited market history / TWD valuation authority.
-- `apps/api/app/portfolio/`: Portfolio ledger/metrics/comparison/analytics composition.
-- `apps/api/app/research/` + `apps/api/app/refinery/`: ResearchDataset / Refinery evidence composition.
-- `apps/api/app/quant/`: pure validated quantitative primitives.
-- browser: presentation/workflow only; no second quantitative authority.
+- `AI_PROJECT_PLAYBOOK.md` remains frozen engineering-governance authority; do not rewrite it for feature-specific lessons without a reopen condition.
+- `docs/PROJECT_DOCUMENTATION_POLICY.md` owns documentation authority/freshness/lifecycle/duplication/handoff quality. Documentation exists to prevent project memory loss and distortion, not to become a parallel project.
+- Keep one Primary Active Batch. Supporting review/research/docs must not create a competing implementation stream.
+- `internal-*` branches suppress automatic Vercel Preview. Promote a converged implementation to deliberate `candidate-*` only when genuine deployment evidence is required. Keep `main` production enabled.
+- Before CLOSED/PASS, reconcile remote PR/Issue state, blocker reviews/threads, deployment/runtime evidence and remaining material debt.
+- Quant/data authorities remain:
+  - `TWDHistoryService`: audited market history / TWD valuation authority;
+  - `apps/api/app/portfolio/`: Portfolio ledger/metrics/comparison/analytics composition;
+  - `apps/api/app/research/` + `apps/api/app/refinery/`: ResearchDataset / Refinery evidence composition;
+  - `apps/api/app/quant/`: pure validated quantitative primitives;
+  - browser: presentation/workflow only; no second quantitative authority.
 
 ---
 
-## 6. Open Root Causes / Risks / Technical Debt
+## 6. Open Risks / Technical Debt
 
-### Open root cause
+No known open root cause currently blocks Phase 6 start.
 
-**RC-78 / R1:** Scanner normalizes legacy persisted scan-job dates while Optimizer validates the raw persisted job. Fix with shared pure normalization authority; preserve strict provenance.
+Functional risks to watch during Phase 6:
 
-### Functional risks to watch
+- global experiment common-sample construction must not silently shorten/change existing Phase 3–5 baseline output;
+- Remove-One must not regain observations after global sample freeze;
+- Add/Replace external-symbol failure must remain localized to the marginal layer;
+- operation/resource caps must reject excessive plans before expensive calculation;
+- browser/UI must not introduce parallel quantitative formulas;
+- Phase 6 must remain diagnostic/in-sample and must not drift into recommendation, optimization or sizing.
 
-- A UI-only #78 patch could hide the migration split while restored jobs remain broken.
-- Weakening provenance to make manual mode populate could silently load the wrong source universe.
-- Phase 6 must not begin on top of an unresolved #78 input/handoff defect.
-- Phase 6 common-sample work must not silently change existing Phase 3–5 baseline semantics.
-- New feature work must not introduce browser-side quantitative formulas parallel to backend authority.
-- Phase closure must not hide a known material blocker simply to keep the roadmap moving.
+Technical debt — BACKLOG unless promoted by new evidence:
 
-### Technical debt — BACKLOG unless promoted by evidence
-
-- **Scanner presentation-only residual from #80:** on a retry-requeued chunk, displayed batch range is inferred from `resultMap.size + 1`; an actual 401–500 request can therefore temporarily be labelled 301–400. Confirmed closure evidence says this does **not** change scan execution, settled/success/failure counts or resume semantics. Keep BACKLOG unless new evidence raises functional severity.
+- **Scanner presentation-only residual from #80:** retry-requeued displayed batch range can temporarily be mislabelled; verified not to change execution, settled/success/failure counts or resume semantics.
 - Yahoo request amplification / metadata fan-out and scanner diagnostics hardening;
 - instrument/security master and regional factor routing;
 - traceable theme provider/taxonomy;
@@ -256,39 +189,29 @@ Before CLOSED/PASS, reconcile applicable remote open PRs, unresolved blocker rev
 - single-portfolio + shorter-benchmark strict-comparison policy separate from completed #79;
 - point-in-time Universe/fundamentals for a future PIT phase.
 
-Deferred until evidence requires them:
+Deferred unless evidence requires them:
 
 - Phase 6 variant-level full Phase 5 bootstrap;
 - persistent experiment plans;
 - automatic selection/ranking/sizing;
 - OOS claims from in-sample evidence.
 
-Rejected approaches remain:
-
-- branch/Vercel bypass;
-- no-op deployment trigger commits;
-- scanner chunk-size workaround instead of orchestration RCA;
-- hand-merging generated bundles;
-- magic scores / hidden recommendation or sizing logic;
-- broad Portfolio rewrite without evidence.
-
 ---
 
 ## 7. Exact Resume Point
 
-After this documentation-convergence change is accepted:
+1. re-query current `main`, Issue #77 and open PR state;
+2. inspect current `Phase5RefineryService`, `RefineryRequest`, ResearchDataset preparation, quant primitives and Refinery preflight/analyze/UI dataflow before modifying code;
+3. create one clean `internal-*` Phase 6 branch from exact current main;
+4. implement P6-A contract/normalization/caps first with deterministic tests;
+5. extend preparation to fetch the full experiment union once while preserving the existing baseline view;
+6. construct and freeze daily/weekly global common samples once, with exact evidence fingerprints;
+7. compute experiment baseline and explicit variants only from frozen column selections;
+8. add structural deltas using existing quant authorities and prove retained-pair/sample invariants;
+9. verify experiment-only failure remains localized and no-plan Phase 3–5 parity holds;
+10. measure runtime/response size and set bounded caps from evidence;
+11. add P6-B UI only after backend contract is stable enough to use;
+12. run focused + broad regression, independent falsification review, candidate deployment and production verification;
+13. after Phase 6 completes, update this handoff once and run the bounded F3 cross-workflow integration pass.
 
-1. re-query current `main`, Issue #78 and open PR state;
-2. create a clean `internal-*` branch from exact current main for #78;
-3. inspect existing Scanner date normalization and all Optimizer/manual-handoff consumers before modifying code;
-4. first add a deterministic regression reproducing the legacy-v3 restored-job boundary that current tests miss;
-5. extract/reuse the smallest shared pure scan-job payload normalizer;
-6. apply it to both Scanner restoration and Optimizer provenance validation;
-7. preserve strict validation; do not add fallback-to-full-scan behavior;
-8. run focused unit/browser tests plus relevant broad CI;
-9. independently falsify migration/provenance behavior and inspect for any material defect that would contaminate downstream work;
-10. if clean, promote/merge/deploy with risk-proportional gates and verify the user-visible handoff;
-11. close #78 only after completion-before-convergence conditions are satisfied;
-12. then begin only Phase 6 MVP scope from Issue #77.
-
-**Primary Functional Batch after this handoff lands = #78 Scanner → Optimizer manual handoff.**
+**Primary Active Batch = Phase 6 / #77 MVP.**
