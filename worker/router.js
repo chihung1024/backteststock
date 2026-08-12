@@ -1,5 +1,6 @@
 import worker from "./index.js";
 
+const LEGACY_BACKTEST_PATH = "/api/backtest";
 const EXHAUSTIVE_PREPARE_PATH = "/api/optimizer/exhaustive/prepare";
 const REFINERY_V1_PREFIX = "/api/v1/refinery/";
 const REFINERY_V1_ROUTES = new Map([
@@ -13,6 +14,7 @@ const PORTFOLIO_V3_ROUTES = new Map([
   ["preflight", { method: "POST" }],
   ["backtests", { method: "POST" }],
 ]);
+const LEGACY_BACKTEST_REQUEST_MAX_BYTES = 256 * 1024;
 const OPTIMIZER_MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const REFINERY_REQUEST_MAX_BYTES = 512 * 1024;
 const PORTFOLIO_REQUEST_MAX_BYTES = 512 * 1024;
@@ -59,6 +61,21 @@ function safeProxyHeaders(request, requestId, incomingUrl) {
   return headers;
 }
 
+function legacyProxyHeaders(request, requestId, incomingUrl) {
+  const headers = new Headers(request.headers);
+  for (const name of [
+    "host",
+    "content-length",
+    "cf-connecting-ip",
+    "cf-ipcountry",
+    "cf-ray",
+    "x-forwarded-for",
+  ]) headers.delete(name);
+  headers.set("x-request-id", requestId);
+  headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
+  return headers;
+}
+
 function sanitizedProxyResponse(response, requestId) {
   const responseHeaders = new Headers(response.headers);
   responseHeaders.delete("server");
@@ -86,6 +103,55 @@ async function readBoundedBody(request, maximumBytes, requestId, message) {
     return jsonResponse({ error: message }, 413, requestId);
   }
   return body;
+}
+
+async function proxyLegacyBacktest(request, env) {
+  const requestId = crypto.randomUUID();
+  if (request.method !== "POST") {
+    return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+  }
+
+  const body = await readBoundedBody(
+    request,
+    LEGACY_BACKTEST_REQUEST_MAX_BYTES,
+    requestId,
+    "請求內容過大。",
+  );
+  if (body instanceof Response) return body;
+
+  const backendOrigin = validatedBackendOrigin(env, requestId);
+  if (backendOrigin instanceof Response) return backendOrigin;
+  const incomingUrl = new URL(request.url);
+  const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
+  const headers = legacyProxyHeaders(request, requestId, incomingUrl);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(target, {
+      method: "POST",
+      headers,
+      body,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    return sanitizedProxyResponse(response, requestId);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return jsonResponse(
+        { error: "行情服務回應逾時；目前進度已保留，系統可自動接續重試。" },
+        504,
+        requestId,
+      );
+    }
+    console.error("Legacy backtest proxy failure", {
+      requestId,
+      message: String(error),
+    });
+    return jsonResponse({ error: "暫時無法連線至後端服務。" }, 502, requestId);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function proxyRefineryV1(request, env) {
@@ -240,11 +306,19 @@ async function proxyExhaustivePrepare(request, env) {
   }
 }
 
-export { proxyExhaustivePrepare, proxyPortfolioV3, proxyRefineryV1 };
+export {
+  proxyExhaustivePrepare,
+  proxyLegacyBacktest,
+  proxyPortfolioV3,
+  proxyRefineryV1,
+};
 
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname === LEGACY_BACKTEST_PATH) {
+      return proxyLegacyBacktest(request, env);
+    }
     if (url.pathname.startsWith(REFINERY_V1_PREFIX)) {
       return proxyRefineryV1(request, env);
     }
