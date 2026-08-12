@@ -1,0 +1,153 @@
+name: P79 Production Contract Verify
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/p79-production-contract-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify merged Portfolio common-window contract in production
+        env:
+          WORKER_ORIGIN: https://backteststock.chired.workers.dev
+          EXPECTED_DEPLOYMENT_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node <<'NODE'
+          const origin = process.env.WORKER_ORIGIN;
+          const expectedSha = String(process.env.EXPECTED_DEPLOYMENT_SHA || '').toLowerCase();
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+
+          async function requestJson(path, options = {}, attempts = 3) {
+            let lastError;
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+              try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 180000);
+                try {
+                  const response = await fetch(new URL(path, origin), {
+                    ...options,
+                    headers: {
+                      accept: 'application/json',
+                      ...(options.body ? { 'content-type': 'application/json' } : {}),
+                    },
+                    signal: controller.signal,
+                  });
+                  const text = await response.text();
+                  if (!response.ok) throw new Error(`${path} returned ${response.status}: ${text.slice(0, 1000)}`);
+                  return text ? JSON.parse(text) : null;
+                } finally {
+                  clearTimeout(timeout);
+                }
+              } catch (error) {
+                lastError = error;
+                if (attempt < attempts) await sleep(attempt * 3000);
+              }
+            }
+            throw lastError;
+          }
+
+          let health;
+          for (let attempt = 1; attempt <= 36; attempt += 1) {
+            health = await requestJson('/api/v3/portfolio/health', {}, 1).catch(() => null);
+            if (health?.status === 'ok' && String(health.deployment_sha || '').toLowerCase() === expectedSha) break;
+            if (attempt === 36) {
+              throw new Error(`Production backend SHA mismatch: observed=${health?.deployment_sha || 'unknown'} expected=${expectedSha}`);
+            }
+            await sleep(5000);
+          }
+
+          assert(health.service === 'backteststock-portfolio-v3', 'Unexpected Portfolio service');
+          assert(health.contract_version === 'portfolio-v3', 'Unexpected Portfolio contract');
+
+          const request = {
+            contract_version: 'portfolio-v3',
+            portfolios: [
+              { name: 'Long history SPY', assets: [{ symbol: 'SPY', weight: 100 }] },
+              { name: 'Later history QQQM', assets: [{ symbol: 'QQQM', weight: 100 }] },
+            ],
+            benchmark: 'SPY',
+            start_date: '2019-01-02',
+            end_date: '2021-03-31',
+            initial_amount: 100000,
+            base_currency: 'TWD',
+            include_ytd: true,
+            reinvest_distributions: true,
+            transaction_cost_bps: 0,
+            analytics: {
+              factor_analysis: false,
+              style_analysis: false,
+              regime: 'none',
+              inflation_adjusted: false,
+              risk_free_rate_percent: 0,
+            },
+            output_frequency: 'daily',
+            include_events: false,
+            include_allocation_history: false,
+          };
+
+          const preflight = await requestJson('/api/v3/portfolio/preflight', {
+            method: 'POST', body: JSON.stringify(request),
+          });
+          assert(Array.isArray(preflight.portfolios) && preflight.portfolios.length === 2, 'Expected two preflight portfolios');
+          assert(preflight.portfolios.every((item) => item.status === 'ready'), `Preflight not ready: ${JSON.stringify(preflight.portfolios)}`);
+          const bySymbol = Object.fromEntries(preflight.assets.map((asset) => [asset.symbol, asset]));
+          assert(bySymbol.SPY?.status === 'ready' && bySymbol.QQQM?.status === 'ready', 'SPY/QQQM asset preflight failed');
+          assert(bySymbol.SPY.effective_start < bySymbol.QQQM.effective_start,
+            `Fixture does not have unequal histories: SPY=${bySymbol.SPY.effective_start}, QQQM=${bySymbol.QQQM.effective_start}`);
+          const expectedCommonStart = preflight.portfolios.map((item) => item.effective_start).sort().at(-1);
+
+          const result = await requestJson('/api/v3/portfolio/backtests', {
+            method: 'POST', body: JSON.stringify(request),
+          });
+          assert(Array.isArray(result.results) && result.results.length === 2, `Expected two successful results: ${JSON.stringify(result.failures)}`);
+          assert(Array.isArray(result.failures) && result.failures.length === 0, `Unexpected failures: ${JSON.stringify(result.failures)}`);
+          assert(result.warnings.some((warning) => String(warning).includes('common-runnable-portfolios-v1')),
+            `Missing common-window warning: ${JSON.stringify(result.warnings)}`);
+
+          const starts = result.results.map((item) => item.metrics.start);
+          const ends = result.results.map((item) => item.metrics.end);
+          assert(new Set(starts).size === 1, `Requested portfolio starts differ: ${JSON.stringify(starts)}`);
+          assert(new Set(ends).size === 1, `Requested portfolio ends differ: ${JSON.stringify(ends)}`);
+          const commonStart = starts[0];
+          const commonEnd = ends[0];
+          assert(commonStart === expectedCommonStart,
+            `Common start does not match runnable overlap: actual=${commonStart} expected=${expectedCommonStart}`);
+          for (const item of result.results) {
+            assert(item.series[0]?.date === commonStart, `${item.name} series start mismatch`);
+            assert(item.series.at(-1)?.date === commonEnd, `${item.name} series end mismatch`);
+          }
+
+          assert(result.benchmark, 'Benchmark unexpectedly unavailable');
+          assert(result.benchmark.metrics.start === commonStart,
+            `Benchmark metrics start mismatch: ${result.benchmark.metrics.start} vs ${commonStart}`);
+          assert(result.benchmark.metrics.end === commonEnd,
+            `Benchmark metrics end mismatch: ${result.benchmark.metrics.end} vs ${commonEnd}`);
+          assert(result.benchmark.series[0]?.date === commonStart, 'Benchmark series start mismatch');
+          assert(result.benchmark.series.at(-1)?.date === commonEnd, 'Benchmark series end mismatch');
+          assert(result.benchmark.tail_risk.observations === result.benchmark.metrics.observations - 1,
+            `Benchmark tail-risk sample mismatch: tail=${result.benchmark.tail_risk.observations} metrics=${result.benchmark.metrics.observations}`);
+          assert(Math.abs(result.benchmark.metrics.total_return - (result.benchmark.metrics.final_balance / result.benchmark.metrics.initial_balance - 1)) < 1e-10,
+            'Benchmark final-balance/total-return identity failed');
+
+          console.log(JSON.stringify({
+            status: 'PASS',
+            productionOrigin: origin,
+            deploymentSha: health.deployment_sha,
+            requestedRawStarts: { SPY: bySymbol.SPY.effective_start, QQQM: bySymbol.QQQM.effective_start },
+            commonStart,
+            commonEnd,
+            requestedObservations: result.results.map((item) => ({ name: item.name, observations: item.metrics.observations })),
+            benchmarkObservations: result.benchmark.metrics.observations,
+            benchmarkTailRiskObservations: result.benchmark.tail_risk.observations,
+            warning: result.warnings.find((warning) => String(warning).includes('common-runnable-portfolios-v1')),
+            requestId: result.request_id,
+          }, null, 2));
+          NODE
