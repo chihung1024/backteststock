@@ -181,7 +181,7 @@ Portfolio v3 是 self-owned production path，使用嚴格 request/response cont
 
 Portfolio 與 Scanner/Exhaustive 共用 `apps/api/app/data/` 的 TWD 資料契約，但 Portfolio ledger/metrics 保有 path-dependent domain semantics。
 
-`docs/portfolio-migration/README.md` 僅保留 frozen source provenance；`PR2_LEDGER_METRICS.md` 與 `PR3_PORTFOLIO_V3_API.md` 暫留作尚未完全被專屬 current contract 取代的 ledger/API migration semantics。PR4–PR6 rollout/cutover 敘述已由 Git history、現行 implementation 與永久 regression tests 取代。
+Portfolio 的現行 ledger、API、partial-success、analytics、comparison-sample 與 Edge/security 語意由 [`docs/PORTFOLIO_V3_CONTRACT.md`](docs/PORTFOLIO_V3_CONTRACT.md) 統一保存；migration-era capability matrix、legacy fixtures 與 PR rollout 文件只保留在 Git history，不再作為 live-tree authority。
 
 ## 9. Portfolio Refinery
 
