@@ -245,6 +245,7 @@ Before CLOSED/PASS, reconcile applicable remote open PRs, unresolved blocker rev
 
 ### Technical debt — BACKLOG unless promoted by evidence
 
+- **Scanner presentation-only residual from #80:** on a retry-requeued chunk, displayed batch range is inferred from `resultMap.size + 1`; an actual 401–500 request can therefore temporarily be labelled 301–400. Confirmed closure evidence says this does **not** change scan execution, settled/success/failure counts or resume semantics. Keep BACKLOG unless new evidence raises functional severity.
 - Yahoo request amplification / metadata fan-out and scanner diagnostics hardening;
 - instrument/security master and regional factor routing;
 - traceable theme provider/taxonomy;
