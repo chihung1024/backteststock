@@ -7,6 +7,7 @@ import {
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
 } from "./scan-coverage.js?v=20260803.2";
+import { normalizeScanPayloadDates } from "./scan-job-normalizer.js?v=20260812.1";
 
 const STORAGE_KEY = "backteststock-state-v2";
 const LEGACY_STORAGE_KEY = "backteststock-state-v1";
@@ -112,46 +113,6 @@ function resolveSavedBacktestDateMode(settings) {
 
 function saveBacktestDateMode(mode) {
   localStorage.setItem(BACKTEST_DATE_MODE_STORAGE_KEY, mode);
-}
-
-function scanPayloadDate(payload, boundary) {
-  const dateKey = boundary === "start" ? "startDate" : "endDate";
-  const direct = String(payload?.[dateKey] || "").trim();
-  if (isValidLocalIsoDate(direct)) return direct;
-
-  const yearKey = boundary === "start" ? "startYear" : "endYear";
-  const monthKey = boundary === "start" ? "startMonth" : "endMonth";
-  const year = Number(payload?.[yearKey]);
-  const month = Number(payload?.[monthKey]);
-  if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
-    const day = boundary === "start" ? 1 : new Date(year, month, 0).getDate();
-    const candidate = [
-      year,
-      String(month).padStart(2, "0"),
-      String(day).padStart(2, "0"),
-    ].join("-");
-    if (boundary === "end" && candidate > defaultRange.endDate) {
-      return defaultRange.endDate;
-    }
-    return candidate;
-  }
-  return boundary === "start" ? defaultRange.startDate : defaultRange.endDate;
-}
-
-function normalizeScanPayloadDates(payload) {
-  const startDate = scanPayloadDate(payload, "start");
-  const endDate = scanPayloadDate(payload, "end");
-  const [startYear, startMonth] = startDate.split("-").map(Number);
-  const [endYear, endMonth] = endDate.split("-").map(Number);
-  return {
-    ...payload,
-    startDate,
-    endDate,
-    startYear,
-    startMonth,
-    endYear,
-    endMonth,
-  };
 }
 
 const defaultState = {
@@ -1021,7 +982,7 @@ function loadScanJob() {
       && Array.isArray(job.pending)
       && Array.isArray(job.results)
     ) {
-      job.payload = normalizeScanPayloadDates(job.payload);
+      job.payload = normalizeScanPayloadDates(job.payload, defaultRange);
       const allowed = new Set(job.payload.tickers);
       const resultMap = new Map(
         job.results
@@ -1049,7 +1010,7 @@ function clearScanJob() {
 }
 
 function restoreScanControls(payload) {
-  const normalized = normalizeScanPayloadDates(payload);
+  const normalized = normalizeScanPayloadDates(payload, defaultRange);
   document.querySelector("#scan-tickers").value = normalized.tickers.join(", ");
   document.querySelector("#scan-start-period").value = normalized.startDate;
   document.querySelector("#scan-end-period").value = normalized.endDate;
