@@ -65,9 +65,22 @@ function activateScannerDom() {
   document.querySelector("#scanner-panel")?.classList.remove("hidden");
 }
 
+function visibleScanJobId() {
+  return String(document.querySelector("#scan-table")?.dataset.scanJobId || "").trim();
+}
+
+function hasStaleVisibleScanJob() {
+  const pageJobId = visibleScanJobId();
+  if (!pageJobId) return false;
+  const savedJob = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
+  return Boolean(savedJob?.id && savedJob.id !== pageJobId);
+}
+
 function readScanJob() {
   const job = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
-  return job && typeof job === "object" && Array.isArray(job.results) ? job : null;
+  if (!job || typeof job !== "object" || !Array.isArray(job.results)) return null;
+  const pageJobId = visibleScanJobId();
+  return pageJobId && job.id !== pageJobId ? null : job;
 }
 
 function coverageQualifiedTickers(job, thresholdPercent) {
@@ -183,6 +196,10 @@ function handlePortfolioNavigation(event) {
   event.stopImmediatePropagation();
   const source = integrated ? "scanner" : "main";
   if (source === "scanner") {
+    if (hasStaleVisibleScanJob()) {
+      selectionStatus("另一個頁籤已更新最近掃描結果；請重新整理目前頁面後再建立投資組合。");
+      return;
+    }
     const count = selectedPortfolioTickers().length;
     if (count < 1 || count > MAX_PORTFOLIO_ASSETS) {
       selectionStatus(count > MAX_PORTFOLIO_ASSETS
