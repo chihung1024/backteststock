@@ -1,4 +1,4 @@
-import "./portfolio-route-bridge.js?v=20260804.1";
+import "./portfolio-route-bridge.js?v=20260814.1";
 
 export const METRIC_DEFINITION_VERSION = "2026-08-01.2";
 

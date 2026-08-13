@@ -1,8 +1,36 @@
+import { normalizeScanJob } from "./scan-job-normalizer.js?v=20260812.1";
+
 const PORTFOLIO_HANDOFF_STORAGE_KEY = "backteststock-portfolio-handoff-v1";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_STORAGE_KEY = "backteststock-optimizer-manual-selection-v2";
 const MAX_PORTFOLIO_ASSETS = 20;
 const HANDOFF_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SCAN_LOOKBACK_YEARS = 10;
+
+function formatLocalDate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function scanDateFallbackRange(now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(today);
+  end.setDate(end.getDate() - 1);
+  const startYear = today.getFullYear() - DEFAULT_SCAN_LOOKBACK_YEARS;
+  const maxDay = new Date(startYear, today.getMonth() + 1, 0).getDate();
+  const start = new Date(
+    startYear,
+    today.getMonth(),
+    Math.min(today.getDate(), maxDay),
+  );
+  return {
+    startDate: formatLocalDate(start),
+    endDate: formatLocalDate(end),
+  };
+}
 
 function readJson(storage, key, fallback = null) {
   try {
@@ -80,7 +108,12 @@ function readScanJob() {
   const job = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
   if (!job || typeof job !== "object" || !Array.isArray(job.results)) return null;
   const pageJobId = visibleScanJobId();
-  return pageJobId && job.id !== pageJobId ? null : job;
+  if (pageJobId && job.id !== pageJobId) return null;
+  try {
+    return normalizeScanJob(job, scanDateFallbackRange());
+  } catch {
+    return job;
+  }
 }
 
 function coverageQualifiedTickers(job, thresholdPercent) {

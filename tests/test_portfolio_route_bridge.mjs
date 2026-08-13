@@ -8,8 +8,10 @@ const read = (file) => readFile(path.join(root, file), "utf8");
 
 test("main navigation is replaced by a normal directly addressable Portfolio link", async () => {
   const scanner = await read("public/scan-composite-score.js");
+  const index = await read("public/index.html");
 
-  assert.match(scanner, /import "\.\/portfolio-route-bridge\.js\?v=20260804\.1"/u);
+  assert.match(scanner, /import "\.\/portfolio-route-bridge\.js\?v=20260814\.1"/u);
+  assert.match(index, /scan-composite-score\.js\?v=20260814\.2/u);
   assert.match(scanner, /portfolioLink = document\.createElement\("a"\)/u);
   assert.match(scanner, /portfolioLink\.id = "portfolio-route-link"/u);
   assert.match(scanner, /portfolioLink\.href = "\/portfolio\/"/u);
@@ -22,6 +24,8 @@ test("main navigation is replaced by a normal directly addressable Portfolio lin
 test("scanner handoff preserves source context and enforces the Portfolio asset limit", async () => {
   const bridge = await read("public/portfolio-route-bridge.js");
 
+  assert.match(bridge, /import \{ normalizeScanJob \} from "\.\/scan-job-normalizer\.js\?v=20260812\.1"/u);
+  assert.match(bridge, /return normalizeScanJob\(job, scanDateFallbackRange\(\)\)/u);
   for (const required of [
     "sourceJobId",
     "selectedTickers",

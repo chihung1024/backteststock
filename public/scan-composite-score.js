@@ -3,13 +3,13 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.4";
+} from "./scan-score-formulas.js?v=20260814.2";
 import {
   DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   buildScanCoverageStats,
   normalizeScanMinCoveragePercent,
 } from "./scan-coverage.js?v=20260803.2";
-import "./portfolio-route-bridge.js?v=20260804.1";
+import "./portfolio-route-bridge.js?v=20260814.1";
 
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
