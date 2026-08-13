@@ -14,6 +14,27 @@
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
 
+## Active Batch — PF-1A / R2 (IN PROGRESS)
+
+### Objective / Scope Lock
+
+- **Objective:** keep the validated Scanner manual Optimizer handoff intact after a Scanner → Portfolio → Scanner round trip, so the next manual Optimizer launch still has the same source-job provenance and date/benchmark/currency contract.
+- **In scope:** preserve an existing rich `backteststock-optimizer-manual-selection-v2` record only when its `sourceJobId` matches the Portfolio handoff and its `selectionMode` is the validated manual fixed-source-pool mode; add focused route-contract and browser regressions.
+- **Out of scope:** quant formulas, coverage methodology, API/data sources, Portfolio/Optimizer capacity, retry/resume behavior, storage schema migration, deployment/workflow cleanup and unrelated UI refactors.
+- **Risk class:** R2 shared local persistence and cross-page handoff; independent review and full CI are required. Existing incomplete records remain fail-closed.
+- **Verification:** `npm run check`, `npm run test:worker`, `npm run test:score`, `npm run check:portfolio`, route-contract tests, focused Chromium E2E, candidate CI, post-main CI and required production smoke only if the protected merge changes deployed public assets.
+- **Rollback:** revert the single PF-1A merge; no data or persistence migration is introduced.
+
+### Evidence / Root Cause
+
+- `public/portfolio-route-bridge.js::restoreSelection()` previously replaced the rich manual Optimizer record with only `version`, `sourceJobId`, `coverageThresholdPercent` and `tickers`.
+- `public/exhaustive-optimizer.js::validatedManualHandoff()` intentionally requires `selectionMode`, exact dates, benchmark and `valuationCurrency`; after return those fields were absent, so the Optimizer safely rejected the otherwise valid selection.
+
+### Current Batch State
+
+- Base verified from remote `main` `2396073669d79e807985df6d7ec8d889f86239a9`; no open PRs; latest main CI #659 and Vercel status succeeded; previous Cloudflare deploy #62 succeeded.
+- Implementation is on local branch `feat/scanner-portfolio-optimizer-handoff`; candidate PR/CI/merge/deployment verification remain pending.
+
 ## Closed Batch — UX-1A / R1
 
 ### Completed Scope
@@ -110,11 +131,11 @@ The public Scanner assets were released only after the protected merge. The merg
 
 ### NOW
 
-No active runtime implementation batch. Preserve `21a7e5f` as the current functional recovery point and re-query remote state before any new work.
+PF-1A is the only active runtime implementation batch. Preserve `2396073` as the current functional recovery point while the handoff-preservation fix completes candidate review and CI.
 
 ### NEXT
 
-Begin the planned Product Functionality Review as the next separate batch. Classify findings as NOW / NEXT / BACKLOG / REJECT; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+Complete PF-1A candidate CI, independent review, protected merge, post-main verification and the minimal handoff closeout. Then re-run Product Functionality Review as a new single active batch; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
@@ -134,4 +155,4 @@ Begin the planned Product Functionality Review as the next separate batch. Class
 
 ## Exact Resume Point
 
-UX-1B has no remaining implementation or production blocker. The current main head is 21a7e5f with candidate CI #656, post-main CI #657, Vercel success and Cloudflare smoke success. Before the next Product Functionality Review batch, query current `main`, active PRs, checks, deployment state and the applicable contracts; then define one narrow batch with its own validation and rollback path.
+PF-1A is the active Product Functionality Review batch. The verified base is `2396073`; the reproducible failure is loss of the rich manual Optimizer record during Portfolio return. The implementation preserves the record only for the matching Scan Job and keeps invalid/incomplete state fail-closed. Before merge, query the exact PR head/base, candidate checks and review; after merge, query main, post-main CI and deployment state, then record the final stable checkpoint.

@@ -121,6 +121,25 @@ test("scanner selection navigates to Portfolio and restores the source workspace
   await expect(restoredChoices.nth(0)).toBeChecked();
   await expect(restoredChoices.nth(1)).toBeChecked();
   await expect(page.locator("#integrated-backtest-dialog")).toHaveCount(0);
+
+  const restoredManualHandoff = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("backteststock-optimizer-manual-selection-v2"),
+  ));
+  expect(restoredManualHandoff).toMatchObject({
+    version: 2,
+    sourceJobId: handoff.sourceJobId,
+    selectionMode: "manual_fixed_source_pool",
+    tickers: ["AAA", "BBB"],
+    coverageThresholdPercent: 90,
+    startDate: "2022-01-01",
+    endDate: "2025-12-31",
+    benchmark: "SPY",
+    valuationCurrency: "TWD",
+  });
+
+  await page.goto("/optimizer.html?mode=manual", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#optimizer-source")).toHaveValue("AAA, BBB");
+  await expect(page.locator("#optimizer-handoff-context")).toContainText("手動帶入 2 檔");
 });
 
 test("Portfolio handoff rejects a stale selection from another scan job", async ({ page }) => {
