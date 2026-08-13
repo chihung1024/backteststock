@@ -364,6 +364,27 @@ tbody tr:hover { background: #f8fbff; }
   font-size: 0.82rem;
   font-weight: 700;
 }
+.scan-execution-plan,
+.scan-results-pending {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.85rem;
+  padding: 0.8rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 11px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.scan-execution-plan span,
+.scan-results-pending p {
+  margin: 0;
+  color: #475569;
+}
+#scan-results[data-scan-state="waiting-first-result"] > :not(#scan-results-pending) {
+  display: none;
+}
 .progress-track {
   flex: 1;
   height: 0.55rem;

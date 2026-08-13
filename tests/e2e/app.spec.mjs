@@ -188,6 +188,7 @@ test("initializes the UI and completes the Universe scanner flow", async ({ page
 
   await expect(page.locator("#scan-tickers")).toHaveValue("NVDA, MSFT");
   await expect(page.locator("#screener-funnel")).toContainText("納入回測");
+  await expect(page.locator("#scan-execution-plan")).toContainText("2 檔，分 1 批處理");
   expect(screenerPayload).toMatchObject({
     universe: "nasdaq100",
     sector: "any",
@@ -268,6 +269,7 @@ test("defaults to every filtered candidate and paginates more than 100 results",
 
   expect(screenerPayload.limit).toBeNull();
   await expect(page.locator("#scan-tickers")).toHaveValue(/T0125/);
+  await expect(page.locator("#scan-execution-plan")).toContainText("125 檔，分 2 批處理");
   await page.locator("#scan-start-period").fill("2025-01-01");
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
@@ -298,6 +300,7 @@ test("accepts more than 100 manually entered tickers", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "個股掃描" }).click();
   await page.locator("#scan-tickers").fill(tickers.join(", "));
+  await expect(page.locator("#scan-execution-plan")).toContainText("101 檔，分 2 批處理");
   await page.locator("#scan-start-period").fill("2025-01-01");
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();

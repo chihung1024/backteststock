@@ -4,7 +4,18 @@
 
 ## Current Status
 
-**No active production functional change.** The last known-good functional release is [`8aff7b0fa67b667e3335ffb8352f18775cba3228`](https://github.com/chihung1024/backteststock/commit/8aff7b0fa67b667e3335ffb8352f18775cba3228), verified on 2026-08-13. Re-query `main` before a change.
+**UX-1A Scanner execution clarity is ACTIVE.** Local candidate: `feat/scanner-execution-clarity` / `072a5bd63e856f908b967ac5d1d1c175df112e0d`, based on remote `main` [`35ebae01adaeb65f967a59eb0881ef886b2b7ffc`](https://github.com/chihung1024/backteststock/commit/35ebae01adaeb65f967a59eb0881ef886b2b7ffc), re-verified on 2026-08-13. It is not pushed, merged, or deployed.
+
+Primary Goal: make Scanner execution scale and the pre-first-result state explicit without changing data, quant, default all-candidate scanning, batch/retry, local persistence, or handoff contracts.
+
+Current Batch — **UX-1A / R1**:
+
+- show the exact ticker count and deterministic 100-ticker batch count after Universe filtering or manual input;
+- show a pending-first-result state instead of zero-value metric cards/table before any ticker settles;
+- preserve cancel/resume semantics and correctly describe an empty paused job;
+- add focused browser regressions for the plan, the pending→settled transition, and empty filter output.
+
+Local `npm run check`, `npm run test:worker` (75 tests), `npm run test:score` (12 tests), diff check, and Playwright test discovery pass. Local Chromium E2E is **NOT VERIFIED**: the sandbox lacks the Playwright browser and the browser download endpoint is blocked. Exact-head GitHub CI remains the required browser-validation gate before merge. Publishing this candidate for CI is currently blocked pending explicit approval to push this exact branch to `chihung1024/backteststock` and create a draft PR.
 
 The current functional baseline includes:
 
@@ -12,6 +23,7 @@ The current functional baseline includes:
 - Shared `?model` / `?handoff` links initially open Portfolio without preventing a later user switch to Refinery, fixed by [#117](https://github.com/chihung1024/backteststock/pull/117), merged as `f96ef33`.
 - Scanner retry batch labels use immutable original ticker positions and use `本次批次` for non-contiguous subsets, fixed by [#118](https://github.com/chihung1024/backteststock/pull/118), merged as `6856736`.
 - Legacy Backtest is consistently uncached at both Worker layers while Scanner retains its existing cache policy, fixed by [#121](https://github.com/chihung1024/backteststock/pull/121), merged as `8aff7b0`.
+- Scanner UI state remains bound to the visible scan job across browser tabs, fixed by [`35ebae0`](https://github.com/chihung1024/backteststock/commit/35ebae01adaeb65f967a59eb0881ef886b2b7ffc).
 
 Issues [#77](https://github.com/chihung1024/backteststock/issues/77) and [#85](https://github.com/chihung1024/backteststock/issues/85) are closed as completed.
 
@@ -32,11 +44,11 @@ Issues [#77](https://github.com/chihung1024/backteststock/issues/77) and [#85](h
 
 ### NOW
 
-No active functional repair. Before starting any change, re-query `main`, open PRs/issues, CI, Vercel, Cloudflare, and the affected runtime path.
+Obtain explicit approval to push local candidate `072a5bd63e856f908b967ac5d1d1c175df112e0d` on `feat/scanner-execution-clarity` to `chihung1024/backteststock` and create a draft PR. Then require exact-head GitHub CI (including Chromium E2E) before any merge decision. Do not deploy before merge and post-main verification.
 
 ### NEXT
 
-Run a bounded end-to-end regression pass across Scanner → Optimizer → Portfolio → Refinery. Treat any newly observed user-facing failure as its own small root-cause batch; do not infer a change from this handoff alone.
+After UX-1A closes, evaluate UX-1B as a separate R1 batch: Scanner result readability and explicit destination capacities (Portfolio vs Optimizer). Keep the current complete audit table, exports, selection semantics, and methodology visible.
 
 ### BACKLOG
 
@@ -56,4 +68,4 @@ Run a bounded end-to-end regression pass across Scanner → Optimizer → Portfo
 
 ## Exact Resume Point
 
-Start with current remote truth, then select one observable functional path and verify it end to end. `main` `8aff7b0` is the recovery baseline; preserve it until a separately reviewed candidate has passed CI and production verification.
+With explicit publication approval, push and validate local candidate `072a5bd63e856f908b967ac5d1d1c175df112e0d` on `feat/scanner-execution-clarity`. `main` `35ebae0` is the recovery baseline; preserve it until a separately reviewed candidate has passed CI and, after merge, production verification.
