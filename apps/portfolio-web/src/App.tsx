@@ -209,11 +209,6 @@ export default function App() {
   }, [locale]);
 
   useEffect(() => {
-    const parameters = new URLSearchParams(window.location.search);
-    if (parameters.has("model") || parameters.has("handoff")) {
-      setWorkspaceKindState("portfolio");
-      return;
-    }
     try {
       window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, workspaceKind);
     } catch {
