@@ -14,7 +14,7 @@
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
 
-## Active Batch — PF-1A / R2 (IN PROGRESS)
+## Closed Batch — PF-1A / R2
 
 ### Objective / Scope Lock
 
@@ -30,10 +30,13 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 - `public/portfolio-route-bridge.js::restoreSelection()` previously replaced the rich manual Optimizer record with only `version`, `sourceJobId`, `coverageThresholdPercent` and `tickers`.
 - `public/exhaustive-optimizer.js::validatedManualHandoff()` intentionally requires `selectionMode`, exact dates, benchmark and `valuationCurrency`; after return those fields were absent, so the Optimizer safely rejected the otherwise valid selection.
 
-### Current Batch State
+### Closure / Stable Checkpoint
 
-- Base verified from remote `main` `2396073669d79e807985df6d7ec8d889f86239a9`; no open PRs; latest main CI #659 and Vercel status succeeded; previous Cloudflare deploy #62 succeeded.
-- Implementation is on local branch `feat/scanner-portfolio-optimizer-handoff`; candidate PR/CI/merge/deployment verification remain pending.
+- PR [#129](https://github.com/chihung1024/backteststock/pull/129) passed exact-head candidate CI [#660](https://github.com/chihung1024/backteststock/actions/runs/31716727603), was marked Ready, and was squash-merged to main as [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8) on 2026-08-13.
+- Post-main CI [#661](https://github.com/chihung1024/backteststock/actions/runs/31717045836), Vercel production and Cloudflare Deploy [#63](https://github.com/chihung1024/backteststock/actions/runs/31717045754) all passed at the merged SHA; Cloudflare smoke covered Russell 2000, Portfolio v3 and Refinery v1.
+- Local verification passed `npm run check`, `npm run test:worker` (76 tests), `npm run test:score` (12 tests), `npm run check:portfolio`, `node --test tests/test_portfolio_route_bridge.mjs` and `git diff --check`. Local Chromium was unavailable in the sandbox; candidate CI ran the focused browser regression successfully.
+- The merge push triggered the configured production workflows automatically; no manual deployment command, protection bypass or direct production write was used.
+- Rollback is a normal revert of PR #129; no data, storage or persistence migration is introduced.
 
 ## Closed Batch — UX-1A / R1
 
@@ -111,8 +114,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`21a7e5ff4bccbc77616bd6dec7397c12b7f81867`](https://github.com/chihung1024/backteststock/commit/21a7e5ff4bccbc77616bd6dec7397c12b7f81867).
-- Previous verified baseline: [`4598ecf1a2870bcec7b71c69b5d7642601e0c55a`](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
+- Current functional recovery baseline: `main` [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8).
+- Previous verified baseline: [`21a7e5ff4bccbc77616bd6dec7397c12b7f81867`](https://github.com/chihung1024/backteststock/commit/21a7e5ff4bccbc77616bd6dec7397c12b7f81867).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -122,6 +125,7 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner cross-tab visible-job consistency from `35ebae0`;
   - Scanner execution clarity from PR #125 / `4598ecf`;
   - Scanner destination capacity from PR #127 / `21a7e5f`.
+  - Scanner → Portfolio → Optimizer handoff provenance from PR #129 / `15a5f44`.
 
 ## Deployment Record
 
@@ -131,11 +135,11 @@ The public Scanner assets were released only after the protected merge. The merg
 
 ### NOW
 
-PF-1A is the only active runtime implementation batch. Preserve `2396073` as the current functional recovery point while the handoff-preservation fix completes candidate review and CI.
+No active runtime implementation batch. Preserve `15a5f44` as the current functional recovery point; PF-1A is closed and production-verified.
 
 ### NEXT
 
-Complete PF-1A candidate CI, independent review, protected merge, post-main verification and the minimal handoff closeout. Then re-run Product Functionality Review as a new single active batch; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
@@ -155,4 +159,4 @@ Complete PF-1A candidate CI, independent review, protected merge, post-main veri
 
 ## Exact Resume Point
 
-PF-1A is the active Product Functionality Review batch. The verified base is `2396073`; the reproducible failure is loss of the rich manual Optimizer record during Portfolio return. The implementation preserves the record only for the matching Scan Job and keeps invalid/incomplete state fail-closed. Before merge, query the exact PR head/base, candidate checks and review; after merge, query main, post-main CI and deployment state, then record the final stable checkpoint.
+PF-1A is closed at main `15a5f44`. The fix preserves the rich manual Optimizer record only for the matching Scan Job and keeps invalid/incomplete state fail-closed. Candidate CI #660, post-main CI #661, Vercel production and Cloudflare Deploy #63 passed. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1A unless its invariant regresses.
