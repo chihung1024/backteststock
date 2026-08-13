@@ -4,20 +4,20 @@
 
 ## 1. Current Goal
 
-**Primary active batch: Phase 6 / Issue #77 — common-sample marginal Remove-One / Add-One / Replace-One MVP.**
+**Primary active batch: P6-C — Phase 6 / Issue #77 exact-head independent merge-readiness review.**
 
-Implementation and local validation are converging on an isolated Phase 6 worktree based on remote `main` `797919369bec776dceb09fe26d60b897839d7668`. This batch remains unmerged and must not be confused with draft PR #115 (the unrelated Edge-cache contract correction).
+Implementation is published as Draft PR [#116](https://github.com/chihung1024/backteststock/pull/116) against remote `main` `797919369bec776dceb09fe26d60b897839d7668`. Its tested functional head is `df6b92e18a5e8ed0a2d74449bb598eade3db78ee`; the candidate remains unmerged and must not be confused with draft PR #115 (the unrelated Edge-cache contract correction).
 
-The active goal is functional delivery and candidate validation. Documentation is limited to the current public contract and this handoff; do not restart a broad cleanup or planning program while Phase 6 gates are active.
+The active goal is merge-readiness evidence for the functional delivery. Documentation is limited to the current public contract and this handoff; do not restart a broad cleanup or planning program while Phase 6 gates are active.
 
 ## 2. Recovery / Scope Boundary
 
-- functional worktree: `backteststock-phase6-p6a`, candidate branch `candidate-phase6-refinery-marginal-2026-08-13` (created from the isolated internal Phase 6 commit);
+- functional worktree: `backteststock-phase6-p6a`, candidate branch `candidate-phase6-refinery-marginal-2026-08-13`; local functional head `0a1258a5906ea09471649703741fbffe46a53d1c` and remote tested functional commit `df6b92e18a5e8ed0a2d74449bb598eade3db78ee` share tree `c6fcb3bc041caf7fc923514b8eb6a4dc485426ee`; re-query #116 before any action because a handoff-only commit may sit above that tree;
 - recovery tag before this batch: `backup-post-pr114-797919369bec`;
 - original documentation worktree contains separate user-owned Phase 5 wording edits and must not be staged with Phase 6;
 - open draft PR #115 is out of scope and must neither be rebased, merged nor bundled into the Phase 6 candidate.
 
-No direct production merge or deployment is authorized by this handoff. The deliberate `candidate-*` branch is created from the exact green tree; pushing it and opening one Draft PR are the next publication gates.
+No direct production merge or deployment is authorized by this handoff. The deliberate `candidate-*` branch and Draft PR are published; the remaining gate is exact-head independent review, then an explicit merge authorization.
 
 ## 3. Implemented Phase 6 Surface
 
@@ -58,7 +58,7 @@ The canonical current details are in:
 
 ## 5. Current Verification Evidence
 
-Passed on the final local candidate tree:
+Passed on the final local functional candidate tree:
 
 - Ruff for `apps/api`, `apps`, and `tests`;
 - full Python regression (`271 passed`), including focused Phase 6/API coverage;
@@ -68,29 +68,36 @@ Passed on the final local candidate tree:
 - Worker route/runtime suite (`73 passed`);
 - score/coverage suite (`12 passed`).
 
-Full browser Playwright execution is currently **environment-blocked**, not product-failed: this runner has no system Chromium and the Playwright Chromium download repeatedly returned a corrupt/truncated archive through its restricted network path. Candidate GitHub CI must run the normal browser suite; a missing or failed browser gate blocks merge.
+Local browser Playwright remains **environment-blocked**: this runner has no system Chromium and its restricted download returned a corrupt archive. That is not a candidate blocker: GitHub Actions CI #631 passed the full browser user-flow suite (48 cases) on `df6b92e…`, alongside Python, Worker, source-contract, asset-drift, Vercel-configuration, local D1-migration and Cloudflare-bundle gates. Vercel's Git preview is **Ready** with zero unresolved feedback. Release Backup Gates are skipped on a Draft PR by the existing event condition; no merge or production backup has been run.
+
+### Candidate CI correction / root cause
+
+- **Symptom:** CI #630 timed out in the established 100-candidate Phase 5 browser flow because `資料預檢` was disabled.
+- **Failure point / root cause:** the new Phase 6 client validator applied its 24-symbol experiment-union limit even when `experimentPlan` was empty, unintentionally invalidating the existing no-plan 2–100 candidate workflow.
+- **Fix:** `validateRefineryExperimentPlan()` now returns no Phase 6 issues for an empty plan; a source-contract regression locks that no-plan behavior. The Vite bundle was regenerated.
+- **Regression evidence:** exact remote fix head `df6b92e…` passed CI #631, including the previously failing 100-candidate browser case. No workaround or gate weakening was used.
 
 ## 6. Independent Falsification Status
 
-Completed review found no confirmed calculation defect. It identified and closed these acceptance-coverage gaps:
+The pre-fix review found no confirmed calculation defect and identified / closed these acceptance-coverage gaps:
 
 - direct frozen-sample primitive and stable-ID parity for all three operation forms;
 - explicit operation-cap rejection;
 - proof that union provenance remains independent from frozen sample identity;
 - browser workflow coverage for Remove/Add/Replace order and narrow-screen containment.
 
-Residual observation, not a current blocker: unexpected internal invariant exceptions still use the existing generic API error boundary. Do not expand exception taxonomy in this release without concrete failure evidence; consider it only as a separately scoped hardening item.
+The no-plan validation correction created a new exact candidate head, so the prior review conclusion does not automatically carry forward. P6-C independent review is now active and must cover the final head. Residual observation, not a current blocker: unexpected internal invariant exceptions still use the existing generic API error boundary. Do not expand exception taxonomy in this release without concrete failure evidence; consider it only as a separately scoped hardening item.
 
 ## 7. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-1. push the reviewed candidate branch and open one Draft PR against current `main`;
-2. use the candidate PR to obtain required GitHub CI, Vercel preview and backup evidence. Browser E2E must pass there before merge consideration.
+1. complete independent adversarial review of the final #116 head against Issue #77, the Phase 6 contracts and CI evidence;
+2. if there are zero BLOCKER findings, report `READY TO MERGE` and wait for explicit authorization to merge the exact reviewed head.
 
 ### NEXT
 
-After all candidate gates and independent review pass, merge with expected-head protection, then verify post-main CI/backup and production routing. Only then run the bounded Scanner → Optimizer → Portfolio → Refinery integration pass.
+After explicit merge authorization and a successful expected-head merge, verify post-main CI/backup and production routing. Only then run the bounded Scanner → Optimizer → Portfolio → Refinery integration pass.
 
 ### BACKLOG
 
@@ -110,6 +117,6 @@ After all candidate gates and independent review pass, merge with expected-head 
 
 ## 8. Exact Resume Point
 
-Continue from the Phase 6 worktree only. First re-query `main`, Issue #77 and the Draft PR list. If `main` moved, rebase/revalidate deliberately; otherwise commit the reviewed exact tree, create/push one `candidate-*` branch and Draft PR. Treat GitHub `validate`, Vercel and browser E2E as merge gates, not post-merge cleanup.
+Continue from the Phase 6 worktree only. Re-query `main`, #116's exact head, CI / Vercel state and review threads. If `main` or the PR head moved, re-evaluate/revalidate deliberately; otherwise finish P6-C independent review. Do not merge until the user explicitly authorizes the expected reviewed head.
 
-**Primary Active Batch = P6 candidate validation. No other functional batch is active.**
+**Primary Active Batch = P6-C independent merge-readiness review. No other functional batch is active.**
