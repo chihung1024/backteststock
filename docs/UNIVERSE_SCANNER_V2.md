@@ -108,6 +108,10 @@ Schema 位於 `migrations/0001_universe_versions.sql`，來源版本欄位擴充
   大量 DOM 節點。
 - 每檔結果包含總報酬、CAGR、波動、MDD、Sharpe、Sortino、Beta、Alpha、
   實際 TWD 估值起訖日、估值日、資料覆蓋率、來源幣別與 FX 稽核資訊。
+- API 的 `data_coverage`／`benchmark_calendar_coverage` 以前向填補前的原始
+  TWD 估值日曆計算，分母為同一請求的基準估值日；指標日曆的前向填補不會
+  把缺漏觀測誤報為完整。瀏覽器結果列表另以成功標的中的最大有效交易日
+  重算相對覆蓋率，作為顯示與候選門檻。
 - 群組摘要包含成功、失敗、未完成、CAGR 中位數、平均波動、平均回撤、平均 Sharpe
   與平均資料覆蓋。
 - CSV 匯出包含所有上述欄位與個別錯誤。

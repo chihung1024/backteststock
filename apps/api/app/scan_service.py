@@ -119,6 +119,7 @@ class TWDScanService:
                     history,
                     values,
                     benchmark_values,
+                    benchmark_history,
                     benchmark_symbol,
                     risk_free_rate,
                 )
@@ -139,6 +140,7 @@ def _success_row(
     history,
     values,
     benchmark_values,
+    benchmark_history,
     benchmark_symbol: str | None,
     risk_free_rate: float,
 ) -> dict[str, Any]:
@@ -176,6 +178,14 @@ def _success_row(
         notes.append(audit_note)
     if benchmark_values is None and benchmark_symbol:
         notes.append("比較基準 TWD 行情無法取得，Beta／Alpha 暫不計算")
+    benchmark_calendar_coverage = (
+        benchmark_coverage(
+            history.adjusted_close_twd,
+            benchmark_history.adjusted_close_twd,
+        )
+        if benchmark_history is not None
+        else 0.0
+    )
     return {
         "ticker": ticker,
         "status": "ok",
@@ -188,11 +198,12 @@ def _success_row(
         "data_start": metrics["metric_start"],
         "data_end": metrics["metric_end"],
         "trading_days": int(len(values)),
-        "data_coverage": (
-            benchmark_coverage(values, benchmark_values)
-            if benchmark_values is not None
-            else 0.0
-        ),
+        # Keep this audit ratio on the raw valuation calendars.  The metric
+        # calendar may forward-fill an asset across benchmark/FX-only dates;
+        # counting that aligned frame would report missing observations as
+        # complete coverage.
+        "data_coverage": benchmark_calendar_coverage,
+        "benchmark_calendar_coverage": benchmark_calendar_coverage,
         "benchmark_available": benchmark_values is not None,
         "valuation_currency": VALUATION_CURRENCY,
         "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,

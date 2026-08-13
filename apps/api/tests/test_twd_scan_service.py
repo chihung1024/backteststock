@@ -23,8 +23,11 @@ def _history(
     native: list[float],
     fx: list[float],
     twd: list[float],
+    dates: list[str] | None = None,
 ) -> TWDAssetHistory:
-    index = pd.to_datetime(["2025-01-02", "2025-01-03", "2025-01-06"])
+    index = pd.to_datetime(
+        dates or ["2025-01-02", "2025-01-03", "2025-01-06"]
+    )
     valuation = TWDValuation(
         source_currency=currency,
         native_adjusted_close=pd.Series(native, index=index, dtype=float),
@@ -130,3 +133,38 @@ def test_scan_preserves_asset_result_when_benchmark_or_peer_fails() -> None:
         "calendar_policy": "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1",
         "metric_definition_version": good_row["metric_definition_version"],
     }
+
+
+def test_scan_coverage_uses_raw_observations_before_calendar_forward_fill() -> None:
+    asset = _history(
+        "ASSET",
+        "TWD",
+        [100.0, 110.0],
+        [1.0, 1.0],
+        [100.0, 110.0],
+        dates=["2025-01-02", "2025-01-06"],
+    )
+    benchmark = _history(
+        "SPY",
+        "TWD",
+        [100.0, 101.0, 102.0, 103.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [100.0, 101.0, 102.0, 103.0],
+        dates=["2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07"],
+    )
+
+    service = TWDScanService(
+        history_service=FakeHistoryService({"ASSET": asset, "SPY": benchmark})
+    )
+    row = service.run(
+        ["ASSET"],
+        start=date(2025, 1, 2),
+        end=date(2025, 1, 7),
+        benchmark="SPY",
+    ).results[0]
+
+    assert row["trading_days"] == 4
+    assert row["data_start"] == "2025-01-02"
+    assert row["data_end"] == "2025-01-07"
+    assert row["data_coverage"] == pytest.approx(0.5)
+    assert row["benchmark_calendar_coverage"] == pytest.approx(0.5)
