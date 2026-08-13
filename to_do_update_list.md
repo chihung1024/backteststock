@@ -4,6 +4,13 @@
 
 ## Current Status
 
+**PF-1B Scanner → Portfolio legacy-date handoff — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
+
+- [PR #131](https://github.com/chihung1024/backteststock/pull/131) passed exact-head candidate CI [#665](https://github.com/chihung1024/backteststock/actions/runs/31719788695), was independently reviewed, marked Ready, and squash-merged to main as [`3a93afe12b92965676bd33c52b315f415303574c`](https://github.com/chihung1024/backteststock/commit/3a93afe12b92965676bd33c52b315f415303574c) on 2026-08-13.
+- Post-main CI [#666](https://github.com/chihung1024/backteststock/actions/runs/31720172713), Vercel production and [Deploy Cloudflare Worker #64](https://github.com/chihung1024/backteststock/actions/runs/31720172734) all passed at the merged SHA; Cloudflare smoke covered Russell 2000, Portfolio v3 and Refinery v1.
+- Local non-browser validation passed `npm run check`, `npm run test:worker` (76 tests), `npm run test:score` (12 tests), `npm run check:portfolio`, route-contract tests and `git diff --check`. Local Chromium was unavailable; candidate CI ran the legacy-date Portfolio browser regression successfully.
+- The merge push triggered the configured production workflows automatically; no manual deployment command, protection bypass or direct production write was used.
+
 **UX-1B Scanner destination capacity — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R1).**
 
 - [PR #127](https://github.com/chihung1024/backteststock/pull/127) passed exact-head candidate CI #656, was marked Ready, and was squash-merged to main as [21a7e5ff4bccbc77616bd6dec7397c12b7f81867](https://github.com/chihung1024/backteststock/commit/21a7e5ff4bccbc77616bd6dec7397c12b7f81867) on 2026-08-13.
@@ -38,7 +45,7 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 - The merge push triggered the configured production workflows automatically; no manual deployment command, protection bypass or direct production write was used.
 - Rollback is a normal revert of PR #129; no data, storage or persistence migration is introduced.
 
-## Active Batch — PF-1B / R2
+## Closed Batch — PF-1B / R2
 
 ### Objective / Scope Lock
 
@@ -49,16 +56,20 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 - **Verification:** route-contract tests, focused Chromium E2E, `npm run check`, `npm run test:worker`, `npm run test:score`, `npm run check:portfolio`, candidate CI and post-main CI; production smoke only if the protected merge changes public runtime assets.
 - **Rollback:** revert the single PF-1B merge; no data or persistence migration is introduced.
 
-### Evidence / Root Cause (under review)
+### Evidence / Root Cause
 
 - **Reproduction:** a v3 job with `startYear: 2025`, `startMonth: 1`, `endYear: 2025`, `endMonth: 12` and a valid manual selection produced a Portfolio handoff record with empty `startDate`/`endDate`.
 - **Failure point:** `public/portfolio-route-bridge.js::readScanJob()` returned raw localStorage payloads while `public/app.js::loadScanJob()` normalized the same job only in memory.
 - **Downstream impact:** `apps/portfolio-web/src/handoff.ts` rejected the empty dates and silently retained its default ten-year model range, so Portfolio could execute on a period different from the Scanner source. The existing Optimizer path already normalizes the job independently.
 
-### Current Task
+### Closure / Stable Checkpoint
 
-- Apply the existing `scan-job-normalizer.js` contract at the route bridge with the same ten-year rolling fallback used by Scanner; preserve fail-safe raw-job behavior if normalization cannot run.
-- Add a legacy-date Portfolio handoff regression that asserts the session record, banner and imported model all retain `2025-01-01` → `2025-12-31`.
+- `public/portfolio-route-bridge.js::readScanJob()` now applies the existing `scan-job-normalizer.js` contract with the Scanner's ten-year rolling fallback, preserving fail-safe raw-job behavior if normalization cannot run.
+- The bridge and all affected Scanner module assets received new query-string cache keys so the fix is served instead of a stale cached module.
+- The focused browser regression asserts the session handoff record, Portfolio banner and imported model all retain `2025-01-01` → `2025-12-31` for a legacy year/month scan payload.
+- Candidate CI [#665](https://github.com/chihung1024/backteststock/actions/runs/31719788695) passed Chromium E2E, JavaScript/Worker checks, Portfolio/Refinery contracts, Vercel configuration, local D1 migrations and Cloudflare dry-run at exact head `94eab5448d3f27e123d1fca9ddf2f565b352474b`.
+- Post-main CI [#666](https://github.com/chihung1024/backteststock/actions/runs/31720172713), Vercel production and Cloudflare Deploy #64 passed at merged head `3a93afe12b92965676bd33c52b315f415303574c`.
+- Rollback is a normal revert of PR #131; no data, storage or persistence migration is introduced.
 
 ## Closed Batch — UX-1A / R1
 
@@ -136,8 +147,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8).
-- Previous verified baseline: [`21a7e5ff4bccbc77616bd6dec7397c12b7f81867`](https://github.com/chihung1024/backteststock/commit/21a7e5ff4bccbc77616bd6dec7397c12b7f81867).
+- Current functional recovery baseline: `main` [`3a93afe12b92965676bd33c52b315f415303574c`](https://github.com/chihung1024/backteststock/commit/3a93afe12b92965676bd33c52b315f415303574c).
+- Previous verified baseline: [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -148,6 +159,7 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner execution clarity from PR #125 / `4598ecf`;
   - Scanner destination capacity from PR #127 / `21a7e5f`.
   - Scanner → Portfolio → Optimizer handoff provenance from PR #129 / `15a5f44`.
+  - Scanner → Portfolio legacy-date handoff from PR #131 / `3a93afe`.
 
 ## Deployment Record
 
@@ -157,11 +169,11 @@ The public Scanner assets were released only after the protected merge. The merg
 
 ### NOW
 
-PF-1B is the only active runtime batch. Preserve `main` `46d2231` as the recovery point while the legacy-date handoff fix is validated; PF-1A remains closed and production-verified.
+No active runtime implementation batch. Preserve `main` `3a93afe` as the current functional recovery point; PF-1B and PF-1A are closed and production-verified.
 
 ### NEXT
 
-After PF-1B reaches a verified stable checkpoint, re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
@@ -181,4 +193,4 @@ After PF-1B reaches a verified stable checkpoint, re-run Product Functionality R
 
 ## Exact Resume Point
 
-PF-1B is active from main `46d2231`. The reproduction is a legacy year/month scan payload that reaches Portfolio with blank source dates because the route bridge bypasses the canonical in-memory normalizer. The current task is limited to applying that existing normalizer at the bridge and proving the exact date range through the handoff record, Portfolio banner/model and CI; do not reopen PF-1A unless its invariant regresses.
+PF-1B is closed at main `3a93afe`. The route bridge now applies the canonical Scanner date normalizer, invalidates all affected asset caches, and preserves the exact legacy source range through the Portfolio handoff record, banner and imported model. Candidate CI #665, post-main CI #666, Vercel production and Cloudflare Deploy #64 passed. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1B or PF-1A unless their invariants regress.
