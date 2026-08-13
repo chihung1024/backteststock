@@ -175,7 +175,13 @@ const dom = {
   chartScale: document.querySelector("#chart-scale"),
   scanForm: document.querySelector("#scan-form"),
   scanError: document.querySelector("#scan-error"),
+  scanTickers: document.querySelector("#scan-tickers"),
+  scanExecutionPlan: document.querySelector("#scan-execution-plan"),
+  scanExecutionPlanTitle: document.querySelector("#scan-execution-plan-title"),
+  scanExecutionPlanDetail: document.querySelector("#scan-execution-plan-detail"),
   scanResults: document.querySelector("#scan-results"),
+  scanResultsPending: document.querySelector("#scan-results-pending"),
+  scanResultsPendingDetail: document.querySelector("#scan-results-pending-detail"),
   scanTable: document.querySelector("#scan-table"),
   scanSummary: document.querySelector("#scan-summary"),
   scanContext: document.querySelector("#scan-context"),
@@ -874,6 +880,23 @@ function parseTickers(value) {
   return [...new Set(value.split(/[\s,;]+/).map(sanitizeTicker).filter(Boolean))];
 }
 
+function renderScanExecutionPlan(tickerOverride = null) {
+  const tickers = Array.isArray(tickerOverride)
+    ? tickerOverride
+    : parseTickers(dom.scanTickers.value);
+  if (!tickers.length) {
+    dom.scanExecutionPlan.classList.add("hidden");
+    dom.scanExecutionPlanTitle.textContent = "";
+    dom.scanExecutionPlanDetail.textContent = "";
+    return;
+  }
+  const total = tickers.length;
+  const batches = Math.ceil(total / SCAN_CHUNK_SIZE);
+  dom.scanExecutionPlanTitle.textContent = `執行計畫：${total.toLocaleString("zh-TW")} 檔，分 ${batches.toLocaleString("zh-TW")} 批處理`;
+  dom.scanExecutionPlanDetail.textContent = `每批最多 ${SCAN_CHUNK_SIZE.toLocaleString("zh-TW")} 檔；可取消，未完成進度會保存在此瀏覽器，可由目前進度繼續。`;
+  dom.scanExecutionPlan.classList.remove("hidden");
+}
+
 function buildScanPayload(tickerOverride = null) {
   const tickers = tickerOverride || parseTickers(document.querySelector("#scan-tickers").value);
   if (!tickers.length) throw new Error("請至少輸入一個股票代碼。");
@@ -1022,10 +1045,11 @@ function clearScanJob() {
 
 function restoreScanControls(payload) {
   const normalized = normalizeScanPayloadDates(payload, defaultRange);
-  document.querySelector("#scan-tickers").value = normalized.tickers.join(", ");
+  dom.scanTickers.value = normalized.tickers.join(", ");
   document.querySelector("#scan-start-period").value = normalized.startDate;
   document.querySelector("#scan-end-period").value = normalized.endDate;
   document.querySelector("#scan-benchmark").value = normalized.benchmark;
+  renderScanExecutionPlan(normalized.tickers);
 }
 
 function orderedJobResults(job, resultMap) {
@@ -1043,16 +1067,37 @@ function terminalScanFailure(ticker, reason) {
   };
 }
 
+function renderWaitingForFirstScanResult(job) {
+  const total = job.payload.tickers.length;
+  const batches = Math.ceil(total / SCAN_CHUNK_SIZE);
+  const resumable = job.status === "paused";
+  dom.scanResults.dataset.scanState = "waiting-first-result";
+  dom.scanResultsPendingDetail.textContent = resumable
+    ? `尚未有已結算結果。本次共 ${total.toLocaleString("zh-TW")} 檔、${batches.toLocaleString("zh-TW")} 批；可按「繼續未完成回測」從已保存進度接續。`
+    : `本次共 ${total.toLocaleString("zh-TW")} 檔、${batches.toLocaleString("zh-TW")} 批。正在取得第一批資料；可取消，未完成進度會保存在此瀏覽器。`;
+  dom.scanResultsPending.classList.remove("hidden");
+}
+
+function revealSettledScanResults() {
+  delete dom.scanResults.dataset.scanState;
+  dom.scanResultsPending.classList.add("hidden");
+}
+
 function renderScanJobState(job, message) {
   const total = job.payload.tickers.length;
   const settled = job.results.length;
   latestScan = [...job.results];
   setVisibleScanJobOwner(job);
   setScanProgress(settled, total, message || `已取得 ${settled} / ${total} 檔，未完成 ${job.pending.length} 檔`);
+  dom.scanResults.classList.remove("hidden");
+  if (settled === 0 && job.pending.length > 0) {
+    renderWaitingForFirstScanResult(job);
+    return;
+  }
+  revealSettledScanResults();
   renderScanTable();
   renderScanSummary();
   renderScanContext(Boolean(job.screenerContext));
-  dom.scanResults.classList.remove("hidden");
 }
 
 async function processScanJob(job) {
@@ -1171,6 +1216,10 @@ async function executeScan(payload, existingJob = null) {
     if (cancelRequested) {
       job.status = "paused";
       saveScanJob(job);
+      renderScanJobState(
+        job,
+        `回測已暫停；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，按「繼續未完成回測」即可接續。`,
+      );
       document.querySelector("#retry-scan").classList.remove("hidden");
       setMessage(dom.scanError, `回測已暫停；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔，按「繼續未完成回測」即可接續。`);
     } else {
@@ -1187,11 +1236,17 @@ async function executeScan(payload, existingJob = null) {
     if (error.retryable === false) {
       clearScanJob();
       activeScanJob = null;
+      revealSettledScanResults();
+      dom.scanResults.classList.add("hidden");
       document.querySelector("#retry-scan").classList.add("hidden");
       setMessage(dom.scanError, error.message);
     } else {
       job.status = "paused";
       saveScanJob(job);
+      renderScanJobState(
+        job,
+        `進度已保存；系統可由目前的 ${job.results.length} / ${job.payload.tickers.length} 檔接續。`,
+      );
       document.querySelector("#retry-scan").classList.remove("hidden");
       setMessage(dom.scanError, cancelRequested
         ? `回測已暫停；已保存 ${job.results.length} / ${job.payload.tickers.length} 檔。`
@@ -1578,7 +1633,8 @@ async function runScreener() {
       }),
     });
     const tickers = latestScreener.candidates.map((candidate) => candidate.ticker);
-    document.querySelector("#scan-tickers").value = tickers.join(", ");
+    dom.scanTickers.value = tickers.join(", ");
+    renderScanExecutionPlan(tickers);
     renderScreenerFunnel(latestScreener.funnel);
     setMessage(dom.screenerWarning, latestScreener.warnings?.join("\n") || "");
     if (!tickers.length) setMessage(dom.scanError, "沒有符合目前條件的股票。");
@@ -1703,6 +1759,7 @@ function bindEvents() {
   document.querySelector("#start-period").addEventListener("input", markBacktestDatesCustom);
   document.querySelector("#end-period").addEventListener("input", markBacktestDatesCustom);
   dom.scanForm.addEventListener("submit", runScan);
+  dom.scanTickers.addEventListener("input", () => renderScanExecutionPlan());
   dom.scanMinCoverage.addEventListener("input", () => {
     const raw = dom.scanMinCoverage.value;
     if (raw === "") return;
@@ -1818,6 +1875,7 @@ function bindEvents() {
 
 if (!METRIC_CACHE_MIGRATION_RELOAD_PENDING) {
   initializeControls();
+  renderScanExecutionPlan();
   renderPortfolios();
   bindEvents();
   checkHealth();

@@ -192,6 +192,10 @@
           <textarea id="scan-tickers" rows="5" placeholder="AAPL, MSFT, NVDA">AAPL, MSFT, NVDA, AMZN, GOOGL</textarea>
           <small>可直接手動輸入任意數量；以逗號、空白或換行分隔，系統會自動分批處理。</small>
         </label>
+        <div id="scan-execution-plan" class="scan-execution-plan hidden" aria-live="polite" aria-atomic="true">
+          <strong id="scan-execution-plan-title"></strong>
+          <span id="scan-execution-plan-detail"></span>
+        </div>
         <div class="control-grid scanner-controls">
           <label>
             <span>起始日期</span>
@@ -221,6 +225,10 @@
       </form>
 
       <section id="scan-results" class="results hidden" aria-live="polite">
+        <div id="scan-results-pending" class="scan-results-pending hidden" role="status" aria-atomic="true">
+          <strong>等待第一批結果</strong>
+          <p id="scan-results-pending-detail"></p>
+        </div>
         <div class="result-header">
           <div>
             <p class="eyebrow">SCAN RESULTS</p>
