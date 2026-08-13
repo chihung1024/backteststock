@@ -38,6 +38,28 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 - The merge push triggered the configured production workflows automatically; no manual deployment command, protection bypass or direct production write was used.
 - Rollback is a normal revert of PR #129; no data, storage or persistence migration is introduced.
 
+## Active Batch — PF-1B / R2
+
+### Objective / Scope Lock
+
+- **Objective:** keep the Scanner → Portfolio handoff's source date range correct when a restored v3 scan still stores legacy `startYear`/`startMonth`/`endYear`/`endMonth` fields instead of canonical ISO dates.
+- **In scope:** normalize the persisted scan job at the Portfolio route bridge using the existing Scanner date contract; add a focused browser regression and cache-key update for the bridge module.
+- **Out of scope:** quant formulas, coverage methodology, API/data sources, Optimizer validation rules, Portfolio capacity, retry/resume behavior, storage schema migration, deployment/workflow cleanup and unrelated UI refactors.
+- **Risk class:** R2 shared local persistence and cross-page data handoff; exact-head candidate CI, independent review and post-main verification are required.
+- **Verification:** route-contract tests, focused Chromium E2E, `npm run check`, `npm run test:worker`, `npm run test:score`, `npm run check:portfolio`, candidate CI and post-main CI; production smoke only if the protected merge changes public runtime assets.
+- **Rollback:** revert the single PF-1B merge; no data or persistence migration is introduced.
+
+### Evidence / Root Cause (under review)
+
+- **Reproduction:** a v3 job with `startYear: 2025`, `startMonth: 1`, `endYear: 2025`, `endMonth: 12` and a valid manual selection produced a Portfolio handoff record with empty `startDate`/`endDate`.
+- **Failure point:** `public/portfolio-route-bridge.js::readScanJob()` returned raw localStorage payloads while `public/app.js::loadScanJob()` normalized the same job only in memory.
+- **Downstream impact:** `apps/portfolio-web/src/handoff.ts` rejected the empty dates and silently retained its default ten-year model range, so Portfolio could execute on a period different from the Scanner source. The existing Optimizer path already normalizes the job independently.
+
+### Current Task
+
+- Apply the existing `scan-job-normalizer.js` contract at the route bridge with the same ten-year rolling fallback used by Scanner; preserve fail-safe raw-job behavior if normalization cannot run.
+- Add a legacy-date Portfolio handoff regression that asserts the session record, banner and imported model all retain `2025-01-01` → `2025-12-31`.
+
 ## Closed Batch — UX-1A / R1
 
 ### Completed Scope
@@ -135,11 +157,11 @@ The public Scanner assets were released only after the protected merge. The merg
 
 ### NOW
 
-No active runtime implementation batch. Preserve `15a5f44` as the current functional recovery point; PF-1A is closed and production-verified.
+PF-1B is the only active runtime batch. Preserve `main` `46d2231` as the recovery point while the legacy-date handoff fix is validated; PF-1A remains closed and production-verified.
 
 ### NEXT
 
-Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+After PF-1B reaches a verified stable checkpoint, re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
@@ -159,4 +181,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1A is closed at main `15a5f44`. The fix preserves the rich manual Optimizer record only for the matching Scan Job and keeps invalid/incomplete state fail-closed. Candidate CI #660, post-main CI #661, Vercel production and Cloudflare Deploy #63 passed. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1A unless its invariant regresses.
+PF-1B is active from main `46d2231`. The reproduction is a legacy year/month scan payload that reaches Portfolio with blank source dates because the route bridge bypasses the canonical in-memory normalizer. The current task is limited to applying that existing normalizer at the bridge and proving the exact date range through the handoff record, Portfolio banner/model and CI; do not reopen PF-1A unless its invariant regresses.

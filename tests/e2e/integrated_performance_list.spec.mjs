@@ -142,6 +142,50 @@ test("scanner selection navigates to Portfolio and restores the source workspace
   await expect(page.locator("#optimizer-handoff-context")).toContainText("手動帶入 2 檔");
 });
 
+test("legacy Scanner date fields are normalized before Portfolio handoff", async ({ page }) => {
+  await page.addInitScript((rows) => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
+      version: 3,
+      id: "legacy-portfolio-scan",
+      status: "completed",
+      payload: {
+        tickers: rows.map((row) => row.ticker),
+        benchmark: "SPY",
+        startYear: 2025,
+        startMonth: 1,
+        endYear: 2025,
+        endMonth: 12,
+      },
+      pending: [],
+      results: rows,
+    }));
+    localStorage.setItem("backteststock-optimizer-manual-selection-v2", JSON.stringify({
+      version: 2,
+      sourceJobId: "legacy-portfolio-scan",
+      coverageThresholdPercent: 90,
+      tickers: rows.map((row) => row.ticker),
+    }));
+  }, scanRows);
+  await mockApis(page);
+  await page.goto("/");
+
+  const openPortfolio = page.locator("#open-integrated-backtest");
+  await expect(openPortfolio).toHaveText("使用已選 2 檔建立投組回測");
+  await expect(openPortfolio).toHaveAttribute("aria-disabled", "false");
+  await openPortfolio.click();
+
+  await expect(page).toHaveURL(/\/portfolio\/\?handoff=[0-9a-f-]+$/u);
+  await expect(page.locator("#portfolio-handoff-banner")).toContainText("2025-01-01 → 2025-12-31");
+  await expect(page.locator(".model-summary")).toContainText("2025-01-01");
+  await expect(page.locator(".model-summary")).toContainText("2025-12-31");
+
+  const handoff = await page.evaluate(() => JSON.parse(
+    sessionStorage.getItem("backteststock-portfolio-handoff-v1"),
+  ));
+  expect(handoff.startDate).toBe("2025-01-01");
+  expect(handoff.endDate).toBe("2025-12-31");
+});
+
 test("Portfolio handoff rejects a stale selection from another scan job", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("backteststock-scan-job-v3", JSON.stringify({
