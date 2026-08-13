@@ -116,6 +116,44 @@ async function fulfillJson(route, body) {
   });
 }
 
+function scanRow(ticker) {
+  return {
+    ticker,
+    status: "ok",
+    retryable: false,
+    total_return: 0.2,
+    cagr: 0.1,
+    volatility: 0.2,
+    mdd: -0.15,
+    sharpe_ratio: 0.8,
+    sortino_ratio: 1.1,
+    beta: 1,
+    alpha: 0.02,
+    data_coverage: 1,
+    trading_days: 252,
+    data_start: "2025-01-02",
+    data_end: "2025-12-31",
+    metric_definition_version: "2026-08-01.2",
+    twd_valuation_contract_version: "test-twd-v1",
+  };
+}
+
+function savedScanJob(id, tickers) {
+  return {
+    version: 3,
+    id,
+    status: "completed",
+    payload: {
+      tickers,
+      benchmark: "SPY",
+      startDate: "2025-01-01",
+      endDate: "2025-12-31",
+    },
+    pending: [],
+    results: tickers.map(scanRow),
+  };
+}
+
 function formulaHeader(page, formula) {
   return page.locator(`#scan-table th[data-composite-metric="${formula.key}"]`);
 }
@@ -123,6 +161,39 @@ function formulaHeader(page, formula) {
 function formulaCell(row, formula) {
   return row.locator(`td[data-composite-metric="${formula.key}"]`);
 }
+
+test("one tab keeps its scan summary aligned with its own visible result table", async ({ page }) => {
+  const firstJob = savedScanJob("tab-a", ["AAA"]);
+  const replacementJob = savedScanJob("tab-b", ["BBB", "CCC", "DDD"]);
+  const context = page.context();
+
+  await context.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await context.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await context.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+  await page.addInitScript((job) => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify(job));
+  }, firstJob);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "個股掃描" }).click();
+  await expect(page.locator("#scan-table tbody tr")).toHaveCount(1);
+  await expect(page.locator("#scan-table tbody tr")).toContainText("AAA");
+  await expect(page.locator("#scan-summary")).toContainText("成功標的1 / 1");
+  await expect(page.locator("#scan-coverage-filter-status")).toContainText("顯示 1 / 1 檔");
+
+  const writer = await context.newPage();
+  await writer.goto("/");
+  await writer.evaluate((job) => {
+    localStorage.setItem("backteststock-scan-job-v3", JSON.stringify(job));
+  }, replacementJob);
+
+  await page.waitForTimeout(100);
+  await expect(page.locator("#scan-table tbody tr")).toHaveCount(1);
+  await expect(page.locator("#scan-table tbody tr")).toContainText("AAA");
+  await expect(page.locator("#scan-summary")).toContainText("成功標的1 / 1");
+  await expect(page.locator("#scan-coverage-filter-status")).toContainText("顯示 1 / 1 檔");
+  await writer.close();
+});
 
 test("compares and sorts three Sortino growth-beta formulas", async ({ page }) => {
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));

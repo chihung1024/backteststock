@@ -973,6 +973,15 @@ function saveScanJob(job) {
   }
 }
 
+function setVisibleScanJobOwner(job) {
+  const jobId = String(job?.id || "").trim();
+  for (const element of [dom.scanResults, dom.scanTable]) {
+    if (!element) continue;
+    if (jobId) element.dataset.scanJobId = jobId;
+    else delete element.dataset.scanJobId;
+  }
+}
+
 function loadScanJob() {
   try {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
@@ -1008,6 +1017,7 @@ function loadScanJob() {
 
 function clearScanJob() {
   localStorage.removeItem(SCAN_JOB_STORAGE_KEY);
+  setVisibleScanJobOwner(null);
 }
 
 function restoreScanControls(payload) {
@@ -1037,6 +1047,7 @@ function renderScanJobState(job, message) {
   const total = job.payload.tickers.length;
   const settled = job.results.length;
   latestScan = [...job.results];
+  setVisibleScanJobOwner(job);
   setScanProgress(settled, total, message || `已取得 ${settled} / ${total} 檔，未完成 ${job.pending.length} 檔`);
   renderScanTable();
   renderScanSummary();

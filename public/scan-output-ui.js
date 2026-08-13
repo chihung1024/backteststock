@@ -124,7 +124,11 @@ const AUDIT_HEADERS = [
 function readSavedJob() {
   try {
     const job = JSON.parse(localStorage.getItem(SCAN_JOB_STORAGE_KEY));
-    return job && typeof job === "object" ? job : null;
+    if (!job || typeof job !== "object") return null;
+    const visibleJobId = String(
+      document.querySelector("#scan-table")?.dataset.scanJobId || "",
+    ).trim();
+    return visibleJobId && job.id !== visibleJobId ? null : job;
   } catch {
     return null;
   }
@@ -405,12 +409,14 @@ function downloadCsv(filename, headers) {
 }
 
 function handleConciseExport(event) {
+  if (!readSavedJob()) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   downloadCsv("scan-results.csv", CONCISE_HEADERS);
 }
 
 function handleAuditExport(event) {
+  if (!readSavedJob()) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   downloadCsv("scan-results-audit.csv", AUDIT_HEADERS);

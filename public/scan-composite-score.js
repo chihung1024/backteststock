@@ -31,9 +31,15 @@ function readJson(storage, key, fallback = null) {
   }
 }
 
+function visibleScanJobId() {
+  return String(document.querySelector(TABLE_SELECTOR)?.dataset.scanJobId || "").trim();
+}
+
 function readScanJob() {
   const job = readJson(localStorage, SCAN_JOB_STORAGE_KEY, null);
-  return job && Array.isArray(job.results) ? job : null;
+  if (!job || !Array.isArray(job.results)) return null;
+  const pageJobId = visibleScanJobId();
+  return pageJobId && job.id !== pageJobId ? null : job;
 }
 
 function currentThreshold() {
@@ -43,8 +49,8 @@ function currentThreshold() {
   );
 }
 
-function currentCoverageStats() {
-  return buildScanCoverageStats(readScanJob()?.results || [], currentThreshold());
+function currentCoverageStats(job = readScanJob()) {
+  return buildScanCoverageStats(job?.results || [], currentThreshold());
 }
 
 function selectedTickers(stats = currentCoverageStats()) {
@@ -414,7 +420,11 @@ function updateMethodology() {
 function updatePerformanceList() {
   activateResearchWorkspace();
   ensureResultControls();
-  const stats = currentCoverageStats();
+  const job = readScanJob();
+  // The core scanner keeps its active job in this tab. A newer result saved by
+  // another tab must not overwrite this page's visible table, summary, or handoff.
+  if (visibleScanJobId() && !job) return;
+  const stats = currentCoverageStats(job);
   const table = document.querySelector(TABLE_SELECTOR);
   if (table?.tHead?.rows?.[0]) {
     injectScoreColumns(table, stats);
@@ -453,7 +463,6 @@ function initialize() {
   ensureResultControls();
   document.addEventListener("backteststock:scan-sort-change", handleSortChange);
   document.querySelector("#scan-min-coverage")?.addEventListener("input", scheduleUpdate);
-  window.addEventListener("storage", scheduleUpdate);
   observer = new MutationObserver(scheduleUpdate);
   observer.observe(document.body, { childList: true, subtree: true });
   scheduleUpdate();
