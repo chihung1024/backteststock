@@ -46,6 +46,16 @@ test("scanner handoff preserves source context and enforces the Portfolio asset 
   assert.match(bridge, /restorePortfolioReturn/u);
 });
 
+test("Portfolio return preserves a matching rich Optimizer handoff", async () => {
+  const bridge = await read("public/portfolio-route-bridge.js");
+
+  assert.match(bridge, /const existingSelection = readJson\(localStorage, MANUAL_SELECTION_STORAGE_KEY, null\)/u);
+  assert.match(bridge, /existingSelection\?\.version === 2/u);
+  assert.match(bridge, /existingSelection\?\.sourceJobId === record\.sourceJobId/u);
+  assert.match(bridge, /existingSelection\?\.selectionMode === "manual_fixed_source_pool"/u);
+  assert.match(bridge, /\.\.\.existingSelection/u);
+});
+
 test("primary scanner flow no longer creates or opens a Portfolio dialog", async () => {
   const scanner = await read("public/scan-composite-score.js");
 

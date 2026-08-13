@@ -260,12 +260,24 @@ function restorePagination(returnState) {
 function restoreSelection(record) {
   if (!record.sourceJobId || !Array.isArray(record.selectedTickers)) return;
   const tickers = [...new Set(record.selectedTickers.map(normalizeTicker).filter(Boolean))];
-  writeJson(localStorage, MANUAL_SELECTION_STORAGE_KEY, {
-    version: 2,
-    sourceJobId: record.sourceJobId,
-    coverageThresholdPercent: normalizedThreshold(record.coverageThresholdPercent),
-    tickers,
-  });
+  const existingSelection = readJson(localStorage, MANUAL_SELECTION_STORAGE_KEY, null);
+  const manualSelection = (
+    existingSelection?.version === 2
+    && existingSelection?.sourceJobId === record.sourceJobId
+    && existingSelection?.selectionMode === "manual_fixed_source_pool"
+  )
+    ? {
+      ...existingSelection,
+      coverageThresholdPercent: normalizedThreshold(record.coverageThresholdPercent),
+      tickers,
+    }
+    : {
+      version: 2,
+      sourceJobId: record.sourceJobId,
+      coverageThresholdPercent: normalizedThreshold(record.coverageThresholdPercent),
+      tickers,
+    };
+  writeJson(localStorage, MANUAL_SELECTION_STORAGE_KEY, manualSelection);
   const selected = new Set(tickers);
   document.querySelectorAll('#scan-table input[data-optimizer-ticker]').forEach((input) => {
     const ticker = normalizeTicker(input.dataset.optimizerTicker || input.value);
