@@ -5,6 +5,7 @@ import { applyPortfolioHandoff, installPortfolioHandoffUi } from "./handoff";
 import "./styles.css";
 import "./refinery.css";
 import "./refineryPhase5.css";
+import "./refineryPhase6.css";
 import "./handoff.css";
 
 const root = document.getElementById("root");

@@ -6,26 +6,33 @@ from .models import (
     DAILY_COVARIANCE_ANNUALIZATION,
     GENERAL_REQUESTS_PER_MINUTE,
     MAX_CANDIDATE_SYMBOLS,
+    MAX_EXPERIMENT_OPERATIONS,
+    MAX_EXPERIMENT_UNION_SYMBOLS,
     MAX_HISTORY_CALENDAR_DAYS,
     MAX_REQUEST_BYTES,
     MAX_RESPONSE_BYTES,
     MEDIUM_MIN_OBSERVATIONS,
     MIN_DAILY_ANALYSIS_OBSERVATIONS,
+    PHASE6_MARGINAL_CONTRACT_VERSION,
     REFINERY_API_CONTRACT_VERSION,
     REFINERY_API_SCHEMA_VERSION,
     STRUCTURAL_MIN_OBSERVATIONS,
     TACTICAL_MIN_OBSERVATIONS,
+    RefineryExperimentOperation,
     RefineryRequest,
     RefineryWeightInput,
 )
 from .phase5_service import Phase5RefineryService
+from .phase6_service import Phase6RefineryService
 
-RefineryService = Phase5RefineryService
+RefineryService = Phase6RefineryService
 
 __all__ = [
     "REFINERY_API_CONTRACT_VERSION",
     "REFINERY_API_SCHEMA_VERSION",
     "MAX_CANDIDATE_SYMBOLS",
+    "MAX_EXPERIMENT_OPERATIONS",
+    "MAX_EXPERIMENT_UNION_SYMBOLS",
     "MAX_HISTORY_CALENDAR_DAYS",
     "MAX_REQUEST_BYTES",
     "MAX_RESPONSE_BYTES",
@@ -37,8 +44,11 @@ __all__ = [
     "MEDIUM_MIN_OBSERVATIONS",
     "STRUCTURAL_MIN_OBSERVATIONS",
     "CONDITIONAL_MIN_OBSERVATIONS",
+    "PHASE6_MARGINAL_CONTRACT_VERSION",
+    "RefineryExperimentOperation",
     "RefineryRequest",
     "RefineryWeightInput",
     "Phase5RefineryService",
+    "Phase6RefineryService",
     "RefineryService",
 ]
