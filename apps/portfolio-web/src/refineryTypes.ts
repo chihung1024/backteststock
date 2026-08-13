@@ -22,6 +22,21 @@ export interface RefineryValidationIssue {
   message: string;
 }
 
+export type RefineryExperimentOperationType = "remove_one" | "add_one" | "replace_one";
+
+export interface RefineryExperimentOperation {
+  type: RefineryExperimentOperationType;
+  remove?: string;
+  add?: string;
+}
+
+export interface RefineryExperimentDraft {
+  id: string;
+  type: RefineryExperimentOperationType;
+  remove: string;
+  add: string;
+}
+
 export interface RefineryApiRequest {
   contract_version: "refinery-v1";
   symbols: string[];
@@ -29,6 +44,7 @@ export interface RefineryApiRequest {
   start_date: string;
   end_date: string;
   weights?: Array<{ symbol: string; weight_percent: number }>;
+  experiment_plan?: RefineryExperimentOperation[];
   ewma_decay: number;
   stress_quantile: number;
 }
@@ -81,6 +97,7 @@ export interface RefineryRequestEcho {
   weights: Array<{ symbol: string; weight_percent: number }> | null;
   weight_input_total_percent: number | null;
   weight_normalization: string | null;
+  experiment_plan?: RefineryExperimentOperation[];
   ewma_decay: number;
   stress_quantile: number;
 }
@@ -94,6 +111,7 @@ export interface RefineryBaseResponse {
   methodology: Record<string, string | number | boolean | number[] | null>;
   dataset: RefineryDatasetEvidence;
   eligibility: RefineryEligibility;
+  marginal_experiments?: RefineryMarginalExperiments;
 }
 
 export type RefineryPreflightResponse = RefineryBaseResponse;
@@ -151,6 +169,121 @@ export interface RefineryCorrelationView {
   condition: string;
   threshold: number | null;
   matrix: RefineryCorrelationMatrix | null;
+}
+
+export interface RefineryFrozenSampleIdentity {
+  effective_start: string | null;
+  effective_end: string | null;
+  observations: number;
+  canonical_symbols: string[];
+  fingerprint_sha256: string;
+}
+
+export interface RefineryMarginalCommonSample {
+  status: string;
+  experiment_union_dataset_hash: string;
+  experiment_union_symbols: string[];
+  daily: RefineryFrozenSampleIdentity | null;
+  weekly: RefineryFrozenSampleIdentity | null;
+}
+
+export interface RefineryMarginalHierarchy {
+  method: string;
+  cut_distance: number | null;
+  symbols: string[];
+  cluster_count: number;
+  clusters: RefineryClusterGroup[];
+  merges: RefineryClusterMerge[];
+}
+
+export interface RefineryMarginalSnapshot {
+  symbols: string[];
+  covariance: {
+    primary_method: string;
+    observations: number;
+    features: number;
+    annualization: number;
+    ledoit_wolf_shrinkage: number | null;
+  };
+  effective_dimensions: {
+    covariance: RefineryEffectiveDimension;
+    medium_correlation: RefineryEffectiveDimension | null;
+  };
+  correlations: Pick<
+    Record<RefineryCorrelationKey, RefineryCorrelationView>,
+    "tactical_daily" | "medium_daily" | "structural_weekly"
+  >;
+  clustering: {
+    status: string;
+    reason?: string | null;
+    primary: RefineryMarginalHierarchy | null;
+    sensitivity: RefineryMarginalHierarchy | null;
+  };
+}
+
+export interface RefineryScalarDelta {
+  baseline: number | null;
+  variant: number | null;
+  delta: number | null;
+}
+
+export interface RefineryMarginalPairEvidence {
+  symbol_a: string;
+  symbol_b: string;
+  correlations: Record<string, number | null>;
+}
+
+export interface RefineryMarginalPairImpacts {
+  maximum_pairs: number;
+  shared_pair_invariant: Record<
+    string,
+    {
+      shared_pairs: number;
+      compared_pairs: number;
+      maximum_absolute_delta: number | null;
+      tolerance: number;
+    }
+  >;
+  removed_pairs: RefineryMarginalPairEvidence[];
+  added_pairs: RefineryMarginalPairEvidence[];
+}
+
+export interface RefineryMarginalResult {
+  id: string;
+  operation: RefineryExperimentOperation;
+  variant_symbols: string[];
+  common_sample: {
+    daily: RefineryFrozenSampleIdentity;
+    weekly: RefineryFrozenSampleIdentity;
+  };
+  variant: RefineryMarginalSnapshot;
+  deltas: {
+    effective_dimensions: {
+      covariance: Record<string, RefineryScalarDelta> | null;
+      medium_correlation: Record<string, RefineryScalarDelta> | null;
+    };
+    clusters: {
+      primary: RefineryScalarDelta;
+      sensitivity: RefineryScalarDelta;
+    };
+    pair_impacts: RefineryMarginalPairImpacts;
+  };
+}
+
+export interface RefineryMarginalExperiments {
+  status: string;
+  eligibility: {
+    baseline_analysis_ready: boolean;
+    experiment_membership_complete: boolean;
+    daily_global_observations_sufficient: boolean;
+    weekly_global_observations_sufficient: boolean;
+    reasons: string[];
+  };
+  failures: Record<string, RefineryFailure>;
+  common_sample: RefineryMarginalCommonSample;
+  methodology: Record<string, string>;
+  experiment_baseline: RefineryMarginalSnapshot | null;
+  results: RefineryMarginalResult[];
 }
 
 export type RefineryCorrelationKey =

@@ -1,6 +1,9 @@
 import type {
   RefineryApiRequest,
   RefineryAssetRow,
+  RefineryExperimentDraft,
+  RefineryExperimentOperation,
+  RefineryExperimentOperationType,
   RefineryValidationIssue,
   RefineryWorkspaceModel,
 } from "./refineryTypes";
@@ -10,6 +13,8 @@ export const REFINERY_WORKSPACE_STORAGE_KEY = "backteststock.refinery.workspace.
 export const ACTIVE_WORKSPACE_STORAGE_KEY = "backteststock.portfolio.active-workspace.v1";
 export const MAX_REFINERY_CANDIDATES = 100;
 export const MIN_REFINERY_CANDIDATES = 2;
+export const MAX_REFINERY_EXPERIMENT_OPERATIONS = 12;
+export const MAX_REFINERY_EXPERIMENT_UNION_SYMBOLS = 24;
 export const REFINERY_WEIGHT_TOLERANCE = 0.05;
 const MAX_HISTORY_CALENDAR_DAYS = 15 * 366;
 
@@ -32,6 +37,17 @@ function yearsAgoIso(years: number): string {
 
 export function createRefineryAsset(symbol = "", weightPercent: number | null = null): RefineryAssetRow {
   return { id: uid("refinery-asset"), symbol, weightPercent };
+}
+
+export function createRefineryExperimentDraft(
+  type: RefineryExperimentOperationType = "remove_one",
+): RefineryExperimentDraft {
+  return {
+    id: uid("refinery-experiment"),
+    type,
+    remove: "",
+    add: "",
+  };
 }
 
 export function createDefaultRefineryModel(): RefineryWorkspaceModel {
@@ -135,7 +151,95 @@ export function validateRefineryModel(model: RefineryWorkspaceModel): RefineryVa
   return issues;
 }
 
-export function toRefineryApiRequest(model: RefineryWorkspaceModel): RefineryApiRequest {
+export function validateRefineryExperimentPlan(
+  model: RefineryWorkspaceModel,
+  plan: RefineryExperimentDraft[],
+): RefineryValidationIssue[] {
+  const issues: RefineryValidationIssue[] = [];
+  const baseline = activeRefineryRows(model).map((row) => normalizeRefinerySymbol(row.symbol));
+  const baselineSet = new Set(baseline);
+  const union = new Set(baseline);
+  const seen = new Set<string>();
+
+  if (plan.length > MAX_REFINERY_EXPERIMENT_OPERATIONS) {
+    issues.push({
+      field: "experiment_plan",
+      message: `實驗操作最多 ${MAX_REFINERY_EXPERIMENT_OPERATIONS} 筆。`,
+    });
+  }
+
+  plan.forEach((draft, index) => {
+    const remove = normalizeRefinerySymbol(draft.remove);
+    const add = normalizeRefinerySymbol(draft.add);
+    const label = `實驗 ${index + 1}`;
+    const identity = `${draft.type}::${remove}::${add}`;
+
+    if (draft.type === "remove_one") {
+      if (!remove) {
+        issues.push({ field: "experiment_plan", message: `${label} 必須指定要移除的候選持股。` });
+      } else if (!baselineSet.has(remove)) {
+        issues.push({ field: "experiment_plan", message: `${label} 的移除代碼必須在候選持股中。` });
+      }
+      if (baseline.length - 1 < MIN_REFINERY_CANDIDATES) {
+        issues.push({ field: "experiment_plan", message: `${label} 移除後至少須保留 ${MIN_REFINERY_CANDIDATES} 檔。` });
+      }
+    }
+
+    if (draft.type === "add_one") {
+      if (!add) {
+        issues.push({ field: "experiment_plan", message: `${label} 必須指定要新增的代碼。` });
+      } else if (baselineSet.has(add)) {
+        issues.push({ field: "experiment_plan", message: `${label} 的新增代碼已在候選持股中。` });
+      } else {
+        union.add(add);
+      }
+    }
+
+    if (draft.type === "replace_one") {
+      if (!remove || !add) {
+        issues.push({ field: "experiment_plan", message: `${label} 必須同時指定移除與新增代碼。` });
+      }
+      if (remove && !baselineSet.has(remove)) {
+        issues.push({ field: "experiment_plan", message: `${label} 的移除代碼必須在候選持股中。` });
+      }
+      if (add && baselineSet.has(add)) {
+        issues.push({ field: "experiment_plan", message: `${label} 的新增代碼已在候選持股中。` });
+      } else if (add) {
+        union.add(add);
+      }
+    }
+
+    if ((remove || add) && seen.has(identity)) {
+      issues.push({ field: "experiment_plan", message: `${label} 與其他實驗在正規化後重複。` });
+    }
+    if (remove || add) seen.add(identity);
+  });
+
+  if (union.size > MAX_REFINERY_EXPERIMENT_UNION_SYMBOLS) {
+    issues.push({
+      field: "experiment_plan",
+      message: `實驗聯集最多 ${MAX_REFINERY_EXPERIMENT_UNION_SYMBOLS} 檔（baseline 加上外部新增／替換代碼）。`,
+    });
+  }
+  return issues;
+}
+
+export function toRefineryExperimentPlan(
+  plan: RefineryExperimentDraft[],
+): RefineryExperimentOperation[] {
+  return plan.map((draft) => {
+    const remove = normalizeRefinerySymbol(draft.remove);
+    const add = normalizeRefinerySymbol(draft.add);
+    if (draft.type === "remove_one") return { type: draft.type, remove };
+    if (draft.type === "add_one") return { type: draft.type, add };
+    return { type: draft.type, remove, add };
+  });
+}
+
+export function toRefineryApiRequest(
+  model: RefineryWorkspaceModel,
+  experimentPlan: RefineryExperimentDraft[] = [],
+): RefineryApiRequest {
   const rows = activeRefineryRows(model);
   const request: RefineryApiRequest = {
     contract_version: "refinery-v1",
@@ -152,6 +256,9 @@ export function toRefineryApiRequest(model: RefineryWorkspaceModel): RefineryApi
       symbol: normalizeRefinerySymbol(row.symbol),
       weight_percent: Number(row.weightPercent),
     }));
+  }
+  if (experimentPlan.length > 0) {
+    request.experiment_plan = toRefineryExperimentPlan(experimentPlan);
   }
   return request;
 }

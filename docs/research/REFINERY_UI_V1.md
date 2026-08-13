@@ -1,6 +1,6 @@
 # Portfolio Refinery Diagnostic UI V1
 
-Status: **Phase 4 workspace/persistence baseline with corrected Phase 5 additive read-only results extension. P5-CORR A–D response semantics are implementation-aligned.**
+Status: **Current workspace/persistence boundary for the Phase 3–5 diagnostic baseline and opt-in Phase 6 read-only marginal experiments. Phase 6 is candidate-validation work until branch/CI/deployment gates pass.**
 
 The Phase 4 contract froze workspace isolation, persistence, request editing and risk/correlation presentation. Phase 5 reuses that workspace and adds server-returned clustering/redundancy/factor/theme evidence panels. It does **not** change the persisted workspace schema, copy Portfolio state into Refinery, or make the browser a second quantitative authority.
 
@@ -13,7 +13,7 @@ ACTIVE_WORKSPACE_STORAGE_KEY     = backteststock.portfolio.active-workspace.v1
 PORTFOLIO_MODEL_STORAGE_KEY      = backteststock.portfolio.model.v1
 ```
 
-Phase 5 currently requires no Refinery workspace storage-version bump because no new persisted request fields are introduced. Additive analysis response types are API/methodology evolution, not a persistence-model migration.
+Phase 5 requires no Refinery workspace storage-version bump because no new persisted request fields are introduced. Phase 6 likewise keeps its explicit experiment plan page-scoped only: additive request/response types are API/methodology evolution, not a persistence-model migration.
 
 ## 1. Workspace boundary
 
@@ -69,6 +69,8 @@ Rules:
 
 Phase 5 clustering uses these existing candidate/date/benchmark inputs and introduces no hidden browser-side clustering controls.
 
+Phase 6 keeps `RefineryExperimentDraft[]` outside this persisted model. The user may add one or more explicit Remove-One/Add-One/Replace-One operations for the current page session, but reloading, replacing the model or switching away must not restore an old plan as an implicit request.
+
 ## 3. Persistence and migration
 
 Refinery state persists independently at:
@@ -79,7 +81,7 @@ backteststock.refinery.workspace.v1
 
 Invalid stored state fails closed to a fresh default. Refinery persistence must not read/write `backteststock.portfolio.model.v1`.
 
-Phase 5 does not add scanner→Refinery, Portfolio→Refinery copy, or cross-workspace migration.
+Phase 5 and Phase 6 do not add scanner→Refinery, Portfolio→Refinery copy, or cross-workspace migration.
 
 ## 4. API client boundary
 
@@ -103,12 +105,13 @@ Client errors preserve useful HTTP/request-id evidence but a failed request neve
 ## 5. Workflow
 
 1. edit candidates/date/optional benchmark/optional weights/advanced API parameters;
-2. run `preflight`;
-3. inspect readiness, membership, failures, coverage/effective observations;
-4. run `analyze` only after local validation and user action;
-5. inspect Phase 3/4 risk diagnostics plus any available Phase 5 descriptive evidence.
+2. optionally enter explicit Phase 6 operations for this page session;
+3. run `preflight`;
+4. inspect readiness, membership, failures, coverage/effective observations and, when requested, the Phase 6 frozen common-sample eligibility;
+5. run `analyze` only after local validation and user action;
+6. inspect Phase 3–5 baseline diagnostics plus any available ordered Phase 6 structural evidence.
 
-Any model edit invalidates stale preflight/analyze results. Requests are abortable; newer requests supersede previous in-flight work.
+Any model or experiment-plan edit invalidates stale preflight/analyze results. Requests are abortable; newer requests supersede previous in-flight work.
 
 The UI must honor server `incomplete`, `insufficient_data`, unavailable and error states rather than guessing a fallback.
 
@@ -212,7 +215,22 @@ The API explicitly separates `factor_computable`, `factor_model_scope` and `fact
 
 Display provenance only when the backend has a traceable source. Otherwise explicitly show unavailable status; do not ask the browser/LLM layer to invent themes from ticker names.
 
-## 8. Large-result rendering guards
+## 8. Phase 6 marginal-experiment panels
+
+The editor may collect only explicit `remove_one`, `add_one`, and `replace_one` operations. It shows baseline membership plus both operation and union caps; it never generates combinations, fetches market data itself, persists a plan, or presents a preferred operation.
+
+Preflight presentation may show experiment-only membership failures and the union provenance hash separately from daily/weekly frozen common-sample fingerprints. It must make clear that an experiment-layer failure leaves the Phase 3–5 baseline response independently valid.
+
+Analyze presentation must preserve server request order and display only returned evidence:
+
+- frozen-sample status, dates, observations and fingerprint prefixes;
+- experiment baseline alongside each variant as `B / V / Δ` descriptive values;
+- baseline/variant symbols, point-estimate structural/effective-dimension deltas and bounded pair-impact evidence;
+- shared-pair invariance evidence and the explicit in-sample/not-OOS boundary.
+
+The browser must not recompute a matrix, covariance, clustering, pair verdict, score, rank, allocation, selection or recommendation. It must not sort results into a purported winner. Phase 5 bootstrap/redundancy verdict output remains baseline-only in minimal V1.
+
+## 9. Large-result rendering guards
 
 ### Phase 4 correlation matrices
 
@@ -234,7 +252,11 @@ Presentation may use deterministic sorting, limiting, filtering or progressive d
 - summary counts/verdict totals remain tied to the full server evidence where provided;
 - no hidden top-N becomes a de facto selection rule.
 
-## 9. Responsive/accessibility behavior
+### Phase 6 marginal evidence
+
+At most 12 explicit results are rendered. Each result has at most 46 changed-pair entries under the union cap. Wide comparison and pair tables must be labelled horizontal scroll regions on narrow viewports; the implementation must not create page-level overflow.
+
+## 10. Responsive/accessibility behavior
 
 - preserve minimum 320px support and tested 390px behavior;
 - workspace switch remains keyboard accessible and active state identifiable;
@@ -242,9 +264,9 @@ Presentation may use deterministic sorting, limiting, filtering or progressive d
 - fixed actions respect safe-area and do not cover content;
 - tables/matrices/pair evidence use labelled scroll regions or bounded presentation;
 - loading/cancel/error/incomplete/insufficient/unavailable states use text, not color alone;
-- Phase 5 panels must not introduce page-level horizontal overflow.
+- Phase 5/6 panels must not introduce page-level horizontal overflow.
 
-## 10. Existing Portfolio behavior that must remain unchanged
+## 11. Existing Portfolio behavior that must remain unchanged
 
 - Portfolio default when no valid saved workspace exists;
 - `?model=` share decoding;
@@ -258,7 +280,7 @@ Presentation may use deterministic sorting, limiting, filtering or progressive d
 
 Phase 5 Refinery code must remain unable to widen Portfolio request/response models into a generic mixed research bag.
 
-## 11. Source-contract gates
+## 12. Source-contract gates
 
 The two-workspace boundary remains protected:
 
@@ -269,9 +291,11 @@ The two-workspace boundary remains protected:
 - `?model=` / `?handoff=` force Portfolio;
 - Scanner handoff writes Portfolio model only;
 - Refinery does not import Portfolio ledger request/response types as generic research types;
-- Phase 5 UI types reflect server evidence but contain no independent clustering/verdict formulas.
+- Phase 5/6 UI types reflect server evidence but contain no independent clustering/verdict/quantitative formulas;
+- Phase 6 plans are request-scoped and excluded from `backteststock.refinery.workspace.v1` persistence;
+- Phase 6 uses only the existing Refinery preflight/analyze routes and preserves server operation order.
 
-## 12. Browser/E2E gates
+## 13. Browser/E2E gates
 
 Required coverage across Phase 4 + Phase 5 includes:
 
@@ -289,17 +313,20 @@ Required coverage across Phase 4 + Phase 5 includes:
 12. explicit unavailable theme state;
 13. large candidate/pair rendering guard;
 14. 390px Refinery no page-level horizontal overflow.
+15. explicit Remove-One/Add-One/Replace-One plan reaches both existing routes in the requested order;
+16. plan mutation invalidates stale evidence and does not persist across model replacement/reload;
+17. Phase 6 common-sample/provenance evidence and ordered B/V/Δ result table render without an action/ranking label;
+18. Phase 6 wide tables stay inside labelled horizontal scroll regions at 390px.
 
-## 13. Historical Phase 4 baseline note
+## 14. Historical Phase 4 baseline note
 
 The original Phase 4 contract explicitly listed clustering, redundancy verdicts and factor/theme overlays as non-goals. That statement remains historically correct for the Phase 4 implementation/closeout. Phase 5 is an approved additive extension; the old non-goal is not evidence that the Phase 5 branch is violating the workspace contract.
 
 The unchanged boundary is that the UI remains **diagnostic/read-only** and does not become a selection/sizing/OOS engine.
 
-## 14. Explicit non-goals through Phase 5
+## 15. Explicit non-goals through Phase 6
 
 - KEEP/TRIM/REPLACE or buy/sell recommendations;
-- Remove-One/Add-One/Replace-One experiments;
 - stock selection/action ranking;
 - position sizing / HRP / ERC / minimum-variance optimization;
 - Exhaustive candidate selection;

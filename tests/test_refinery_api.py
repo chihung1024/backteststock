@@ -77,6 +77,37 @@ def test_refinery_api_returns_canonical_secure_response(monkeypatch) -> None:
     assert response.content == refinery_v1._canonical_bytes(response.json())
 
 
+def test_refinery_api_passes_an_explicit_normalized_marginal_plan(monkeypatch) -> None:
+    class RecordingService(FakeRefineryService):
+        received = None
+
+        def preflight(self, payload):
+            self.received = payload
+            return super().preflight(payload)
+
+    service = RecordingService()
+    response = _client(monkeypatch, service).post(
+        "/api/v1/refinery/preflight",
+        json={
+            **_payload(),
+            "symbols": ["2330", "AAA", "BBB"],
+            "experiment_plan": [
+                {"type": "remove_one", "remove": "2330.tw"},
+                {"type": "add_one", "add": "spy"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.received is not None
+    assert [
+        operation.export_payload() for operation in service.received.experiment_plan
+    ] == [
+        {"type": "remove_one", "remove": "2330.TW"},
+        {"type": "add_one", "add": "SPY"},
+    ]
+
+
 def test_refinery_api_sanitizes_validation_errors(monkeypatch) -> None:
     client = _client(monkeypatch)
     response = client.post(

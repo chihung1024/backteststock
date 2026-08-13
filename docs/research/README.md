@@ -24,11 +24,11 @@ Closed implementation/convergence/production-acceptance narratives are reconstru
 | --- | --- |
 | `RESEARCH_DATASET_V1.md` | reproducible research-data boundary: requested/resolved/failure membership, calendars, TWD/native/FX matrices, audits, fingerprints, dataset identity |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
-| `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, current response schema `.3` |
-| `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary |
+| `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, Phase 3–5 response schema `.3`, plus opt-in Phase 6 marginal contract `.1` |
+| `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary, including the non-persisted Phase 6 explicit-plan UI |
 | `REFINERY_CLUSTERING_V1.md` | current Phase 5 clustering/redundancy methodology, bootstrap/factor/common-sample evidence and descriptive redundancy semantics; current clustering contract `.2` |
 
-Phase 5 clustering/redundancy implementation is merged to production `main` and **is a current main authority**. Operational history is retained in GitHub PR/Issue/Actions evidence rather than a live-tree closeout plan.
+Phase 5 clustering/redundancy implementation is merged to production `main` and **is a current main authority**. Phase 6 is a separately versioned opt-in extension under candidate validation; its current execution state is recorded in `to_do_update_list.md`. Operational history is retained in GitHub PR/Issue/Actions evidence rather than a live-tree closeout plan.
 
 ## Semantic boundaries
 

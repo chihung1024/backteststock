@@ -60,6 +60,7 @@ from .models import (
 @dataclass(frozen=True, slots=True)
 class _PreparedResearch:
     request: RefineryRequest
+    market_histories: PartialTWDHistories
     candidate_dataset: ResearchDataset
     benchmark_dataset: ResearchDataset | None
     status: str
@@ -130,6 +131,7 @@ class RefineryService:
             status = "ready"
         return _PreparedResearch(
             request=request,
+            market_histories=batch,
             candidate_dataset=candidate_dataset,
             benchmark_dataset=benchmark_dataset,
             status=status,

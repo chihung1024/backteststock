@@ -7,6 +7,7 @@ import type {
   RefineryPreflightResponse,
 } from "./refineryTypes";
 import { RefineryPhase5Results } from "./RefineryPhase5Results";
+import { RefineryPhase6Results } from "./RefineryPhase6Results";
 
 const MAX_FULL_CORRELATION_MATRIX_SYMBOLS = 20;
 const MAX_CORRELATION_PAIR_ROWS = 30;
@@ -338,6 +339,7 @@ export function RefineryResults({ response }: { response: RefineryAnalyzeRespons
       <CovarianceStability response={response} />
       <Correlations response={response} />
       <RefineryPhase5Results response={response} />
+      <RefineryPhase6Results marginal={response.marginal_experiments} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 # Portfolio Refinery Read-only API V1
 
-Status: **Phase 3 baseline contract with corrected Phase 5 additive analysis-schema extension. P5-CORR A–D implementation-aligned; final release gates pending.**
+Status: **Current read-only Refinery contract: Phase 3–5 baseline plus the opt-in Phase 6 marginal structural-experiment layer. Phase 6 remains candidate-validation work until its exact branch/CI/deployment gates pass.**
 
 Corrected Phase 5 clustering/factor semantics are governed by `REFINERY_CLUSTERING_V1.md`; `PHASE5_REVIEW_AND_CONVERGENCE_PLAN.md` records resolved M1–M4 findings and remaining release gates.
 
@@ -9,9 +9,12 @@ Corrected Phase 5 clustering/factor semantics are governed by `REFINERY_CLUSTERI
 ```text
 REFINERY_API_CONTRACT_VERSION = refinery-v1
 REFINERY_API_SCHEMA_VERSION   = refinery-v1-2026-08-10.3
+PHASE6_MARGINAL_CONTRACT_VERSION = refinery-phase6-marginal-v1-2026-08-13.1
 ```
 
 Historical note: Phase 3 shipped `refinery-v1-2026-08-09.1`; the initial Phase 5 draft used `refinery-v1-2026-08-10.2`. Corrected M1–M4 public evidence semantics are versioned as `refinery-v1-2026-08-10.3`. The request contract remains `refinery-v1`.
+
+`REFINERY_API_SCHEMA_VERSION` continues to identify the established Phase 3–5 envelope. When `experiment_plan` is absent, its serialized request/response semantics remain exactly that envelope. Phase 6 is an optional additive layer with its own public contract identity; changing its visible semantics requires a `PHASE6_MARGINAL_CONTRACT_VERSION` review rather than silently reusing the old layer.
 
 Runtime boundary:
 
@@ -38,10 +41,13 @@ Optional:
 
 - `benchmark`: one normalized symbol used for benchmark-conditioned downside/stress evidence
 - `weights`: explicit candidate weights in percent; every candidate exactly once; total 100% within ±0.05 percentage point
+- `experiment_plan`: one to twelve explicit operations, each exactly one of `remove_one`, `add_one`, or `replace_one`
 - `ewma_decay`: covariance sensitivity parameter, default `0.94`, strictly between 0 and 1
 - `stress_quantile`: lower-tail benchmark quantile, default `0.10`, allowed `[0.05, 0.25]`
 
-Phase 5 introduces **no new request fields**. Clustering/redundancy/factor/theme evidence is derived from the same audited request/data boundary.
+`experiment_plan` is opt-in. Every operation is normalized through the established symbol authority; removals must be baseline candidates, additions must be external to the baseline, and normalized duplicate operations fail closed. The plan never expands into an implicit Cartesian set. A removal must retain at least two candidates.
+
+Phase 5 introduced no request fields. Its clustering/redundancy/factor/theme evidence and the Phase 6 layer are derived from the same audited request/data boundary.
 
 No equal-weight assumption is created when `weights` is omitted. Portfolio-specific volatility/MRC/RC/DR/weight-effective metrics remain unavailable while structural diagnostics can still be emitted.
 
@@ -58,6 +64,8 @@ GENERAL_REQUESTS_PER_MINUTE    = 20 per backend instance/client key
 ANALYZE_REQUESTS_PER_MINUTE    = 4 per backend instance/client key
 MAX_RESPONSE_BYTES             = 4 MiB canonical JSON
 MAX_CANDIDATE_SYMBOLS          = 100
+MAX_EXPERIMENT_OPERATIONS       = 12
+MAX_EXPERIMENT_UNION_SYMBOLS    = 24
 MAX_HISTORY_CALENDAR_DAYS      = 15 × 366
 ```
 
@@ -67,16 +75,19 @@ Responses use `Cache-Control: no-store`. Authorization/cookie headers are not re
 
 Phase 5 pair evidence must still fit the same 4 MiB canonical-response guard. The API may not silently truncate requested candidate membership or pair evidence to fit the limit; oversize output fails closed.
 
+Phase 6 applies both caps before expensive work. The union is the baseline candidates plus unique external Add/Replace symbols; benchmark membership is separate. The minimal V1 result also bounds per-operation pair-impact evidence to `2 × (24 - 1) = 46` pairs.
+
 ## 3. One market-data fetch, reproducible views
 
-The Refinery performs one authoritative `TWDHistoryService.histories_partial()` call over candidate symbols plus an optional distinct benchmark.
+The Refinery performs one authoritative `TWDHistoryService.histories_partial()` call over baseline candidates, any Phase 6 external experiment symbols, and an optional distinct benchmark.
 
 From that audited batch it constructs:
 
 1. **candidate ResearchDataset** — candidate-only data used for covariance/correlation/risk/clustering/redundancy;
 2. **benchmark ResearchDataset** — optional one-symbol reproducibility view for benchmark-conditioned diagnostics.
+3. **experiment-union ResearchDataset** — only when `experiment_plan` is present; built from the already fetched union histories and used to freeze the Phase 6 samples.
 
-Changing/adding a benchmark must not change the candidate complete-case calendar or candidate covariance/correlation/clustering sample.
+Changing/adding a benchmark must not change the candidate complete-case calendar or candidate covariance/correlation/clustering sample. Phase 6 external symbols likewise do not change the Phase 3–5 baseline sample; they affect only the explicitly requested marginal layer.
 
 The Refinery is not a market-data downloader. `TWDHistoryService` remains data/FX authority; `ResearchDatasetV1` remains alignment/membership/reproducibility authority.
 
@@ -133,6 +144,8 @@ It includes:
 - reference/common observation counts;
 - coverage/audit/fingerprint evidence;
 - analysis eligibility and explicit reasons.
+
+When `experiment_plan` is present, it additionally carries `marginal_experiments` readiness only: union membership/failures, the frozen daily/weekly common-sample identities, eligibility/reasons and Phase 6 methodology. `preflight` never emits experiment snapshots, deltas or a preferred operation.
 
 Statuses remain `ready`, `incomplete`, or `insufficient_data`.
 
@@ -222,18 +235,34 @@ Corrected factor evidence uses boundary-month exclusion, one global common relat
 
 Carries traceable theme evidence only when a deterministic approved source exists. Current Phase 5 behavior may explicitly return `unavailable_no_traceable_theme_source`.
 
-## 9. Methodology metadata
+## 9. `analyze` response — Phase 6 optional marginal layer
+
+When and only when `experiment_plan` is present, the response adds the top-level `marginal_experiments` object. The existing Phase 3–5 `analysis` stays the requested baseline analysis; Phase 6 must never replace it with a union or variant calculation.
+
+The layer exposes:
+
+- `status`, eligibility reasons and experiment-only membership failures, isolated from a valid baseline;
+- `common_sample.experiment_union_dataset_hash` for full union provenance, separately from daily/weekly frozen effective-sample SHA-256 identities;
+- one `experiment_baseline` and ordered `results`, all evaluated on the same frozen daily and weekly full-union complete-case matrices;
+- each explicit operation, its resulting symbols, Ledoit-Wolf/effective-dimension/correlation/point-clustering snapshots, descriptive baseline/variant/delta fields, and changed-pair evidence;
+- executable shared-pair invariance evidence with tolerance `1e-12`.
+
+Variants select columns from the frozen matrices only; they never re-align or re-`dropna()` data per operation. Minimal V1 uses unweighted structural snapshots, does not infer allocations, and does not run the Phase 5 bootstrap/redundancy verdict per variant. Insufficient union data or experiment-only fetch failure makes this layer unavailable/incomplete while retaining the independently valid baseline response.
+
+The layer is an in-sample historical structural diagnostic, not OOS validation, a ranking, a recommendation, selection, or sizing engine.
+
+## 10. Methodology metadata
 
 The response `methodology` object is the user/audit-visible bridge between schema and quantitative contracts. It must expose applicable contract versions and critical consumer policies.
 
 Rules:
 
-- API schema version and clustering methodology version are separate identities;
+- API schema version, Phase 5 clustering methodology version and optional Phase 6 marginal contract version are separate identities;
 - changing a quantitative methodology semantic does not silently reuse an old clustering version;
-- adding externally visible response fields requires API schema-version review;
+- adding externally visible Phase 3–5 envelope fields requires API schema-version review; changing the opt-in Phase 6 layer requires its own contract-version review;
 - browser code may display methodology but must not redefine it.
 
-## 10. Deterministic serialization
+## 11. Deterministic serialization
 
 Successful/diagnostic payloads use canonical JSON semantics:
 
@@ -248,7 +277,7 @@ NumPy/Pandas scalar values are normalized to JSON-safe primitives. Contract-appr
 
 Public API does not return raw daily price arrays or full ResearchDataset exports.
 
-## 11. Error and security behavior
+## 12. Error and security behavior
 
 Validation errors are sanitized/stable. Unexpected exceptions are logged server-side and produce generic 500 responses without stack trace or environment leakage.
 
@@ -263,7 +292,7 @@ All Refinery responses include the established no-store/security headers, includ
 
 CORS remains limited to reviewed self-owned origins.
 
-## 12. Explicit non-goals through Phase 5
+## 13. Explicit non-goals through Phase 6
 
 The API does not implement:
 
@@ -271,15 +300,14 @@ The API does not implement:
 - stock action ranking/selection;
 - position sizing;
 - HRP/ERC/minimum-variance optimization;
-- Leave-One-Out/Add-One/Replace-One experiments;
 - Exhaustive candidate selection;
 - OOS/walk-forward claims;
 - Portfolio v3 ledger migration;
 - untraceable economic-theme classification.
 
-Phase 5 clustering/redundancy is historical descriptive evidence only.
+Phase 5 clustering/redundancy and Phase 6 marginal experiments are historical descriptive evidence only.
 
-## 13. Validation gates
+## 14. Validation gates
 
 ### Baseline Phase 3/4 invariants
 
@@ -310,3 +338,15 @@ Before Phase 5 merge:
 - server output, UI types and methodology fields agree;
 - full CI/Vercel/backup/independent exact-head review pass;
 - `to_do_update_list.md` records exact final evidence before merge and phase closeout.
+
+### Phase 6 additive gates
+
+- no-plan requests are exact Phase 3–5 parity;
+- request validation rejects invalid shapes, normalized duplicates, invalid membership and both resource caps;
+- one union market-history fetch is reused for baseline and marginal preparation;
+- direct recomposition of each Remove-One/Add-One/Replace-One variant matches frozen-sample primitives and stable IDs;
+- frozen daily/weekly sample identities remain distinct from union dataset provenance;
+- failed experiment-only data and insufficient frozen samples fail only the marginal layer closed;
+- shared retained-pair correlations remain invariant on the frozen sample;
+- UI uses only the established preflight/analyze routes, preserves requested operation order and has no browser quantitative/ranking authority;
+- source/type/build, focused and broad regression, browser E2E, candidate CI/Vercel/backup and independent exact-head review pass before merge.

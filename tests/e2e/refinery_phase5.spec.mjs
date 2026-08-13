@@ -355,3 +355,237 @@ test("Phase 5 limits a 100-candidate pair table DOM and remains page-width safe 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+function phase6SampleIdentity(symbols, frequency) {
+  return {
+    effective_start: "2024-01-03",
+    effective_end: "2025-01-01",
+    observations: frequency === "daily" ? 180 : 52,
+    canonical_symbols: [...symbols].sort(),
+    fingerprint_sha256: `${frequency}-frozen-common-sample-0123456789abcdef`,
+  };
+}
+
+function phase6Snapshot(symbols) {
+  const matrix = matrixFor(symbols, 0.56);
+  const hierarchy = (method) => ({
+    method,
+    cut_distance: 0.5,
+    symbols,
+    cluster_count: 1,
+    clusters: [{ cluster_id: "C1", members: symbols }],
+    merges: [],
+  });
+  return {
+    symbols,
+    covariance: {
+      primary_method: "ledoit_wolf",
+      observations: 180,
+      features: symbols.length,
+      annualization: 252,
+      ledoit_wolf_shrinkage: 0.2,
+    },
+    effective_dimensions: {
+      covariance: {
+        entropy_effective_rank: Math.min(symbols.length, 2.4),
+        participation_ratio: Math.min(symbols.length, 2.2),
+        positive_eigenvalues: [0.04, 0.03],
+      },
+      medium_correlation: {
+        entropy_effective_rank: Math.min(symbols.length, 2.1),
+        participation_ratio: Math.min(symbols.length, 2),
+        positive_eigenvalues: [1.5, 0.8],
+      },
+    },
+    correlations: {
+      tactical_daily: correlationView(symbols, matrix),
+      medium_daily: correlationView(symbols, matrix),
+      structural_weekly: correlationView(symbols, matrix),
+    },
+    clustering: {
+      status: "ok",
+      reason: null,
+      primary: hierarchy("average"),
+      sensitivity: hierarchy("complete"),
+    },
+  };
+}
+
+function phase6ScalarDelta(baseline, variant) {
+  return { baseline, variant, delta: variant - baseline };
+}
+
+function phase6PairImpact(removedPairs, addedPairs) {
+  const invariant = Object.fromEntries(
+    ["tactical_daily", "medium_daily", "structural_weekly"].map((horizon) => [
+      horizon,
+      {
+        shared_pairs: 1,
+        compared_pairs: 1,
+        maximum_absolute_delta: 0,
+        tolerance: 1e-12,
+      },
+    ]),
+  );
+  const evidence = (symbolA, symbolB) => ({
+    symbol_a: symbolA,
+    symbol_b: symbolB,
+    correlations: {
+      tactical_daily: 0.56,
+      medium_daily: 0.56,
+      structural_weekly: 0.56,
+    },
+  });
+  return {
+    maximum_pairs: 46,
+    shared_pair_invariant: invariant,
+    removed_pairs: removedPairs.map(([symbolA, symbolB]) => evidence(symbolA, symbolB)),
+    added_pairs: addedPairs.map(([symbolA, symbolB]) => evidence(symbolA, symbolB)),
+  };
+}
+
+function phase6MarginalResponse(symbols, plan, includeResults) {
+  const daily = phase6SampleIdentity(symbols, "daily");
+  const weekly = phase6SampleIdentity(symbols, "weekly");
+  const commonSample = {
+    status: "ready",
+    experiment_union_dataset_hash: "phase6-union-dataset-0123456789abcdef",
+    experiment_union_symbols: [...symbols, "NVDA"],
+    daily,
+    weekly,
+  };
+  const baseline = phase6Snapshot(symbols);
+  const removeVariantSymbols = symbols.filter((symbol) => symbol !== "AAPL");
+  const addVariantSymbols = [...symbols, "NVDA"];
+  const replaceVariantSymbols = symbols.map((symbol) => symbol === "GOOGL" ? "NVDA" : symbol);
+  const removeVariant = phase6Snapshot(removeVariantSymbols);
+  const addVariant = phase6Snapshot(addVariantSymbols);
+  const replaceVariant = phase6Snapshot(replaceVariantSymbols);
+  const makeResult = (id, operation, variant, removedPairs, addedPairs) => ({
+    id,
+    operation,
+    variant_symbols: variant.symbols,
+    common_sample: { daily, weekly },
+    variant,
+    deltas: {
+      effective_dimensions: {
+        covariance: {
+          entropy_effective_rank: phase6ScalarDelta(
+            baseline.effective_dimensions.covariance.entropy_effective_rank,
+            variant.effective_dimensions.covariance.entropy_effective_rank,
+          ),
+          participation_ratio: phase6ScalarDelta(
+            baseline.effective_dimensions.covariance.participation_ratio,
+            variant.effective_dimensions.covariance.participation_ratio,
+          ),
+        },
+        medium_correlation: {
+          entropy_effective_rank: phase6ScalarDelta(
+            baseline.effective_dimensions.medium_correlation.entropy_effective_rank,
+            variant.effective_dimensions.medium_correlation.entropy_effective_rank,
+          ),
+          participation_ratio: phase6ScalarDelta(
+            baseline.effective_dimensions.medium_correlation.participation_ratio,
+            variant.effective_dimensions.medium_correlation.participation_ratio,
+          ),
+        },
+      },
+      clusters: {
+        primary: phase6ScalarDelta(1, 1),
+        sensitivity: phase6ScalarDelta(1, 1),
+      },
+      pair_impacts: phase6PairImpact(removedPairs, addedPairs),
+    },
+  });
+  return {
+    status: "ready",
+    eligibility: {
+      baseline_analysis_ready: true,
+      experiment_membership_complete: true,
+      daily_global_observations_sufficient: true,
+      weekly_global_observations_sufficient: true,
+      reasons: [],
+    },
+    failures: {},
+    common_sample: commonSample,
+    methodology: {
+      contract_version: "refinery-phase6-marginal-v1-2026-08-13.1",
+      scope: "in_sample_historical_structural_diagnostic_not_oos",
+    },
+    experiment_baseline: includeResults ? baseline : null,
+    results: includeResults
+      ? [
+          makeResult("remove-aapl", plan[0], removeVariant, [["AAPL", "MSFT"], ["AAPL", "GOOGL"]], []),
+          makeResult("add-nvda", plan[1], addVariant, [], [["AAPL", "NVDA"], ["MSFT", "NVDA"], ["GOOGL", "NVDA"]]),
+          makeResult("replace-googl-nvda", plan[2], replaceVariant, [["AAPL", "GOOGL"], ["GOOGL", "MSFT"]], [["AAPL", "NVDA"], ["MSFT", "NVDA"]]),
+        ]
+      : [],
+  };
+}
+
+test("Phase 6 preserves explicit operation order, keeps the plan request-scoped, and contains wide evidence on mobile", async ({ page }) => {
+  const symbols = ["AAPL", "MSFT", "GOOGL"];
+  const plan = [
+    { type: "remove_one", remove: "AAPL" },
+    { type: "add_one", add: "NVDA" },
+    { type: "replace_one", remove: "GOOGL", add: "NVDA" },
+  ];
+  const requests = [];
+  await mockPortfolioHealth(page);
+  await page.route("**/api/v1/refinery/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    requests.push({ path, payload: JSON.parse(route.request().postData() || "{}") });
+    const response = path.endsWith("/preflight")
+      ? {
+          ...preflightResponse(symbols),
+          request: { ...preflightResponse(symbols).request, experiment_plan: plan },
+          marginal_experiments: phase6MarginalResponse(symbols, plan, false),
+        }
+      : {
+          ...analyzeResponse(symbols),
+          request: { ...analyzeResponse(symbols).request, experiment_plan: plan },
+          marginal_experiments: phase6MarginalResponse(symbols, plan, true),
+        };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+  });
+
+  await openRefinery(page, symbols);
+  await page.getByRole("button", { name: "＋ 新增明確實驗" }).click();
+  await page.getByLabel("實驗 1 移除代碼", { exact: true }).fill("aapl");
+  await page.getByRole("button", { name: "＋ 新增明確實驗" }).click();
+  await page.getByLabel("實驗 2 操作", { exact: true }).selectOption("add_one");
+  await page.getByLabel("實驗 2 新增代碼", { exact: true }).fill("nvda");
+  await page.getByRole("button", { name: "＋ 新增明確實驗" }).click();
+  await page.getByLabel("實驗 3 操作", { exact: true }).selectOption("replace_one");
+  await page.getByLabel("實驗 3 移除代碼", { exact: true }).fill("googl");
+  await page.getByLabel("實驗 3 新增代碼", { exact: true }).fill("nvda");
+
+  await page.getByRole("button", { name: "資料預檢" }).click();
+  await expect(page.getByRole("heading", { name: "Phase 6 共同實驗樣本預檢" })).toBeVisible();
+  expect(requests[0].payload.experiment_plan).toEqual(plan);
+
+  const storedModel = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), REFINERY_KEY);
+  expect(storedModel).not.toHaveProperty("experimentPlan");
+  expect(JSON.stringify(storedModel)).not.toContain("NVDA");
+
+  await page.getByRole("button", { name: "執行風險診斷" }).click();
+  await expect(page.getByRole("heading", { name: "Phase 6 邊際結構實驗" })).toBeVisible();
+  expect(requests[1].payload.experiment_plan).toEqual(plan);
+  await expect(page.getByRole("region", { name: "Phase 6 baseline 與 variant 比較" })).toBeVisible();
+  await expect(page.locator(".refinery-phase6-result-table tbody tr th")).toHaveText([
+    "移除 AAPL",
+    "新增 NVDA",
+    "替換 GOOGL → NVDA",
+  ]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await page.getByLabel("實驗 1 移除代碼", { exact: true }).fill("msft");
+  await expect(page.getByRole("heading", { name: "Phase 6 邊際結構實驗" })).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByText("未啟用邊際實驗")).toBeVisible();
+  await expect(page.getByLabel("實驗 1 移除代碼", { exact: true })).toHaveCount(0);
+});

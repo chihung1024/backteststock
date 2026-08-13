@@ -1,199 +1,115 @@
 # BacktestStock — Live Project Status & Handoff
 
-> Repository-internal live handoff only. Mutable GitHub / Vercel / Cloudflare / runtime state must be re-queried before important actions. Durable architecture belongs in README/contracts/ADRs; completed execution detail remains recoverable from Git/PR/Issue/Actions history.
+> Repository-internal live handoff only. Re-query mutable GitHub, CI, Vercel, Cloudflare and runtime state before an important action. Durable API/UI semantics live in the current contracts; Git/PR/Issue/Actions retain completed execution history.
 
 ## 1. Current Goal
 
-**Primary active batch: pre-Phase-6 repository hygiene closeout.**
+**Primary active batch: Phase 6 / Issue #77 — common-sample marginal Remove-One / Add-One / Replace-One MVP.**
 
-The user explicitly required a full cleanup/audit before formal Phase 6 implementation. Cleanup is not permission to remove active functionality: anything with uncertain runtime, deployment, security, recovery or contract value must be proven safe before deletion.
+Implementation and local validation are converging on an isolated Phase 6 worktree based on remote `main` `797919369bec776dceb09fe26d60b897839d7668`. This batch remains unmerged and must not be confused with draft PR #115 (the unrelated Edge-cache contract correction).
 
-Phase 6 / Issue #77 remains the **next functional batch**, not currently under implementation.
+The active goal is functional delivery and candidate validation. Documentation is limited to the current public contract and this handoff; do not restart a broad cleanup or planning program while Phase 6 gates are active.
 
-### Completion-before-convergence
+## 2. Recovery / Scope Boundary
 
-For every batch:
+- functional worktree: `backteststock-phase6-p6a`, candidate branch `candidate-phase6-refinery-marginal-2026-08-13` (created from the isolated internal Phase 6 commit);
+- recovery tag before this batch: `backup-post-pr114-797919369bec`;
+- original documentation worktree contains separate user-owned Phase 5 wording edits and must not be staged with Phase 6;
+- open draft PR #115 is out of scope and must neither be rebased, merged nor bundled into the Phase 6 candidate.
 
-1. finish the intended capability/root-cause work;
-2. investigate materially coupled defects/dependencies;
-3. fix blockers or prove residuals non-blocking;
-4. run focused + broad regression and production verification where relevant;
-5. only then converge and move on.
+No direct production merge or deployment is authorized by this handoff. The deliberate `candidate-*` branch is created from the exact green tree; pushing it and opening one Draft PR are the next publication gates.
 
----
+## 3. Implemented Phase 6 Surface
 
-## 2. Stable Production State
+### P6-A backend
 
-Repository: `chihung1024/backteststock`.
+- `experiment_plan` is optional and accepts only explicit normalized `remove_one`, `add_one`, and `replace_one` operations;
+- validation rejects invalid operation shape, duplicate normalized operations, invalid baseline membership, baseline re-addition, removing below two candidates, more than 12 operations and an experiment union over 24 symbols;
+- the one authoritative market-history batch includes baseline, distinct experiment externals and an optional distinct benchmark;
+- Phase 3–5 baseline preparation/analysis remains unchanged. With no plan, `Phase6RefineryService` delegates to exact Phase 5 behavior;
+- the plan builds a union ResearchDataset from that fetched batch, freezes one daily and one weekly full-union finite complete-case matrix, then makes every baseline/variant a column selection from those matrices;
+- union provenance (`experiment_union_dataset_hash`) stays distinct from daily/weekly frozen effective-sample SHA-256 identities;
+- only unweighted Ledoit-Wolf/effective-dimension/multi-horizon correlation/average+complete point-clustering evidence is produced for variants; no implicit allocation, bootstrap, redundancy verdict, rank, recommendation, selection, sizing or OOS claim;
+- experiment-only membership/data failure or frozen-sample insufficiency fails the marginal layer closed while preserving a separately valid existing baseline;
+- shared retained-pair correlations have an executable `1e-12` invariance guard and pair-impact output is bounded by the union cap.
 
-Current main after completed source/document cleanup:
+### P6-B UI
 
-`d421d05358eab5890654bba98fd14a0a91198c99`
+- the Refinery workspace offers a minimal explicit plan editor and shows only requested operation order;
+- plan state is page-scoped, excluded from `backteststock.refinery.workspace.v1`, and invalidates stale preflight/analyze evidence on change;
+- client usage remains only the existing Refinery preflight/analyze routes;
+- preflight shows union/common-sample readiness and experiment-only failures; results show frozen samples, baseline/variant/delta structural evidence and bounded pair impacts;
+- the UI contains no market-data fetch, quantitative calculation, sorting into a winner or action label; wide Phase 6 tables use labelled horizontal scroll regions.
 
-Latest accepted cleanup evidence:
-
-- **Cleanup A — retired code/process debris:** merged as `0a40a1d8d11668b6b9eefbcc39f32d03120466d8`; removed proven retired optimizer runtime/UI/workers/direct dead-code tests, unreferenced UI/CSS and closed process narratives. Post-main Full CI #620, Vercel production and Cloudflare #55 production smokes passed.
-- **Cleanup P — Portfolio migration history convergence:** merged as `d421d05358eab5890654bba98fd14a0a91198c99`; replaced migration-era semantic authority with `docs/PORTFOLIO_V3_CONTRACT.md`, removed migration-only docs/test/fixtures, while preserving the one live synthetic return-components fixture under its current authority. CI #621 correctly exposed that hidden dependency before merge; corrected internal/candidate CI #623/#624 passed; post-main CI #625, Vercel production and post-merge backup #510 passed.
-
-Important closed functional foundations remain #79, #80 and #78; do not reopen without new evidence.
-
----
-
-## 3. Primary Active Batch — Cleanup W
-
-**Goal:** remove the now-redundant Portfolio-specific GitHub Actions workflow without reducing merge protection.
-
-Evidence before deletion:
-
-- repository ruleset `main-protection` requires only GitHub check `validate` and `Vercel`;
-- `.github/workflows/ci.yml` runs on every PR and main push;
-- global `validate` already performs Portfolio type-check/build, Portfolio/Refinery source-contract tests and committed production-asset drift verification;
-- `.github/workflows/portfolio-web-ci.yml` repeated exactly those three checks under `portfolio-web-validate` and was not a required status check.
-
-Current internal branch:
-
-`internal-cleanup-w-redundant-portfolio-ci-2026-08-13`
-
-Current change:
-
-- delete `.github/workflows/portfolio-web-ci.yml` only;
-- update this live handoff to remove stale status and record the actual cleanup boundary.
-
-Exit gate:
-
-- exact diff contains no runtime/code/config behavior changes other than removal of the duplicate workflow;
-- full global `validate` passes on the branch;
-- independent review finds no lost unique trigger/check/permission/security behavior;
-- candidate Vercel + required checks pass;
-- post-main CI/backup pass.
-
----
-
-## 4. Cleanup Audit Classification
-
-### Proven debris already removed
-
-- retired legacy optimizer backend/UI/workers and direct dead-code tests;
-- unreferenced legacy UI enhancement script and orphan stylesheet;
-- closed Phase/process rollout narratives with no unique semantic value;
-- Portfolio migration self-validation package after durable semantics moved to current contract/tests;
-- redundant Portfolio-specific CI workflow is the current Cleanup W target.
-
-### Audited KEEP — not garbage
-
-- **Root homepage Backtest:** active default user-facing tab in `public/index.html`; `public/app.js` still posts to `/api/backtest`. Removal would break normal functionality. Keep until an explicit, production-verified replacement/redirect is implemented.
-- **Legacy `/api/backtest` compatibility surface:** still consumed by the active homepage; keep fail-safe Edge/API behavior and tests.
-- **Portfolio source map:** Vite currently declares `sourcemap: true`; the `.map` file is generated build output, not an accidental orphan. Do not delete independently. A future build-policy change may disable public sourcemaps only if the generated production asset set is rebuilt and asset-drift/production checks pass.
-- **Scanner UI/progress/output modules and observers:** current functionality/tests still depend on them. Refactor only for a concrete defect or measured maintenance problem; do not call them debris merely because responsibility is distributed.
-- **CI, Cloudflare deploy, Release Backup and Universe update workflows:** each retains a distinct active role.
-
-### Tool-limited metadata cleanup
-
-Old branches / historical workflow-run registry / releases may contain visual clutter, but the current GitHub connector does not expose safe delete-ref / delete-workflow-run / delete-release mutations. Do not fake cleanup by repointing refs or rewriting recovery history. Treat this as tool-blocked metadata housekeeping, not a functional blocker.
-
----
-
-## 5. Remaining Pre-Phase-6 Work
-
-After Cleanup W closes, perform **one final independent debris sweep** against current main. The purpose is falsification, not to invent more cleanup work.
-
-The sweep must classify each finding as:
-
-- REMOVE NOW — proven unused/redundant and safe;
-- KEEP — active runtime/deployment/security/contract/recovery value;
-- BACKLOG — useful cleanup but requires a separate functional migration/refactor;
-- TOOL-BLOCKED — safe cleanup cannot be executed with available connector mutations.
-
-If no new REMOVE NOW item remains, repository hygiene is considered converged and Phase 6 starts immediately. Do not continue polishing documents or searching indefinitely for cosmetic work.
-
----
-
-## 6. Next Functional Batch — Phase 6 / Issue #77
-
-**Phase 6 MVP: common-sample marginal Remove-One / Add-One / Replace-One experiments.** Planning is already saturated; do not restart broad design work.
-
-### P6-A backend usable core
-
-Required invariants:
-
-- explicit Remove-One / Add-One / Replace-One operations only;
-- reuse existing symbol normalization and quantitative authorities;
-- separate operation-count and experiment-union caps before expensive compute;
-- one market-history union fetch per request;
-- existing Phase 3–5 baseline semantics remain unchanged;
-- build/freeze one daily and one weekly global complete-case experiment sample;
-- every variant is only a column selection from those frozen matrices — never re-`dropna()` per variant;
-- compare every variant with one `experiment_baseline` on the identical sample;
-- expose sample start/end/observations/canonical symbols/exact SHA-256;
-- experiment-only data failure fails the marginal layer closed without destroying a valid existing baseline;
-- reuse validated covariance/effective-dimension/correlation/clustering primitives;
-- retained-pair correlations remain invariant on the frozen sample;
-- no full Phase-5 bootstrap per variant in minimal V1;
-- no invented weights, ranking, sizing, recommendation or forward-return claims.
-
-### P6-B usable UI
-
-Provide only the minimum interface to enter explicit Remove/Add/Replace operations, run preflight/analyze, compare experiment baseline vs variant, show structural/sample evidence and invalidate stale evidence when inputs change.
-
-### Phase 6 exit gate
-
-- no-plan parity for Phase 3–5;
-- fail-closed operation validation;
-- common-sample identity/invariance regression;
-- measured resource caps;
-- all three user workflows usable;
-- focused + broad CI pass;
-- independent falsification review;
-- candidate deployment + production workflow verification;
-- no known material residual that would contaminate the subsequent cross-workflow integration pass.
-
----
-
-## 7. After Phase 6
-
-Run one bounded end-to-end integration pass:
+## 4. Contract Decision
 
 ```text
-Scanner
--> selected tickers
--> Optimizer
--> candidate portfolio
--> Portfolio backtest
--> Refinery structural analysis / marginal experiments
+REFINERY_API_SCHEMA_VERSION         = refinery-v1-2026-08-10.3
+PHASE6_MARGINAL_CONTRACT_VERSION    = refinery-phase6-marginal-v1-2026-08-13.1
 ```
 
-Fix only material handoff/data-consistency/recovery/UI defects revealed by that journey.
+Schema `.3` remains the Phase 3–5 envelope for planless parity. The opt-in marginal payload has a separate public version identity. Any externally visible Phase 6 semantic change requires review/bump of the Phase 6 marginal contract; it must not silently reinterpret `.3`.
 
-Phase 7+ remains conditional backlog. OOS/walk-forward validation, selection/sizing, deeper Exhaustive integration or point-in-time data are not automatically unlocked merely because Phase 6 finishes.
+The canonical current details are in:
 
----
+- `docs/research/REFINERY_API_V1.md`
+- `docs/research/REFINERY_UI_V1.md`
+- `docs/research/README.md`
 
-## 8. Technical Debt / Backlog
+## 5. Current Verification Evidence
 
-Keep unless promoted by new evidence:
+Passed on the final local candidate tree:
 
-- Scanner presentation-only retry-range label residual from #80; execution/count/resume semantics are already verified unaffected;
-- Yahoo request amplification / metadata fan-out and diagnostics hardening;
+- Ruff for `apps/api`, `apps`, and `tests`;
+- full Python regression (`271 passed`), including focused Phase 6/API coverage;
+- Portfolio/Refinery source-contract suite (`28 passed`), including the Phase 6 static browser boundary;
+- Portfolio TypeScript check and Vite production build, including committed-asset regeneration;
+- repository JavaScript syntax checks;
+- Worker route/runtime suite (`73 passed`);
+- score/coverage suite (`12 passed`).
+
+Full browser Playwright execution is currently **environment-blocked**, not product-failed: this runner has no system Chromium and the Playwright Chromium download repeatedly returned a corrupt/truncated archive through its restricted network path. Candidate GitHub CI must run the normal browser suite; a missing or failed browser gate blocks merge.
+
+## 6. Independent Falsification Status
+
+Completed review found no confirmed calculation defect. It identified and closed these acceptance-coverage gaps:
+
+- direct frozen-sample primitive and stable-ID parity for all three operation forms;
+- explicit operation-cap rejection;
+- proof that union provenance remains independent from frozen sample identity;
+- browser workflow coverage for Remove/Add/Replace order and narrow-screen containment.
+
+Residual observation, not a current blocker: unexpected internal invariant exceptions still use the existing generic API error boundary. Do not expand exception taxonomy in this release without concrete failure evidence; consider it only as a separately scoped hardening item.
+
+## 7. NOW / NEXT / BACKLOG / REJECT
+
+### NOW
+
+1. push the reviewed candidate branch and open one Draft PR against current `main`;
+2. use the candidate PR to obtain required GitHub CI, Vercel preview and backup evidence. Browser E2E must pass there before merge consideration.
+
+### NEXT
+
+After all candidate gates and independent review pass, merge with expected-head protection, then verify post-main CI/backup and production routing. Only then run the bounded Scanner → Optimizer → Portfolio → Refinery integration pass.
+
+### BACKLOG
+
+- distributed Refinery rate limiting;
 - instrument/security master and regional factor routing;
 - traceable theme provider/taxonomy;
-- distributed Refinery rate limiting;
-- Cloudflare timeout-vs-retry-budget formal alignment;
-- GitHub Actions immutable-SHA pinning review;
-- single-portfolio + shorter-benchmark strict-comparison policy separate from completed #79;
-- point-in-time Universe/fundamentals for a future PIT phase;
-- optional public sourcemap policy change only as a proper build/deployment batch;
-- root homepage Backtest retirement only after an explicit replacement and production acceptance.
+- public sourcemap policy change only as a dedicated build/deployment batch;
+- exception-taxonomy hardening only when an actual invariant failure provides a reproducible cause.
 
----
+### REJECT FOR THIS BATCH
 
-## 9. Exact Resume Point
+- arbitrary Cartesian experiment generation;
+- any recommendation, preferred operation, ranking, selection, sizing, optimization or OOS claim;
+- Phase 5 bootstrap/redundancy verdict recomputation per variant;
+- plan persistence or cross-workspace Scanner/Portfolio conversion;
+- deleting active workflows/files or changing PR #115 while validating Phase 6.
 
-1. finish Cleanup W full CI + independent review;
-2. promote the exact green tree to `candidate-*`, pass required `validate` + Vercel + backup gates, merge with expected-head protection;
-3. run post-main CI/backup and verify the ruleset still requires `validate` + Vercel;
-4. run one final debris falsification sweep against that main;
-5. if no new safe REMOVE NOW item exists, declare pre-Phase-6 hygiene CLOSED;
-6. re-query Issue #77 and current main;
-7. create one clean `internal-*` Phase 6 branch and start P6-A implementation immediately.
+## 8. Exact Resume Point
 
-**Primary Active Batch = Cleanup W. Next Functional Batch = Phase 6 / #77 MVP.**
+Continue from the Phase 6 worktree only. First re-query `main`, Issue #77 and the Draft PR list. If `main` moved, rebase/revalidate deliberately; otherwise commit the reviewed exact tree, create/push one `candidate-*` branch and Draft PR. Treat GitHub `validate`, Vercel and browser E2E as merge gates, not post-merge cleanup.
+
+**Primary Active Batch = P6 candidate validation. No other functional batch is active.**

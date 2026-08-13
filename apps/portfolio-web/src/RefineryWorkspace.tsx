@@ -7,14 +7,19 @@ import {
   createDefaultRefineryModel,
   createExampleRefineryModel,
   migrateRefineryModel,
+  normalizeRefinerySymbol,
   refineryWeightTotal,
   removeRefineryAsset,
   toRefineryApiRequest,
+  validateRefineryExperimentPlan,
   validateRefineryModel,
 } from "./refineryModel";
+import { RefineryExperimentPlanEditor } from "./RefineryExperimentPlanEditor";
+import { RefineryPhase6Preflight } from "./RefineryPhase6Results";
 import { RefineryPreflightCard, RefineryResults } from "./RefineryResults";
 import type {
   RefineryAnalyzeResponse,
+  RefineryExperimentDraft,
   RefineryPreflightResponse,
   RefineryWorkspaceModel,
 } from "./refineryTypes";
@@ -46,6 +51,7 @@ function statusExplanation(status: string): string {
 
 export function RefineryWorkspace() {
   const [model, setModelState] = useState<RefineryWorkspaceModel>(loadInitialRefineryModel);
+  const [experimentPlan, setExperimentPlanState] = useState<RefineryExperimentDraft[]>([]);
   const [preflight, setPreflight] = useState<RefineryPreflightResponse | null>(null);
   const [analysis, setAnalysis] = useState<RefineryAnalyzeResponse | null>(null);
   const [busy, setBusy] = useState<"preflight" | "analyze" | null>(null);
@@ -54,16 +60,41 @@ export function RefineryWorkspace() {
   const activeController = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const validationRef = useRef<HTMLDivElement>(null);
-  const issues = useMemo(() => validateRefineryModel(model), [model]);
+  const issues = useMemo(
+    () => [...validateRefineryModel(model), ...validateRefineryExperimentPlan(model, experimentPlan)],
+    [model, experimentPlan],
+  );
   const activeRows = useMemo(() => model.symbols.filter((row) => row.symbol.trim()), [model.symbols]);
+  const baselineSymbols = useMemo(
+    () => activeRows.map((row) => normalizeRefinerySymbol(row.symbol)).filter(Boolean),
+    [activeRows],
+  );
   const weightTotal = useMemo(() => refineryWeightTotal(model), [model]);
 
-  function setModel(updater: (current: RefineryWorkspaceModel) => RefineryWorkspaceModel) {
-    setModelState((current) => updater(current));
+  function invalidateEvidence() {
+    activeController.current?.abort();
+    activeController.current = null;
+    setBusy(null);
     setPreflight(null);
     setAnalysis(null);
     setMessage("");
     setError("");
+  }
+
+  function setModel(updater: (current: RefineryWorkspaceModel) => RefineryWorkspaceModel) {
+    setModelState((current) => updater(current));
+    invalidateEvidence();
+  }
+
+  function setExperimentPlan(plan: RefineryExperimentDraft[]) {
+    setExperimentPlanState(plan);
+    invalidateEvidence();
+  }
+
+  function replaceModel(next: RefineryWorkspaceModel) {
+    setModelState(next);
+    setExperimentPlanState([]);
+    invalidateEvidence();
   }
 
   useEffect(() => {
@@ -94,7 +125,7 @@ export function RefineryWorkspace() {
     setError("");
     setMessage(kind === "preflight" ? "正在建立可重現 ResearchDataset 預檢…" : "正在計算風險結構診斷…");
     try {
-      const request = toRefineryApiRequest(model);
+      const request = toRefineryApiRequest(model, experimentPlan);
       if (kind === "preflight") {
         const result = await runRefineryPreflight(request, controller.signal);
         setPreflight(result);
@@ -132,8 +163,8 @@ export function RefineryWorkspace() {
           <p>把 Phase 1 可重現資料與 Phase 2 風險數學轉成可讀結構診斷；本階段不提供冗餘判定、選股、TRIM/REPLACE 或權重最佳化。</p>
         </div>
         <div className="refinery-hero-actions">
-          <button type="button" className="secondary-button" onClick={() => setModel(() => createExampleRefineryModel())}>載入範例</button>
-          <button type="button" className="ghost-button" onClick={() => setModel(() => createDefaultRefineryModel())}>重設</button>
+          <button type="button" className="secondary-button" onClick={() => replaceModel(createExampleRefineryModel())}>載入範例</button>
+          <button type="button" className="ghost-button" onClick={() => replaceModel(createDefaultRefineryModel())}>重設</button>
           <span className="autosave-indicator">此工作區自動儲存在此瀏覽器</span>
         </div>
       </section>
@@ -186,8 +217,14 @@ export function RefineryWorkspace() {
         <p className="workspace-hint">Benchmark 為空時，下跌日／壓力相關會明確顯示 unavailable；系統不會自動假設 SPY。未啟用權重時，也不會偷偷改成等權。</p>
       </section>
 
+      <RefineryExperimentPlanEditor
+        baselineSymbols={baselineSymbols}
+        plan={experimentPlan}
+        onChange={setExperimentPlan}
+      />
+
       <section className="workspace-card" aria-labelledby="refinery-preflight-action-title">
-        <div className="section-heading"><div><span className="section-index">2</span><div><h2 id="refinery-preflight-action-title">資料預檢與正式診斷</h2><p>先確認 membership、coverage 與共同樣本，再決定是否執行 read-only analysis。</p></div></div></div>
+        <div className="section-heading"><div><span className="section-index">3</span><div><h2 id="refinery-preflight-action-title">資料預檢與正式診斷</h2><p>先確認 membership、coverage 與共同樣本，再決定是否執行 read-only analysis。</p></div></div></div>
         <div ref={validationRef} className="validation-box" aria-live="polite">
           {issues.length === 0 ? <div className="notice success"><strong>本機設定可送出</strong><p>API 仍會再次執行完整驗證與資料完整性 gate。</p></div> : <div className="notice warning"><strong>尚有 {issues.length} 項設定需要修正</strong><ul>{issues.map((issue, index) => <li key={`${issue.field}-${index}`}>{issue.message}</li>)}</ul></div>}
         </div>
@@ -200,6 +237,7 @@ export function RefineryWorkspace() {
       </section>
 
       {preflight && <RefineryPreflightCard response={preflight} />}
+      {preflight && <RefineryPhase6Preflight marginal={preflight.marginal_experiments} />}
       <div ref={resultsRef} className="refinery-results-shell">{analysis && <RefineryResults response={analysis} />}</div>
 
       <div className="run-bar refinery-run-bar" aria-live="polite">
