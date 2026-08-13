@@ -25,6 +25,28 @@ export function formatScanSettlement(snapshot, { includeUnfinished = false } = {
   return `已結算 ${snapshot.settled} / ${snapshot.total} 檔（${parts.join("、")}）`;
 }
 
+export function formatScanChunkPositionRange(originalTickers, chunk) {
+  if (!Array.isArray(originalTickers) || !Array.isArray(chunk) || !chunk.length) return null;
+
+  const positions = new Map();
+  for (const [index, ticker] of originalTickers.entries()) {
+    if (typeof ticker !== "string" || !ticker || positions.has(ticker)) return null;
+    positions.set(ticker, index + 1);
+  }
+
+  let firstPosition = null;
+  let previousPosition = null;
+  for (const ticker of chunk) {
+    const position = positions.get(ticker);
+    if (!Number.isSafeInteger(position)) return null;
+    if (previousPosition != null && position !== previousPosition + 1) return null;
+    firstPosition ??= position;
+    previousPosition = position;
+  }
+
+  return `${firstPosition}–${previousPosition}`;
+}
+
 function messageMatchesSnapshot(message, snapshot) {
   const match = String(message || "").match(/(\d+)\s*\/\s*(\d+)\s*檔/u);
   if (!match) return false;
@@ -37,7 +59,7 @@ export function rewriteScanProgressMessage(message, job) {
   const snapshot = scanSettlementSnapshot(job);
   if (!messageMatchesSnapshot(raw, snapshot)) return raw;
 
-  if (raw.startsWith("正在取得第 ")) {
+  if (raw.startsWith("正在取得第 ") || raw.startsWith("正在取得本次批次")) {
     return `${raw.split("；")[0]}；${formatScanSettlement(snapshot)}`;
   }
   if (raw.startsWith("行情服務暫時未完整回應")) {
