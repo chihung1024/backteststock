@@ -253,3 +253,56 @@ test("a matching handoff cannot reintroduce a ticker below its saved coverage th
   await expect(page.locator("#optimizer-source")).toHaveValue("");
   await expect(page.locator("#optimizer-handoff-context")).toContainText("無法驗證");
 });
+
+test("scanner states Portfolio and Optimizer destination capacities explicitly", async ({ page }) => {
+  const tickers = Array.from({ length: 21 }, (_, index) => `T${String(index + 1).padStart(2, "0")}`);
+  const rows = tickers.map((ticker) => ({
+    ticker,
+    status: "ok",
+    retryable: false,
+    total_return: 0.2,
+    cagr: 0.1,
+    volatility: 0.2,
+    mdd: -0.15,
+    sharpe_ratio: 0.8,
+    sortino_ratio: 1.1,
+    beta: 1,
+    alpha: 0.02,
+    data_coverage: 1,
+    trading_days: 252,
+    data_start: "2025-01-02",
+    data_end: "2025-12-31",
+  }));
+  await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
+  await page.route("**/api/all-tickers", (route) => fulfillJson(route, []));
+  await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
+  await page.route("**/api/scan", (route) => fulfillJson(route, rows));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "個股掃描" }).click();
+  await page.locator("#scan-tickers").fill(tickers.join(", "));
+  await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2025-12-31");
+  await page.locator("#scan-benchmark").fill("QQQ");
+  await page.getByRole("button", { name: "開始集體回測" }).click();
+
+  const capacity = page.locator("#scan-destination-capacity-status");
+  await expect(capacity).toContainText("投組 0 / 20（至少 1 檔）");
+  await expect(capacity).toContainText("最佳化器 0 / 100（至少 2 檔）");
+  await expect(page.locator("#open-integrated-backtest")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator("#open-manual-optimizer")).toHaveAttribute("aria-disabled", "true");
+
+  await page.locator('input[data-optimizer-ticker="T01"]').check();
+  await expect(capacity).toContainText("投組 1 / 20（可使用）");
+  await expect(capacity).toContainText("最佳化器 1 / 100（至少 2 檔）");
+  await expect(page.locator("#open-integrated-backtest")).toHaveAttribute("aria-disabled", "false");
+  await expect(page.locator("#open-manual-optimizer")).toHaveAttribute("aria-disabled", "true");
+
+  for (const ticker of tickers.slice(1)) {
+    await page.locator(`input[data-optimizer-ticker="${ticker}"]`).check();
+  }
+  await expect(capacity).toContainText("投組 21 / 20（超過上限）");
+  await expect(capacity).toContainText("最佳化器 21 / 100（可使用）");
+  await expect(page.locator("#open-integrated-backtest")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator("#open-manual-optimizer")).toHaveAttribute("aria-disabled", "false");
+});
