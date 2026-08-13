@@ -285,3 +285,74 @@ test("identical backtest requests bypass the low-level edge response cache", asy
     globalThis.fetch = originalFetch;
   }
 });
+
+test("scan cache namespace invalidation bypasses coverage responses from the previous contract", async () => {
+  const originalFetch = globalThis.fetch;
+  let backendCalls = 0;
+  let cacheKey = "";
+  const cache = {
+    async match(key) {
+      cacheKey = key.url;
+      if (key.url.startsWith("https://edge-cache.invalid/2026-08-11.1/api/scan/")) {
+        return new Response(
+          JSON.stringify([{ ticker: "AAA", status: "ok", data_coverage: 1 }]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return null;
+    },
+    async put() {},
+  };
+  globalThis.fetch = async () => {
+    backendCalls += 1;
+    return new Response(
+      JSON.stringify([
+        {
+          ticker: "AAA",
+          status: "ok",
+          data_coverage: 0.5,
+          benchmark_calendar_coverage: 0.5,
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-scan-requested": "1",
+          "x-scan-resolved": "1",
+        },
+      },
+    );
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tickers: ["AAA"],
+          benchmark: "SPY",
+          startDate: "2025-01-01",
+          endDate: "2025-01-31",
+        }),
+      }),
+      { BACKEND_ORIGIN: "https://backend.example", API_CACHE: cache },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-edge-cache"), "MISS");
+    assert.equal(backendCalls, 1);
+    assert.match(cacheKey, /^https:\/\/edge-cache\.invalid\/2026-08-14\.1\/api\/scan\//u);
+    assert.deepEqual(await response.json(), [
+      {
+        ticker: "AAA",
+        status: "ok",
+        data_coverage: 0.5,
+        benchmark_calendar_coverage: 0.5,
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
