@@ -4,12 +4,20 @@
 
 ## Current Status
 
+**PF-1D Scanner edge-cache namespace invalidation — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
+
+- [PR #135](https://github.com/chihung1024/backteststock/pull/135) passed exact-head candidate CI [#674](https://github.com/chihung1024/backteststock/actions/runs/31728923886), received an independent exact-head review, was marked Ready, and was squash-merged to main as [`f8c08caa2e604acf193263667fd6815cbad1c2ec`](https://github.com/chihung1024/backteststock/commit/f8c08caa2e604acf193263667fd6815cbad1c2ec) on 2026-08-13.
+- Post-main CI [#675](https://github.com/chihung1024/backteststock/actions/runs/31729216617), Vercel production [deployment](https://vercel.com/cchungs-projects/back-test/CNiBXJ8bAsxK3cmfA6RV9VuX5LTr), and [Deploy Cloudflare Worker #65](https://github.com/chihung1024/backteststock/actions/runs/31729216623) all passed at the merged SHA; Cloudflare production smoke covered Russell 2000, Portfolio v3 and Refinery v1.
+- Direct production edge smoke against [`backteststock.chired.workers.dev`](https://backteststock.chired.workers.dev) returned `/api/scan` 200 with `MISS` on the first identical request and `HIT` on the second; both rows were AAPL `ok` with full `1.0` coverage. This verifies namespace deployment and cache behavior, not the sparse `0.5` data case.
+- Local validation passed 272 Python tests, Ruff, JavaScript checks, Worker tests (77), score tests (12), Portfolio check/build, source contracts, and git diff --check. Local browser E2E remains NOT VERIFIED because the sandbox lacks Playwright Chromium; candidate CI ran Chromium E2E successfully.
+- The change only invalidates the old `/api/scan` cache namespace; API formulas, cache TTL/policy, frontend relative coverage, selection/handoff, persistence, data and other routes are unchanged.
+
 **PF-1C TWD Scanner raw-calendar coverage audit — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
 - [PR #133](https://github.com/chihung1024/backteststock/pull/133) passed exact-head candidate CI [#669](https://github.com/chihung1024/backteststock/actions/runs/31726757514), received an independent exact-head review, was marked Ready, and was squash-merged to main as [`47ca2ea0cd2850774470080916d53896a9d463c6`](https://github.com/chihung1024/backteststock/commit/47ca2ea0cd2850774470080916d53896a9d463c6) on 2026-08-13.
 - Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed all repository gates, including Chromium E2E. Vercel production reported success at [the merged deployment](https://vercel.com/cchungs-projects/back-test/EgMeRex9WRhjzq2j7sCnwAcYovD7).
 - Cloudflare Worker did not trigger for this merge because no Worker or public static asset changed; the candidate Cloudflare dry-run passed. No manual deployment command, protection bypass, or direct production write was used.
-- Local validation passed 272 Python tests, Ruff, JavaScript checks, Worker tests (76), score tests (12), Portfolio check/build, source contracts, and git diff --check. A live-data production smoke for the corrected coverage value was not run; that external-data assertion remains NOT VERIFIED.
+- Local validation passed 272 Python tests, Ruff, JavaScript checks, Worker tests (76), score tests (12), Portfolio check/build, source contracts, and git diff --check. PF-1D later added a production edge smoke; the sparse partial-calendar coverage assertion remains NOT VERIFIED.
 - The correction is limited to API audit semantics: raw TWD valuation calendars now feed `data_coverage` / `benchmark_calendar_coverage` before metric-calendar forward-fill. Metric values, trading-day range, selection thresholds, handoff behavior, persistence, and data sources are unchanged.
 
 **PF-1B Scanner → Portfolio legacy-date handoff — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
@@ -28,6 +36,30 @@
 - UX-1A remains closed at [4598ecf1a2870bcec7b71c69b5d7642601e0c55a](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
+
+## Closed Batch — PF-1D / R2
+
+### Objective / Scope Lock
+
+- **Objective:** prevent stale Worker edge-cache responses from hiding the PF-1C TWD Scanner coverage-audit correction after the Vercel API merge.
+- **In scope:** bump the `/api/scan` cache namespace from `2026-08-11.1` to `2026-08-14.1`, add a stale-namespace regression, and verify the production Worker MISS→HIT behavior.
+- **Out of scope:** API calculations, cache TTL or admission policy, other routes, frontend relative coverage, selection/handoff, persistence, data sources, migrations, and unrelated cleanup.
+- **Risk class:** R2 externally observable cache/data consistency; exact-head review, full candidate CI, protected merge, Cloudflare production smoke and post-main verification were required.
+- **Rollback:** normal revert of PR #135; no data, storage, persistence, or schema migration is introduced.
+
+### Evidence / Root Cause
+
+- **Reproduction:** before this batch, a cached `/api/scan` response under namespace `2026-08-11.1` returned the pre-fix `data_coverage=1` while backend call count remained zero; the corrected backend would return `0.5` for a sparse calendar case.
+- **Failure point:** PF-1C changed the Vercel API implementation but did not change the Worker cache namespace, so identical requests could remain stale for the 15-minute edge TTL.
+- **Downstream impact:** Scanner audit/CSV consumers could temporarily observe the old coverage value after the API fix had deployed.
+
+### Closure / Stable Checkpoint
+
+- Worker namespace is now `2026-08-14.1`; the regression proves old-version entries miss, the corrected backend is called, and the response is marked `MISS`.
+- Candidate CI [#674](https://github.com/chihung1024/backteststock/actions/runs/31728923886) passed all checks at exact head `70bf4aff2ba11ae71e953895a847a65fe3e87397`; the independent review found no blocking issue.
+- Post-main CI [#675](https://github.com/chihung1024/backteststock/actions/runs/31729216617), Vercel production, and Cloudflare Deploy [#65](https://github.com/chihung1024/backteststock/actions/runs/31729216623) passed at merged head `f8c08caa2e604acf193263667fd6815cbad1c2ec`.
+- Direct production smoke confirmed first-request `MISS` and second-request `HIT` on the deployed Worker; the live AAPL row was fully covered at `1.0`, so sparse partial-calendar `0.5` output remains NOT VERIFIED in production.
+- Rollback is a normal revert of PR #135; no data, storage, persistence, or schema migration is involved.
 
 ## Closed Batch — PF-1C / R2
 
@@ -51,7 +83,7 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 - The focused regression preserves the four-day metric result while asserting both audit fields are approximately `0.5`.
 - Candidate CI [#669](https://github.com/chihung1024/backteststock/actions/runs/31726757514) passed all checks at exact head 2ab671c986f8ebe2ead9e41feee4ffe4bff823b4; the independent review found no blocking issue.
 - Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed at merged head 47ca2ea0cd2850774470080916d53896a9d463c6; Vercel production reported success. Cloudflare was intentionally not invoked because the Worker/public asset surface was unchanged.
-- A live-data production smoke was not run, so the external provider response for this audit value is NOT VERIFIED; the repository-level contract and regression gates are green.
+- A later production edge smoke verified the new Worker namespace with MISS→HIT behavior on a fully covered AAPL row; the sparse partial-calendar `0.5` provider response remains NOT VERIFIED. The repository-level contract and regression gates are green.
 - Rollback is a normal revert of PR #133; no data, storage, persistence, or schema migration is involved.
 
 ## Closed Batch — PF-1A / R2
@@ -180,8 +212,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`47ca2ea0cd2850774470080916d53896a9d463c6`](https://github.com/chihung1024/backteststock/commit/47ca2ea0cd2850774470080916d53896a9d463c6).
-- Previous verified baseline: [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8).
+- Current functional recovery baseline: `main` [`f8c08caa2e604acf193263667fd6815cbad1c2ec`](https://github.com/chihung1024/backteststock/commit/f8c08caa2e604acf193263667fd6815cbad1c2ec).
+- Previous verified baseline: [`47ca2ea0cd2850774470080916d53896a9d463c6`](https://github.com/chihung1024/backteststock/commit/47ca2ea0cd2850774470080916d53896a9d463c6).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -193,17 +225,18 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner destination capacity from PR #127 / `21a7e5f`.
   - Scanner → Portfolio → Optimizer handoff provenance from PR #129 / `15a5f44`.
   - Scanner → Portfolio legacy-date handoff from PR #131 / `3a93afe`;
-  - TWD Scanner raw-calendar coverage audit from PR #133 / `47ca2ea`.
+  - TWD Scanner raw-calendar coverage audit from PR #133 / `47ca2ea`;
+  - Scanner edge-cache namespace invalidation from PR #135 / `f8c08ca`.
 
 ## Deployment Record
 
-The protected merge automatically triggered the configured Vercel production deployment, which reported success for PF-1C. Cloudflare Worker deployment did not trigger because the change did not touch Worker or public static assets; the candidate Cloudflare dry-run passed and no manual deployment was needed. The live-data production smoke for the corrected audit value remains NOT VERIFIED.
+The protected PF-1D merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at the merged SHA, and Cloudflare smoke covered Russell 2000, Portfolio v3 and Refinery v1. The direct edge smoke confirmed the new `/api/scan` namespace with MISS→HIT behavior. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ## NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-No active runtime implementation batch. Preserve `main` `47ca2ea` as the current functional recovery point; PF-1C, PF-1B and PF-1A are closed and repository/CI verified. PF-1C's live-data production smoke remains NOT VERIFIED.
+No active runtime implementation batch. Preserve `main` `f8c08ca` as the current functional recovery point; PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ### NEXT
 
@@ -227,4 +260,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1C is closed at main `47ca2ea`. TWD Scanner audit coverage now uses raw valuation calendars before metric forward-fill; the metric calendar and browser selection coverage contract are unchanged. Candidate CI #669, post-main CI #670 and Vercel production passed; Cloudflare did not trigger because its surface was unchanged, and live-data production smoke is NOT VERIFIED. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1C, PF-1B or PF-1A unless their invariants regress.
+PF-1D is closed at main `f8c08ca`. The Worker now invalidates stale `/api/scan` cache entries after the PF-1C audit correction; candidate CI #674, post-main CI #675, Vercel production, Cloudflare Deploy #65 and direct MISS→HIT edge smoke passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1D, PF-1C, PF-1B or PF-1A unless their invariants regress.
