@@ -4,6 +4,14 @@
 
 ## Current Status
 
+**PF-1C TWD Scanner raw-calendar coverage audit — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
+
+- [PR #133](https://github.com/chihung1024/backteststock/pull/133) passed exact-head candidate CI [#669](https://github.com/chihung1024/backteststock/actions/runs/31726757514), received an independent exact-head review, was marked Ready, and was squash-merged to main as [`47ca2ea0cd2850774470080916d53896a9d463c6`](https://github.com/chihung1024/backteststock/commit/47ca2ea0cd2850774470080916d53896a9d463c6) on 2026-08-13.
+- Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed all repository gates, including Chromium E2E. Vercel production reported success at [the merged deployment](https://vercel.com/cchungs-projects/back-test/EgMeRex9WRhjzq2j7sCnwAcYovD7).
+- Cloudflare Worker did not trigger for this merge because no Worker or public static asset changed; the candidate Cloudflare dry-run passed. No manual deployment command, protection bypass, or direct production write was used.
+- Local validation passed 272 Python tests, Ruff, JavaScript checks, Worker tests (76), score tests (12), Portfolio check/build, source contracts, and git diff --check. A live-data production smoke for the corrected coverage value was not run; that external-data assertion remains NOT VERIFIED.
+- The correction is limited to API audit semantics: raw TWD valuation calendars now feed data_coverage / benchmark_calendar_coverage before metric-calendar forward-fill. Metric values, trading-day range, selection thresholds, handoff behavior, persistence, and data sources are unchanged.
+
 **PF-1B Scanner → Portfolio legacy-date handoff — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
 - [PR #131](https://github.com/chihung1024/backteststock/pull/131) passed exact-head candidate CI [#665](https://github.com/chihung1024/backteststock/actions/runs/31719788695), was independently reviewed, marked Ready, and squash-merged to main as [`3a93afe12b92965676bd33c52b315f415303574c`](https://github.com/chihung1024/backteststock/commit/3a93afe12b92965676bd33c52b315f415303574c) on 2026-08-13.
@@ -20,6 +28,31 @@
 - UX-1A remains closed at [4598ecf1a2870bcec7b71c69b5d7642601e0c55a](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
+
+## Closed Batch — PF-1C / R2
+
+### Objective / Scope Lock
+
+- **Objective:** make the TWD Scanner API coverage audit reflect raw valuation observations instead of the forward-filled metric calendar.
+- **In scope:** pass the raw benchmark history into the success-row audit calculation, expose the explicit benchmark_calendar_coverage field, add a sparse-calendar regression, and document the API/browser coverage distinction.
+- **Out of scope:** quant formulas, metric-calendar alignment or forward-fill, TWD valuation, data sources, retry/resume behavior, frontend relative-max coverage, selection or handoff thresholds, persistence, migrations, workflows, and unrelated cleanup.
+- **Risk class:** R2 externally observable data-integrity/audit semantics; exact-head independent review, full candidate CI, protected merge and post-main verification were required.
+- **Rollback:** normal revert of PR #133; no data, storage, persistence, or schema migration is introduced.
+
+### Evidence / Root Cause
+
+- **Reproduction:** with two raw candidate dates (2025-01-02, 2025-01-06) and four raw benchmark dates (2025-01-02, 2025-01-03, 2025-01-06, 2025-01-07), the pre-fix aligned series reported four trading days and data_coverage=1.0; raw calendar coverage is 0.5.
+- **Failure point:** apps/api/app/scan_service.py::TWDScanService.run calculated data_coverage after benchmark alignment and forward-fill, so missing raw candidate observations were counted as if observed.
+- **Downstream impact:** the API/CSV audit field could claim complete benchmark coverage even when the candidate had only partial raw observations; the browser's separate relative max-day display and selection threshold were not changed.
+
+### Closure / Stable Checkpoint
+
+- _success_row now calculates data_coverage and benchmark_calendar_coverage from the raw asset and raw benchmark histories before metric-calendar forward-fill.
+- The focused regression preserves the four-day metric result while asserting both audit fields are approximately 0.5.
+- Candidate CI [#669](https://github.com/chihung1024/backteststock/actions/runs/31726757514) passed all checks at exact head 2ab671c986f8ebe2ead9e41feee4ffe4bff823b4; the independent review found no blocking issue.
+- Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed at merged head 47ca2ea0cd2850774470080916d53896a9d463c6; Vercel production reported success. Cloudflare was intentionally not invoked because the Worker/public asset surface was unchanged.
+- A live-data production smoke was not run, so the external provider response for this audit value is NOT VERIFIED; the repository-level contract and regression gates are green.
+- Rollback is a normal revert of PR #133; no data, storage, persistence, or schema migration is involved.
 
 ## Closed Batch — PF-1A / R2
 
@@ -147,7 +180,7 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`3a93afe12b92965676bd33c52b315f415303574c`](https://github.com/chihung1024/backteststock/commit/3a93afe12b92965676bd33c52b315f415303574c).
+- Current functional recovery baseline: `main` [`47ca2ea0cd2850774470080916d53896a9d463c6`](https://github.com/chihung1024/backteststock/commit/47ca2ea0cd2850774470080916d53896a9d463c6).
 - Previous verified baseline: [`15a5f4497bcb70e216bc58bdd506f1b3693987f8`](https://github.com/chihung1024/backteststock/commit/15a5f4497bcb70e216bc58bdd506f1b3693987f8).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
@@ -159,17 +192,18 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner execution clarity from PR #125 / `4598ecf`;
   - Scanner destination capacity from PR #127 / `21a7e5f`.
   - Scanner → Portfolio → Optimizer handoff provenance from PR #129 / `15a5f44`.
-  - Scanner → Portfolio legacy-date handoff from PR #131 / `3a93afe`.
+  - Scanner → Portfolio legacy-date handoff from PR #131 / `3a93afe`;
+  - TWD Scanner raw-calendar coverage audit from PR #133 / `47ca2ea`.
 
 ## Deployment Record
 
-The public Scanner assets were released only after the protected merge. The merge push automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both completed successfully, including the scoped Russell 2000, Portfolio v3 and Refinery v1 smoke suite. No manual deployment or protection bypass was used. If a future change must be absolutely non-deploying, the push-triggered deployment workflows need an explicit gate before merging public-asset changes.
+The protected merge automatically triggered the configured Vercel production deployment, which reported success for PF-1C. Cloudflare Worker deployment did not trigger because the change did not touch Worker or public static assets; the candidate Cloudflare dry-run passed and no manual deployment was needed. The live-data production smoke for the corrected audit value remains NOT VERIFIED.
 
 ## NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-No active runtime implementation batch. Preserve `main` `3a93afe` as the current functional recovery point; PF-1B and PF-1A are closed and production-verified.
+No active runtime implementation batch. Preserve `main` `47ca2ea` as the current functional recovery point; PF-1C, PF-1B and PF-1A are closed and repository/CI verified. PF-1C's live-data production smoke remains NOT VERIFIED.
 
 ### NEXT
 
@@ -193,4 +227,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1B is closed at main `3a93afe`. The route bridge now applies the canonical Scanner date normalizer, invalidates all affected asset caches, and preserves the exact legacy source range through the Portfolio handoff record, banner and imported model. Candidate CI #665, post-main CI #666, Vercel production and Cloudflare Deploy #64 passed. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1B or PF-1A unless their invariants regress.
+PF-1C is closed at main `47ca2ea`. TWD Scanner audit coverage now uses raw valuation calendars before metric forward-fill; the metric calendar and browser selection coverage contract are unchanged. Candidate CI #669, post-main CI #670 and Vercel production passed; Cloudflare did not trigger because its surface was unchanged, and live-data production smoke is NOT VERIFIED. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1C, PF-1B or PF-1A unless their invariants regress.
