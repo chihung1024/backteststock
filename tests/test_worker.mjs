@@ -219,16 +219,18 @@ test("proxy mirrors backend Server-Timing to a stable edge header", async () => 
 });
 
 
-test("identical backtest requests reuse the edge response cache", async () => {
+test("identical backtest requests bypass the low-level edge response cache", async () => {
   const originalFetch = globalThis.fetch;
   let backendCalls = 0;
-  const stored = new Map();
+  let cacheMatches = 0;
+  let cachePuts = 0;
   const cache = {
-    async match(request) {
-      return stored.get(request.url)?.clone() || null;
+    async match() {
+      cacheMatches += 1;
+      return null;
     },
-    async put(request, response) {
-      stored.set(request.url, response.clone());
+    async put() {
+      cachePuts += 1;
     },
   };
   globalThis.fetch = async () => {
@@ -268,9 +270,13 @@ test("identical backtest requests reuse the edge response cache", async () => {
     );
     const first = await worker.fetch(request(), env);
     const second = await worker.fetch(request(), env);
-    assert.equal(first.headers.get("x-edge-cache"), "MISS");
-    assert.equal(second.headers.get("x-edge-cache"), "HIT");
-    assert.equal(backendCalls, 1);
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(first.headers.get("x-edge-cache"), null);
+    assert.equal(second.headers.get("x-edge-cache"), null);
+    assert.equal(backendCalls, 2);
+    assert.equal(cacheMatches, 0);
+    assert.equal(cachePuts, 0);
     assert.deepEqual(
       await second.json(),
       { data: [], benchmark: null, metadata: {} },

@@ -35,12 +35,14 @@ API 新契約使用：
 
 本階段不建立持久化日線資料層，也不增加每日預抓行情流程；首次遇到全新日期與標的組合時，仍由正式行情來源即時取得最新資料。
 
-Cloudflare Worker 對未攜帶 Authorization 或 Cookie、且成功回傳 JSON 的 `/api/backtest` 與 `/api/scan` POST 請求，依路徑及完整 request body 的 SHA-256 建立 15 分鐘 Edge 快取。不同日期、權重、標的、基準或再平衡設定不會共用結果。
+Cloudflare Worker 只對 `/api/scan` 的未驗證、無 Cookie POST 請求建立 15 分鐘 Edge response cache，key 為路徑及完整 request body 的 SHA-256。不同日期、權重、標的、基準或再平衡設定不會共用結果；只有 HTTP 200 JSON 且 `X-Scan-Requested` / `X-Scan-Resolved` 都存在、有效且相等的完整成功結果才可寫入 cache。
+
+`/api/backtest` 由 production router 專用 proxy 處理，永遠直接送往 backend：不執行 Edge cache `match()` / `put()`，也不回傳 `X-Edge-Cache`。這個禁止同時由 router regression 與低階 Worker regression 保護，避免日後 routing 變動意外恢復快取。
 
 回應標頭：
 
-- `X-Edge-Cache: MISS`：本次送至後端即時計算。
-- `X-Edge-Cache: HIT`：本次直接使用完全相同請求的 Edge 結果。
+- `/api/scan` 的 `X-Edge-Cache: MISS`：本次送至後端即時計算；不代表該 response 一定符合寫入條件。
+- `/api/scan` 的 `X-Edge-Cache: HIT`：本次直接使用先前已通過完整成功條件的相同請求結果。
 - `Server-Timing`／`X-Backend-Server-Timing`：包含 `market`、`compute`、`serialize` 與 `total` 階段。
 
-Edge HIT 回應會產生新的 request ID；快取內不保存原請求的 request ID。非 200、非 JSON、帶驗證資訊或 Cookie 的請求不快取。
+Edge HIT 回應會產生新的 request ID；快取內不保存原請求的 request ID。非 200、非 JSON、帶驗證資訊或 Cookie 的請求不快取；partial 或缺少完整 resolution evidence 的 Scanner 結果也不快取。

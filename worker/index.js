@@ -11,7 +11,7 @@ const MAX_REQUEST_BYTES = 256 * 1024;
 const API_TIMEOUT_MS = 240_000;
 const EDGE_CACHE_VERSION = "2026-08-11.1";
 const EDGE_CACHE_TTL_SECONDS = 15 * 60;
-const EDGE_CACHEABLE_ROUTES = new Set(["/api/backtest", "/api/scan"]);
+const EDGE_CACHEABLE_ROUTES = new Set(["/api/scan"]);
 const UNIVERSE_STALE_MS = 10 * 24 * 60 * 60 * 1000;
 const UNIVERSE_ID_PATTERN = /^[a-z0-9-]{2,40}$/;
 
