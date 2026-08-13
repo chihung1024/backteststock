@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatScanChunkPositionRange,
   formatScanSettlement,
   rewriteScanProgressMessage,
   rewriteScanStatusMessage,
@@ -56,6 +57,41 @@ test("401-500 progress no longer describes terminal failures as successful compl
       job,
     ),
     "正在取得第 401–500 檔；已結算 400 / 500 檔（成功 300、失敗 100）",
+  );
+});
+
+test("active scan range uses immutable original ticker positions", () => {
+  const tickers = Array.from(
+    { length: 500 },
+    (_, index) => `T${String(index + 1).padStart(4, "0")}`,
+  );
+
+  assert.equal(
+    formatScanChunkPositionRange(tickers, tickers.slice(400, 500)),
+    "401–500",
+  );
+  assert.equal(
+    formatScanChunkPositionRange(tickers, tickers.slice(300, 400)),
+    "301–400",
+  );
+});
+
+test("non-contiguous retry batches do not fabricate a numeric range", () => {
+  const tickers = Array.from(
+    { length: 500 },
+    (_, index) => `T${String(index + 1).padStart(4, "0")}`,
+  );
+
+  assert.equal(
+    formatScanChunkPositionRange(tickers, [tickers[300], tickers[400]]),
+    null,
+  );
+  assert.equal(
+    rewriteScanProgressMessage(
+      "正在取得本次批次；已完成 400 / 500 檔",
+      jobWith({ successes: 400 }),
+    ),
+    "正在取得本次批次；已結算 400 / 500 檔（成功 400、失敗 0）",
   );
 });
 

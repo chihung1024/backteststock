@@ -8,6 +8,7 @@ import {
   normalizeScanMinCoveragePercent,
 } from "./scan-coverage.js?v=20260803.2";
 import { normalizeScanPayloadDates } from "./scan-job-normalizer.js?v=20260812.1";
+import { formatScanChunkPositionRange } from "./scan-progress-ui.js?v=20260813.1";
 
 const STORAGE_KEY = "backteststock-state-v2";
 const LEGACY_STORAGE_KEY = "backteststock-state-v1";
@@ -1049,12 +1050,14 @@ async function processScanJob(job) {
 
   while (job.pending.length && !cancelRequested) {
     const chunk = job.pending.splice(0, SCAN_CHUNK_SIZE);
-    const firstPosition = resultMap.size + 1;
-    const lastPosition = Math.min(resultMap.size + chunk.length, job.payload.tickers.length);
+    const originalPositionRange = formatScanChunkPositionRange(job.payload.tickers, chunk);
+    const activeBatchLabel = originalPositionRange
+      ? `正在取得第 ${originalPositionRange} 檔`
+      : "正在取得本次批次";
     setScanProgress(
       job.results.length,
       job.payload.tickers.length,
-      `正在取得第 ${firstPosition}–${lastPosition} 檔；已完成 ${job.results.length} / ${job.payload.tickers.length} 檔`,
+      `${activeBatchLabel}；已完成 ${job.results.length} / ${job.payload.tickers.length} 檔`,
     );
     let response = [];
     let requestError = null;

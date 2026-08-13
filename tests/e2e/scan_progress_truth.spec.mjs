@@ -52,31 +52,42 @@ async function installBaseRoutes(page) {
   await page.route("**/api/v2/universes", (route) => fulfillJson(route, { data: [] }));
 }
 
-test("scanner distinguishes settled progress from successful results", async ({ page }) => {
+test("scanner active ranges retain original ticker positions during retries", async ({ page }) => {
   const tickers = buildTickers();
-  const failedStarts = new Set([tickerAt(300), tickerAt(400)]);
-  let releaseFinalBatch;
-  const finalBatchGate = new Promise((resolve) => {
-    releaseFinalBatch = resolve;
+  let releaseInitialLateBatch;
+  const initialLateBatchGate = new Promise((resolve) => {
+    releaseInitialLateBatch = resolve;
   });
-  let markFinalBatchRequested;
-  const finalBatchRequested = new Promise((resolve) => {
-    markFinalBatchRequested = resolve;
+  let markInitialLateBatchRequested;
+  const initialLateBatchRequested = new Promise((resolve) => {
+    markInitialLateBatchRequested = resolve;
   });
-  let finalBatchRequestCount = 0;
+  let releaseRequeuedEarlyBatch;
+  const requeuedEarlyBatchGate = new Promise((resolve) => {
+    releaseRequeuedEarlyBatch = resolve;
+  });
+  let markRequeuedEarlyBatchRequested;
+  const requeuedEarlyBatchRequested = new Promise((resolve) => {
+    markRequeuedEarlyBatchRequested = resolve;
+  });
+  let earlyBatchRequestCount = 0;
 
   await installBaseRoutes(page);
   await page.route("**/api/scan", async (route) => {
     const payload = route.request().postDataJSON();
     const batchStart = payload.tickers[0];
     if (batchStart === tickerAt(400)) {
-      finalBatchRequestCount += 1;
-      if (finalBatchRequestCount === 2) {
-        markFinalBatchRequested();
-        await finalBatchGate;
+      markInitialLateBatchRequested();
+      await initialLateBatchGate;
+    }
+    if (batchStart === tickerAt(300)) {
+      earlyBatchRequestCount += 1;
+      if (earlyBatchRequestCount === 2) {
+        markRequeuedEarlyBatchRequested();
+        await requeuedEarlyBatchGate;
       }
     }
-    const rows = failedStarts.has(batchStart)
+    const rows = batchStart === tickerAt(300)
       ? payload.tickers.map(retryableFailure)
       : payload.tickers.map(successRow);
     await fulfillJson(route, rows);
@@ -89,23 +100,30 @@ test("scanner distinguishes settled progress from successful results", async ({ 
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
-  // Retryable batches are requeued behind the still-pending batch. The first
-  // 401–500 request occurs while only 300 rows are settled; 301–400 then
-  // exhausts its ticker retry budget and settles as failures. Hold the second
-  // 401–500 request so the truthful 400-settled state is deterministic.
-  await finalBatchRequested;
+  // The first 401–500 request occurs while only 300 rows are settled. Its
+  // range must come from immutable payload positions, not settled-result count.
+  await initialLateBatchRequested;
   await expect(page.locator("#scan-progress-label")).toContainText(
-    "正在取得第 401–500 檔；已結算 400 / 500 檔（成功 300、失敗 100）",
+    "正在取得第 401–500 檔；已結算 300 / 500 檔（成功 300、失敗 0）",
     { timeout: 30_000 },
   );
-  releaseFinalBatch();
+  releaseInitialLateBatch();
+
+  // 301–400 is retried after 401–500 has already settled. It must not inherit
+  // the later chunk's position from the settlement count.
+  await requeuedEarlyBatchRequested;
+  await expect(page.locator("#scan-progress-label")).toContainText(
+    "正在取得第 301–400 檔；已結算 400 / 500 檔（成功 400、失敗 0）",
+    { timeout: 30_000 },
+  );
+  releaseRequeuedEarlyBatch();
 
   await expect(page.locator("#scan-progress-label")).toContainText(
-    "回測結束：已結算 500 / 500 檔（成功 300、失敗 200、未完成 0）",
+    "回測結束：已結算 500 / 500 檔（成功 400、失敗 100、未完成 0）",
     { timeout: 30_000 },
   );
-  await expect(page.locator("#scan-summary")).toContainText("成功標的300 / 500");
-  await expect(page.locator("#scan-summary")).toContainText("失敗標的200");
+  await expect(page.locator("#scan-summary")).toContainText("成功標的400 / 500");
+  await expect(page.locator("#scan-summary")).toContainText("失敗標的100");
   await expect(page.locator("#scan-summary")).toContainText("未完成0");
   await expect(page.locator("#scan-progress-label")).not.toContainText("已完成 400 / 500");
 });

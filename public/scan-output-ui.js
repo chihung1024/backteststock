@@ -10,7 +10,7 @@ import {
 import {
   rewriteScanProgressMessage,
   rewriteScanStatusMessage,
-} from "./scan-progress-ui.js?v=20260811.1";
+} from "./scan-progress-ui.js?v=20260813.1";
 
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const timingHistory = [];
