@@ -207,7 +207,7 @@ async function mockRefinery(page, symbols, options = {}) {
   });
 }
 
-test("Refinery workspace persists independently and shared Portfolio links force Portfolio mode", async ({ page }) => {
+test("Refinery workspace persists independently and shared Portfolio links initially force Portfolio mode", async ({ page }) => {
   await mockPortfolioHealth(page);
   await page.goto("/portfolio/");
 
@@ -232,9 +232,13 @@ test("Refinery workspace persists independently and shared Portfolio links force
   await page.goto("/portfolio/?model=invalid-but-present");
   await expect(page.getByRole("heading", { name: "投資組合研究工作區" })).toBeVisible();
   await expect(page.getByTestId("refinery-workspace")).toHaveCount(0);
+  await page.getByRole("button", { name: /持股精煉診斷/ }).click();
+  await expect(page.getByTestId("refinery-workspace")).toBeVisible();
 
   await page.goto("/portfolio/?handoff=missing-session-key");
   await expect(page.getByRole("heading", { name: "投資組合研究工作區" })).toBeVisible();
+  await page.getByRole("button", { name: /持股精煉診斷/ }).click();
+  await expect(page.getByTestId("refinery-workspace")).toBeVisible();
 });
 
 test("Refinery preflight then analyze keeps portfolio risk unavailable when weights are omitted", async ({ page }) => {
