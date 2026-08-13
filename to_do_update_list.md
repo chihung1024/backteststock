@@ -4,13 +4,14 @@
 
 ## Current Status
 
-**No active production functional change.** The last known-good functional release is [`68567367c6c184d34ac55fa6075263d0ee0b46c6`](https://github.com/chihung1024/backteststock/commit/68567367c6c184d34ac55fa6075263d0ee0b46c6), verified on 2026-08-13. Documentation-only commits may sit above it; re-query `main` before a change.
+**No active production functional change.** The last known-good functional release is [`8aff7b0fa67b667e3335ffb8352f18775cba3228`](https://github.com/chihung1024/backteststock/commit/8aff7b0fa67b667e3335ffb8352f18775cba3228), verified on 2026-08-13. Re-query `main` before a change.
 
 The current functional baseline includes:
 
 - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`.
 - Shared `?model` / `?handoff` links initially open Portfolio without preventing a later user switch to Refinery, fixed by [#117](https://github.com/chihung1024/backteststock/pull/117), merged as `f96ef33`.
 - Scanner retry batch labels use immutable original ticker positions and use `本次批次` for non-contiguous subsets, fixed by [#118](https://github.com/chihung1024/backteststock/pull/118), merged as `6856736`.
+- Legacy Backtest is consistently uncached at both Worker layers while Scanner retains its existing cache policy, fixed by [#121](https://github.com/chihung1024/backteststock/pull/121), merged as `8aff7b0`.
 
 Issues [#77](https://github.com/chihung1024/backteststock/issues/77) and [#85](https://github.com/chihung1024/backteststock/issues/85) are closed as completed.
 
@@ -18,7 +19,7 @@ Issues [#77](https://github.com/chihung1024/backteststock/issues/77) and [#85](h
 
 - [#117 post-main CI](https://github.com/chihung1024/backteststock/actions/runs/31662009374), [Cloudflare deployment](https://github.com/chihung1024/backteststock/actions/runs/31662009395), and Vercel passed; production Russell, Portfolio v3, and Refinery v1 smoke tests passed.
 - [#118 exact-head CI](https://github.com/chihung1024/backteststock/actions/runs/31662267456) passed, including Chromium E2E, D1 migration, and Cloudflare bundle validation.
-- Current-main [CI](https://github.com/chihung1024/backteststock/actions/runs/31662486374) and [Cloudflare deployment](https://github.com/chihung1024/backteststock/actions/runs/31662486420) passed; Vercel plus production Russell, Portfolio v3, and Refinery v1 smoke tests are green.
+- [#121 candidate CI](https://github.com/chihung1024/backteststock/actions/runs/31664285971) and [Vercel Preview](https://vercel.com/cchungs-projects/back-test/AXHdLdPgNtQ2muzEoewg5rsTKu7a) passed. Post-main [CI](https://github.com/chihung1024/backteststock/actions/runs/31664505910) and [Cloudflare deployment](https://github.com/chihung1024/backteststock/actions/runs/31664505794) passed; production Russell, Portfolio v3, and Refinery v1 smoke tests are green.
 
 ## Scope Boundary
 
@@ -55,4 +56,4 @@ Run a bounded end-to-end regression pass across Scanner → Optimizer → Portfo
 
 ## Exact Resume Point
 
-Start with current remote truth, then select one observable functional path and verify it end to end. `main` `6856736` is the recovery baseline; preserve it until a separately reviewed candidate has passed CI and production verification.
+Start with current remote truth, then select one observable functional path and verify it end to end. `main` `8aff7b0` is the recovery baseline; preserve it until a separately reviewed candidate has passed CI and production verification.
