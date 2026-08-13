@@ -10,7 +10,7 @@
 - Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed all repository gates, including Chromium E2E. Vercel production reported success at [the merged deployment](https://vercel.com/cchungs-projects/back-test/EgMeRex9WRhjzq2j7sCnwAcYovD7).
 - Cloudflare Worker did not trigger for this merge because no Worker or public static asset changed; the candidate Cloudflare dry-run passed. No manual deployment command, protection bypass, or direct production write was used.
 - Local validation passed 272 Python tests, Ruff, JavaScript checks, Worker tests (76), score tests (12), Portfolio check/build, source contracts, and git diff --check. A live-data production smoke for the corrected coverage value was not run; that external-data assertion remains NOT VERIFIED.
-- The correction is limited to API audit semantics: raw TWD valuation calendars now feed data_coverage / benchmark_calendar_coverage before metric-calendar forward-fill. Metric values, trading-day range, selection thresholds, handoff behavior, persistence, and data sources are unchanged.
+- The correction is limited to API audit semantics: raw TWD valuation calendars now feed `data_coverage` / `benchmark_calendar_coverage` before metric-calendar forward-fill. Metric values, trading-day range, selection thresholds, handoff behavior, persistence, and data sources are unchanged.
 
 **PF-1B Scanner → Portfolio legacy-date handoff — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
@@ -34,21 +34,21 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 ### Objective / Scope Lock
 
 - **Objective:** make the TWD Scanner API coverage audit reflect raw valuation observations instead of the forward-filled metric calendar.
-- **In scope:** pass the raw benchmark history into the success-row audit calculation, expose the explicit benchmark_calendar_coverage field, add a sparse-calendar regression, and document the API/browser coverage distinction.
+- **In scope:** pass the raw benchmark history into the success-row audit calculation, expose the explicit `benchmark_calendar_coverage` field, add a sparse-calendar regression, and document the API/browser coverage distinction.
 - **Out of scope:** quant formulas, metric-calendar alignment or forward-fill, TWD valuation, data sources, retry/resume behavior, frontend relative-max coverage, selection or handoff thresholds, persistence, migrations, workflows, and unrelated cleanup.
 - **Risk class:** R2 externally observable data-integrity/audit semantics; exact-head independent review, full candidate CI, protected merge and post-main verification were required.
 - **Rollback:** normal revert of PR #133; no data, storage, persistence, or schema migration is introduced.
 
 ### Evidence / Root Cause
 
-- **Reproduction:** with two raw candidate dates (2025-01-02, 2025-01-06) and four raw benchmark dates (2025-01-02, 2025-01-03, 2025-01-06, 2025-01-07), the pre-fix aligned series reported four trading days and data_coverage=1.0; raw calendar coverage is 0.5.
-- **Failure point:** apps/api/app/scan_service.py::TWDScanService.run calculated data_coverage after benchmark alignment and forward-fill, so missing raw candidate observations were counted as if observed.
+- **Reproduction:** with two raw candidate dates (2025-01-02, 2025-01-06) and four raw benchmark dates (2025-01-02, 2025-01-03, 2025-01-06, 2025-01-07), the pre-fix aligned series reported four trading days and `data_coverage=1.0`; raw calendar coverage is `0.5`.
+- **Failure point:** `apps/api/app/scan_service.py::TWDScanService.run` calculated `data_coverage` after benchmark alignment and forward-fill, so missing raw candidate observations were counted as if observed.
 - **Downstream impact:** the API/CSV audit field could claim complete benchmark coverage even when the candidate had only partial raw observations; the browser's separate relative max-day display and selection threshold were not changed.
 
 ### Closure / Stable Checkpoint
 
-- _success_row now calculates data_coverage and benchmark_calendar_coverage from the raw asset and raw benchmark histories before metric-calendar forward-fill.
-- The focused regression preserves the four-day metric result while asserting both audit fields are approximately 0.5.
+- `_success_row` now calculates `data_coverage` and `benchmark_calendar_coverage` from the raw asset and raw benchmark histories before metric-calendar forward-fill.
+- The focused regression preserves the four-day metric result while asserting both audit fields are approximately `0.5`.
 - Candidate CI [#669](https://github.com/chihung1024/backteststock/actions/runs/31726757514) passed all checks at exact head 2ab671c986f8ebe2ead9e41feee4ffe4bff823b4; the independent review found no blocking issue.
 - Post-main CI [#670](https://github.com/chihung1024/backteststock/actions/runs/31727065558) passed at merged head 47ca2ea0cd2850774470080916d53896a9d463c6; Vercel production reported success. Cloudflare was intentionally not invoked because the Worker/public asset surface was unchanged.
 - A live-data production smoke was not run, so the external provider response for this audit value is NOT VERIFIED; the repository-level contract and regression gates are green.
