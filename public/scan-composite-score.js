@@ -14,7 +14,10 @@ import "./portfolio-route-bridge.js?v=20260804.1";
 const TABLE_SELECTOR = "#scan-table";
 const SCAN_JOB_STORAGE_KEY = "backteststock-scan-job-v3";
 const MANUAL_SELECTION_KEY = "backteststock-optimizer-manual-selection-v2";
+const MIN_PORTFOLIO_ASSETS = 1;
 const MAX_PORTFOLIO_ASSETS = 20;
+const MIN_OPTIMIZER_TICKERS = 2;
+const MAX_OPTIMIZER_TICKERS = 100;
 
 let observer;
 let updateScheduled = false;
@@ -117,6 +120,7 @@ function injectStyles() {
     .scan-control-row .scan-coverage-filter { display:flex; align-items:center; grid-template-columns:none; }
     .scan-control-row .scan-coverage-filter-status { flex:1 1 26rem; white-space:normal; }
     .scan-control-row .optimizer-manual-selection-status { margin-right:auto; white-space:normal; }
+    .scan-destination-capacity-status { flex:1 1 100%; color:var(--muted); font-size:.8rem; line-height:1.45; }
     .scan-result-export-actions { justify-content:flex-end; }
     #open-integrated-backtest[aria-disabled="true"] { pointer-events:none; opacity:.52; cursor:not-allowed; }
     #scan-table th[data-composite-metric], #scan-table td[data-composite-metric] { min-width:132px; }
@@ -221,6 +225,17 @@ function ensureResultControls() {
       integratedBacktestButton,
       actionRow.querySelector("#open-manual-optimizer"),
     );
+  }
+
+  let destinationCapacity = actionRow.querySelector("#scan-destination-capacity-status");
+  if (!destinationCapacity) {
+    destinationCapacity = document.createElement("span");
+    destinationCapacity.id = "scan-destination-capacity-status";
+    destinationCapacity.className = "scan-destination-capacity-status";
+    destinationCapacity.setAttribute("role", "status");
+    destinationCapacity.setAttribute("aria-live", "polite");
+    destinationCapacity.setAttribute("aria-atomic", "true");
+    actionRow.insertBefore(destinationCapacity, actionRow.firstChild);
   }
 
   let note = coverageRow.querySelector(".coverage-definition-note");
@@ -374,10 +389,23 @@ function renderSummary(stats) {
   }
 }
 
+function destinationCapacityText(label, count, minimum, maximum) {
+  if (count > maximum) return `${label} ${count.toLocaleString("zh-TW")} / ${maximum}（超過上限）`;
+  if (count < minimum) return `${label} ${count.toLocaleString("zh-TW")} / ${maximum}（至少 ${minimum} 檔）`;
+  return `${label} ${count.toLocaleString("zh-TW")} / ${maximum}（可使用）`;
+}
+
 function updateSelectionControls() {
   const count = selectedTickers().length;
+  const destinationCapacity = document.querySelector("#scan-destination-capacity-status");
+  if (destinationCapacity) {
+    destinationCapacity.textContent = [
+      destinationCapacityText("投組", count, MIN_PORTFOLIO_ASSETS, MAX_PORTFOLIO_ASSETS),
+      destinationCapacityText("最佳化器", count, MIN_OPTIMIZER_TICKERS, MAX_OPTIMIZER_TICKERS),
+    ].join(" · ");
+  }
   if (!integratedBacktestButton) return;
-  const enabled = count >= 1 && count <= MAX_PORTFOLIO_ASSETS;
+  const enabled = count >= MIN_PORTFOLIO_ASSETS && count <= MAX_PORTFOLIO_ASSETS;
   integratedBacktestButton.setAttribute("aria-disabled", String(!enabled));
   integratedBacktestButton.classList.toggle("disabled", !enabled);
   integratedBacktestButton.tabIndex = enabled ? 0 : -1;
