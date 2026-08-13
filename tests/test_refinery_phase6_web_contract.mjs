@@ -25,6 +25,11 @@ test("Phase 6 plan is optional, explicit, normalized by the shared Refinery auth
   assert.match(modelSource, /MAX_REFINERY_EXPERIMENT_OPERATIONS = 12/u);
   assert.match(modelSource, /MAX_REFINERY_EXPERIMENT_UNION_SYMBOLS = 24/u);
   assert.match(modelSource, /validateRefineryExperimentPlan/u);
+  assert.match(
+    modelSource,
+    /if \(plan\.length === 0\) return \[\];/u,
+    "an empty Phase 6 plan must preserve the established 2–100 candidate workflow",
+  );
   assert.match(modelSource, /toRefineryExperimentPlan/u);
   assert.match(modelSource, /normalizeRefinerySymbol\(draft\.remove\)/u);
   assert.match(modelSource, /normalizeRefinerySymbol\(draft\.add\)/u);

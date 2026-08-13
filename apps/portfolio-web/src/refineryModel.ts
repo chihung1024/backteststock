@@ -155,6 +155,11 @@ export function validateRefineryExperimentPlan(
   model: RefineryWorkspaceModel,
   plan: RefineryExperimentDraft[],
 ): RefineryValidationIssue[] {
+  // Phase 6 is opt-in. An empty plan must leave the established 2–100 candidate
+  // Phase 3–5 workflow untouched; the smaller union cap only protects an
+  // actual common-sample marginal experiment.
+  if (plan.length === 0) return [];
+
   const issues: RefineryValidationIssue[] = [];
   const baseline = activeRefineryRows(model).map((row) => normalizeRefinerySymbol(row.symbol));
   const baselineSet = new Set(baseline);
