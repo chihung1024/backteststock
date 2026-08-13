@@ -168,6 +168,7 @@ export default function App() {
   const validationRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const activeController = useRef<AbortController | null>(null);
+  const requestVersion = useRef(0);
   const issues = useMemo(() => validateModel(model), [model]);
   const activePortfolioCount = useMemo(
     () => model.portfolios.filter((portfolio) => portfolioWeightTotal(portfolio, model) > 0).length,
@@ -179,17 +180,33 @@ export default function App() {
   );
 
   function setModel(updater: (current: WorkspaceModel) => WorkspaceModel) {
+    invalidateEvidence();
     setModelState((current) => updater(current));
+  }
+
+  function invalidateActiveRequest() {
+    requestVersion.current += 1;
+    activeController.current?.abort();
+    activeController.current = null;
+    setBusy(null);
+  }
+
+  function invalidateEvidence() {
+    invalidateActiveRequest();
     setPreflight(null);
     setResponse(null);
     setMessage("");
+    setError("");
+  }
+
+  function replaceModel(next: WorkspaceModel) {
+    invalidateEvidence();
+    setModelState(next);
   }
 
   function setWorkspaceKind(next: WorkspaceKind) {
     if (next === workspaceKind) return;
-    activeController.current?.abort();
-    activeController.current = null;
-    setBusy(null);
+    invalidateActiveRequest();
     setWorkspaceKindState(next);
     try {
       window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, next);
@@ -238,15 +255,18 @@ export default function App() {
     if (!ensureValid()) return;
     activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++requestVersion.current;
     activeController.current = controller;
     setBusy("preflight");
     setError("");
     setMessage("正在取得行情、匯率與公司行為稽核…");
     try {
       const result = await runPreflight(toApiRequest(model), controller.signal);
+      if (requestVersion.current !== version) return;
       setPreflight(result);
       setMessage("資料預檢完成。可執行投組已明確列出。 ");
     } catch (caught) {
+      if (requestVersion.current !== version) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(statusText(caught));
     } finally {
       if (activeController.current === controller) activeController.current = null;
@@ -258,6 +278,7 @@ export default function App() {
     if (!ensureValid()) return;
     activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++requestVersion.current;
     activeController.current = controller;
     setBusy("backtest");
     setError("");
@@ -265,15 +286,18 @@ export default function App() {
     try {
       const request = toApiRequest(model);
       const preflightResult = preflight ?? (await runPreflight(request, controller.signal));
+      if (requestVersion.current !== version) return;
       setPreflight(preflightResult);
       if (!preflightResult.portfolios.some((portfolio) => portfolio.status === "ready")) {
         throw new Error("沒有任何投資組合通過資料預檢。 ");
       }
       const result = await runBacktest(request, controller.signal);
+      if (requestVersion.current !== version) return;
       setResponse(result);
       setMessage(`回測完成：${result.results.length} 組成功，${result.failures.length} 組失敗。`);
       window.requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (caught) {
+      if (requestVersion.current !== version) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(statusText(caught));
     } finally {
       if (activeController.current === controller) activeController.current = null;
@@ -282,9 +306,7 @@ export default function App() {
   }
 
   function cancelRun() {
-    activeController.current?.abort();
-    activeController.current = null;
-    setBusy(null);
+    invalidateActiveRequest();
     setMessage("已取消目前請求。 ");
   }
 
@@ -310,10 +332,7 @@ export default function App() {
   async function importModel(file: File) {
     try {
       const raw = JSON.parse(await file.text()) as unknown;
-      setModelState(migrateModel(raw));
-      setPreflight(null);
-      setResponse(null);
-      setError("");
+      replaceModel(migrateModel(raw));
       setMessage("模型匯入完成。 ");
     } catch {
       setError("無法讀取此 JSON 模型檔。 ");
@@ -372,8 +391,8 @@ export default function App() {
                 <p>同時比較最多五組投資組合，完整處理現金流、配息、再平衡、交易成本、槓桿與資料稽核。這是一個可直接開啟與重新整理的獨立專頁，不是彈出視窗。</p>
               </div>
               <div className="hero-actions">
-                <button type="button" className="secondary" onClick={() => setModelState(createExampleModel())}>載入範例</button>
-                <button type="button" className="secondary danger-text" onClick={() => { setModelState(createDefaultModel()); setPreflight(null); setResponse(null); setMessage("已重設為空白模型。 "); }}>重設</button>
+                <button type="button" className="secondary" onClick={() => replaceModel(createExampleModel())}>載入範例</button>
+                <button type="button" className="secondary danger-text" onClick={() => { replaceModel(createDefaultModel()); setMessage("已重設為空白模型。 "); }}>重設</button>
               </div>
             </section>
 

@@ -253,3 +253,49 @@ test("390px mobile uses the focused portfolio editor and safe full-width actions
   await page.getByRole("button", { name: "資料預檢" }).click();
   await expect(page.getByText("2/2 投組可執行")).toBeVisible();
 });
+
+test("model changes invalidate late Portfolio evidence and replacement clears completed evidence", async ({ page }) => {
+  let releaseFirstBacktest;
+  const firstBacktestGate = new Promise((resolve) => {
+    releaseFirstBacktest = resolve;
+  });
+  let backtestStarted;
+  const firstBacktestStarted = new Promise((resolve) => {
+    backtestStarted = resolve;
+  });
+  let backtestCount = 0;
+
+  await page.route("**/api/v3/portfolio/health", (route) => route.fulfill({ json: { status: "ok", service: "backteststock-portfolio-v3" } }));
+  await page.route("**/api/v3/portfolio/preflight", (route) => route.fulfill({ json: preflightPayload() }));
+  await page.route("**/api/v3/portfolio/backtests", async (route) => {
+    backtestCount += 1;
+    if (backtestCount === 1) {
+      backtestStarted();
+      await firstBacktestGate;
+    }
+    try {
+      await route.fulfill({ json: backtestPayload() });
+    } catch {
+      // The first request is expected to be aborted after the model changes.
+    }
+  });
+  await page.route("**/api/v3/portfolio/assets/search**", (route) => route.fulfill({ json: [] }));
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: "載入範例" }).click();
+
+  await page.getByRole("button", { name: "執行回測" }).click();
+  await firstBacktestStarted;
+  await page.locator(".desktop-matrix input[type=number]").first().fill("60");
+  await expect(page.getByRole("heading", { name: "回測結果" })).toHaveCount(0);
+
+  releaseFirstBacktest();
+  await expect(page.getByRole("heading", { name: "回測結果" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "載入範例" }).click();
+  await page.getByRole("button", { name: "執行回測" }).click();
+  await expect(page.getByRole("heading", { name: "回測結果" })).toBeVisible();
+
+  await page.getByRole("button", { name: "載入範例" }).click();
+  await expect(page.getByRole("heading", { name: "回測結果" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "資料預檢" })).toHaveCount(0);
+});
