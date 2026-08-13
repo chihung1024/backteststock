@@ -1,7 +1,7 @@
 import {
   METRIC_CACHE_MIGRATION_RELOAD_PENDING,
   METRIC_DEFINITION_VERSION,
-} from "./scan-score-formulas.js?v=20260803.4";
+} from "./scan-score-formulas.js?v=20260814.2";
 import {
   DEFAULT_SCAN_MIN_COVERAGE_PERCENT,
   buildScanCoverageStats,

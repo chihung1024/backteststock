@@ -8,8 +8,10 @@ const read = (file) => readFile(path.join(root, file), "utf8");
 
 test("main navigation is replaced by a normal directly addressable Portfolio link", async () => {
   const scanner = await read("public/scan-composite-score.js");
+  const index = await read("public/index.html");
 
   assert.match(scanner, /import "\.\/portfolio-route-bridge\.js\?v=20260814\.1"/u);
+  assert.match(index, /scan-composite-score\.js\?v=20260814\.2/u);
   assert.match(scanner, /portfolioLink = document\.createElement\("a"\)/u);
   assert.match(scanner, /portfolioLink\.id = "portfolio-route-link"/u);
   assert.match(scanner, /portfolioLink\.href = "\/portfolio\/"/u);

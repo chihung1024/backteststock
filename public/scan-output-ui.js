@@ -3,7 +3,7 @@ import {
   buildScoreMatrix,
   normalizeScoreTicker,
   scoreRecordFor,
-} from "./scan-score-formulas.js?v=20260803.4";
+} from "./scan-score-formulas.js?v=20260814.2";
 import {
   deriveScanCoverage,
 } from "./scan-coverage.js?v=20260803.2";
