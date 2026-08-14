@@ -118,6 +118,10 @@ assertCondition(
   Number(russellCatalog.memberCount) >= MIN_RUSSELL_MEMBERS,
   `Russell 2000 catalog contains only ${russellCatalog?.memberCount ?? 0} members.`,
 );
+assertCondition(
+  /^\d{4}-\d{2}-\d{2}$/u.test(String(russellCatalog.sourceAsOf || "")),
+  "Russell 2000 catalog is missing a sourceAsOf date required for PIT verification.",
+);
 
 const detailPayload = await requestJson("/api/v2/universes/russell2000");
 const russellDetail = detailPayload.data;
@@ -132,6 +136,59 @@ const invalidMembers = russellDetail.members.filter(
 assertCondition(
   invalidMembers.length === 0,
   `${invalidMembers.length} Russell 2000 members do not have a valid ticker.`,
+);
+
+const pitDetailPayload = await requestJson(
+  `/api/v2/universes/russell2000?asOf=${encodeURIComponent(russellCatalog.sourceAsOf)}`,
+);
+const pitDetail = pitDetailPayload.data;
+assertCondition(pitDetail?.pointInTime === true, "PIT Universe detail is not marked point-in-time.");
+assertCondition(
+  pitDetail?.requestedAsOf === russellCatalog.sourceAsOf,
+  "PIT Universe detail did not preserve requestedAsOf.",
+);
+assertCondition(
+  pitDetail?.sourceAsOf === russellCatalog.sourceAsOf,
+  "PIT Universe detail did not resolve the current source observation date.",
+);
+assertCondition(
+  pitDetail?.membershipPolicy === "latest-observed-on-or-before-max-10d-v1",
+  "PIT Universe detail returned the wrong membership policy.",
+);
+assertCondition(
+  Array.isArray(pitDetail?.members) && pitDetail.members.length === russellDetail.members.length,
+  "PIT Universe archive member count does not match the active snapshot.",
+);
+
+const pitScreenerPayload = await requestJson(
+  "/api/v2/screener",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      universe: "russell2000",
+      selectionAsOf: russellCatalog.sourceAsOf,
+      sector: "any",
+      filters: {},
+      sort: "ticker-asc",
+      limit: 3,
+    }),
+  },
+);
+assertCondition(
+  Array.isArray(pitScreenerPayload.candidates) && pitScreenerPayload.candidates.length === 3,
+  "PIT membership screener did not return the requested bounded candidate set.",
+);
+assertCondition(
+  pitScreenerPayload.fundamentalsAsOf === null,
+  "PIT membership-only screener unexpectedly reported fundamentals provenance.",
+);
+assertCondition(
+  pitScreenerPayload.researchValidity?.selectionMode === "point_in_time_membership_only"
+    && pitScreenerPayload.researchValidity?.membershipPointInTime === true
+    && pitScreenerPayload.researchValidity?.fundamentalsApplied === false
+    && pitScreenerPayload.researchValidity?.historicalSelectionSafe === true,
+  "PIT membership screener research-validity contract is incomplete.",
 );
 
 const screenerPayload = await requestJson(
@@ -164,6 +221,13 @@ assertCondition(
 assertCondition(
   Number(screenerPayload.funnel?.fundamentalsAvailable) >= MIN_FUNDAMENTALS_COVERAGE,
   `Russell 2000 fundamentals coverage is only ${screenerPayload.funnel?.fundamentalsAvailable ?? 0}.`,
+);
+assertCondition(
+  screenerPayload.researchValidity?.selectionMode === "current_snapshot_retrospective"
+    && screenerPayload.researchValidity?.membershipPointInTime === false
+    && screenerPayload.researchValidity?.fundamentalsPointInTime === false
+    && screenerPayload.researchValidity?.historicalSelectionSafe === false,
+  "Current screener did not disclose its retrospective research-validity boundary.",
 );
 
 const scanContract = await requestJson(
@@ -249,6 +313,9 @@ console.log(
       twdValuationContractVersion: backendContract.twdContract,
       universeVersion: russellDetail.version,
       memberCount: russellDetail.members.length,
+      pitSourceAsOf: pitDetail.sourceAsOf,
+      pitMemberCount: pitDetail.members.length,
+      pitSelectedTickers: pitScreenerPayload.candidates.map((candidate) => candidate.ticker),
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
       returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),
       scanContractStatus: scanRow.status,
