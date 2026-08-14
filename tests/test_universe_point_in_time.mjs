@@ -76,7 +76,7 @@ const archive = {
   members_json: JSON.stringify(["AAPL", "OLDCO"]),
 };
 
-test("GET Universe asOf returns causal archived membership instead of current membership", async () => {
+test("GET Universe asOf returns causally available archived membership instead of current membership", async () => {
   const response = await worker.fetch(
     new Request("https://example.com/api/v2/universes/sp500?asOf=2026-08-12"),
     { DB: pitDatabase({ archive }) },
@@ -84,11 +84,14 @@ test("GET Universe asOf returns causal archived membership instead of current me
 
   assert.equal(response.status, 200);
   const payload = await response.json();
-  assert.equal(payload.data.selectionMode, "point_in_time_last_observed");
+  assert.equal(payload.data.selectionMode, "point_in_time_last_causally_available");
   assert.equal(payload.data.requestedAsOf, "2026-08-12");
   assert.equal(payload.data.sourceAsOf, "2026-08-10");
+  assert.equal(payload.data.evidenceAvailableAsOf, "2026-08-10");
   assert.equal(payload.data.observationAgeDays, 2);
   assert.equal(payload.data.pointInTime, true);
+  assert.equal(payload.data.membershipCausal, true);
+  assert.equal(payload.data.membershipAuthoritative, true);
   assert.deepEqual(
     payload.data.members.map((member) => member.ticker),
     ["AAPL", "OLDCO"],
@@ -105,10 +108,29 @@ test("historical Universe lookup fails closed when no prior archived evidence ex
   assert.match((await response.json()).error, /沒有可驗證/);
 });
 
-test("historical Universe lookup rejects stale last-observed membership", async () => {
+test("historical Universe lookup rejects evidence fetched after the research date", async () => {
+  const lateFetchedArchive = {
+    ...archive,
+    fetched_at: "2026-08-13T00:05:00Z",
+  };
   const response = await worker.fetch(
-    new Request("https://example.com/api/v2/universes/sp500?asOf=2026-08-25"),
-    { DB: pitDatabase({ archive }) },
+    new Request("https://example.com/api/v2/universes/sp500?asOf=2026-08-12"),
+    { DB: pitDatabase({ archive: lateFetchedArchive }) },
+  );
+
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /之後才被系統取得/);
+});
+
+test("historical Universe lookup rejects stale last-observed membership", async () => {
+  const staleArchive = {
+    ...archive,
+    source_as_of: "2026-07-01",
+    fetched_at: "2026-07-01T12:00:00Z",
+  };
+  const response = await worker.fetch(
+    new Request("https://example.com/api/v2/universes/sp500?asOf=2026-07-20"),
+    { DB: pitDatabase({ archive: staleArchive }) },
   );
 
   assert.equal(response.status, 409);
@@ -123,6 +145,16 @@ test("historical Universe lookup validates the research date strictly", async ()
 
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /YYYY-MM-DD/);
+});
+
+test("historical Universe lookup rejects future research dates", async () => {
+  const response = await worker.fetch(
+    new Request("https://example.com/api/v2/universes/sp500?asOf=2099-01-01"),
+    { DB: pitDatabase({ archive }) },
+  );
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /未來日期/);
 });
 
 test("PIT membership-only screener never calls current fundamentals backend", async () => {
@@ -155,11 +187,44 @@ test("PIT membership-only screener never calls current fundamentals backend", as
     assert.deepEqual(payload.candidates, [{ ticker: "AAPL" }, { ticker: "OLDCO" }]);
     assert.equal(payload.fundamentalsAsOf, null);
     assert.equal(payload.researchValidity.membershipPointInTime, true);
+    assert.equal(payload.researchValidity.membershipCausal, true);
+    assert.equal(payload.researchValidity.membershipAuthoritative, true);
+    assert.equal(payload.researchValidity.membershipSourceType, "authoritative");
     assert.equal(payload.researchValidity.fundamentalsApplied, false);
     assert.equal(payload.researchValidity.historicalSelectionSafe, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("PIT proxy membership is causal but not advertised as authoritative historical selection", async () => {
+  const proxyArchive = {
+    ...archive,
+    is_proxy: 1,
+    warning: "Proxy fixture membership.",
+  };
+  const response = await worker.fetch(
+    new Request("https://example.com/api/v2/screener", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        universe: "sp500",
+        selectionAsOf: "2026-08-12",
+        sector: "any",
+        filters: {},
+        sort: "ticker-asc",
+      }),
+    }),
+    { DB: pitDatabase({ archive: proxyArchive }) },
+  );
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.researchValidity.membershipCausal, true);
+  assert.equal(payload.researchValidity.membershipAuthoritative, false);
+  assert.equal(payload.researchValidity.membershipSourceType, "proxy");
+  assert.equal(payload.researchValidity.historicalSelectionSafe, false);
+  assert.ok(payload.warnings.some((warning) => warning.includes("不能等同官方指數歷史成分名單")));
 });
 
 test("PIT screener rejects historical fundamental filtering instead of using current data", async () => {
@@ -208,6 +273,8 @@ test("current screener remains functional but is explicitly marked retrospective
     assert.equal(forwarded._universe.version, "2026-08-14-current");
     const payload = await response.json();
     assert.equal(payload.researchValidity.selectionMode, "current_snapshot_retrospective");
+    assert.equal(payload.researchValidity.membershipCausal, false);
+    assert.equal(payload.researchValidity.membershipAuthoritative, null);
     assert.equal(payload.researchValidity.historicalSelectionSafe, false);
     assert.ok(payload.warnings.some((warning) => warning.includes("不能視為歷史時點選股")));
   } finally {
