@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi.testclient import TestClient
 
 import api.portfolio_v3 as portfolio_api
@@ -84,6 +86,11 @@ def test_health_exposes_self_owned_contract_versions(monkeypatch) -> None:
 
 def test_search_preflight_and_backtest_routes_use_typed_contract(monkeypatch) -> None:
     monkeypatch.setattr(portfolio_api, "get_service", lambda: FakeService())
+    monkeypatch.setattr(
+        portfolio_api.date_policy,
+        "latest_complete_utc_date",
+        lambda _now=None: date(2026, 8, 13),
+    )
     client = TestClient(portfolio_api.app)
 
     search = client.get(
@@ -105,8 +112,12 @@ def test_search_preflight_and_backtest_routes_use_typed_contract(monkeypatch) ->
     assert search.json()[0]["symbol"] == "SPY"
     assert preflight.status_code == 200
     assert preflight.json()["request_id"] == "preflight-id"
+    assert preflight.headers["x-as-of-date"] == "2026-08-13"
+    assert preflight.headers["x-as-of-policy"] == portfolio_api.date_policy.AS_OF_POLICY
     assert backtest.status_code == 200
     assert backtest.json()["results"][0]["metrics"]["cagr"] == 0.1
+    assert backtest.headers["x-as-of-date"] == "2026-08-13"
+    assert backtest.headers["x-as-of-policy"] == portfolio_api.date_policy.AS_OF_POLICY
 
 
 def test_api_rejects_unknown_fields_invalid_weights_and_oversized_requests(monkeypatch) -> None:
@@ -140,3 +151,36 @@ def test_api_rejects_unknown_fields_invalid_weights_and_oversized_requests(monke
     assert invalid_response.status_code == 422
     assert weight_response.status_code == 422
     assert oversized.status_code == 413
+
+
+def test_portfolio_routes_reject_incomplete_end_date_before_service(monkeypatch) -> None:
+    monkeypatch.setattr(
+        portfolio_api.date_policy,
+        "latest_complete_utc_date",
+        lambda _now=None: date(2026, 8, 13),
+    )
+
+    def service_must_not_run():
+        raise AssertionError("Portfolio service must not run for an incomplete date")
+
+    monkeypatch.setattr(portfolio_api, "get_service", service_must_not_run)
+    client = TestClient(portfolio_api.app, raise_server_exceptions=False)
+    payload = _payload()
+    payload["start_date"] = "2026-01-02"
+    payload["end_date"] = "2026-08-14"
+
+    preflight = client.post(
+        "/api/v3/portfolio/preflight",
+        json=payload,
+        headers={"x-forwarded-for": "203.0.113.8"},
+    )
+    backtest = client.post(
+        "/api/v3/portfolio/backtests",
+        json=payload,
+        headers={"x-forwarded-for": "203.0.113.9"},
+    )
+
+    assert preflight.status_code == 422
+    assert "2026-08-13" in preflight.json()["detail"]
+    assert backtest.status_code == 422
+    assert "2026-08-13" in backtest.json()["detail"]
