@@ -8,6 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from api import date_policy
 from api import index as legacy
 from api import market_data
 from api.corporate_actions import (
@@ -219,6 +220,9 @@ def backtest_handler():
     try:
         data = legacy.require_json_object()
         start_date, end_exclusive = legacy.parse_period(data)
+        period = date_policy.require_complete_period(start_date, end_exclusive)
+        start_date = period.start
+        end_exclusive = period.end_exclusive
         initial_amount = legacy.validate_initial_amount(data.get("initialAmount"))
         default_period = data.get("rebalancingPeriod", "never")
         if default_period not in legacy.ALLOWED_REBALANCING_PERIODS:
@@ -288,6 +292,11 @@ def backtest_handler():
             extra={
                 "requested_start": start_date.strftime("%Y-%m-%d"),
                 "requested_end_exclusive": end_exclusive.strftime("%Y-%m-%d"),
+                "as_of_date": period.as_of_date.isoformat(),
+                "as_of_policy": period.as_of_policy,
+                "incomplete_current_bar_excluded": (
+                    period.incomplete_current_bar_excluded
+                ),
                 "valuation_currency": VALUATION_CURRENCY,
                 "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,
                 "calendar_policy": TWD_PORTFOLIO_CALENDAR_POLICY,
@@ -348,8 +357,10 @@ def backtest_handler():
         response.headers["X-Backend-Server-Timing"] = timing
         response.headers["X-Backtest-Requested"] = str(len(batch.requested))
         response.headers["X-Backtest-Resolved"] = str(len(batch.histories.histories))
+        response.headers["X-As-Of-Date"] = period.as_of_date.isoformat()
+        response.headers["X-As-Of-Policy"] = period.as_of_policy
         return response
-    except legacy.ValidationError as exc:
+    except (legacy.ValidationError, date_policy.DatePolicyError) as exc:
         return legacy.error_response(str(exc), 400)
     except legacy.DataSourceError as exc:
         return legacy.error_response(str(exc), 503)
