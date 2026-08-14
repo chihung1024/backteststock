@@ -4,27 +4,28 @@
 
 ## Current Status
 
-**ROADMAP-B01 — research-use boundaries + origin perimeter: ACTIVE DRAFT PR / IMPLEMENTATION VALIDATED / NOT MERGED / NOT DEPLOYED.**
+**ROADMAP-B01 — research-use boundaries + origin perimeter: ACTIVE DRAFT PR / EXACT-HEAD GREEN / NOT MERGED / NOT DEPLOYED.**
 
 - Stable production `main` remains [`c99916e7668a800e12d44b010becce43f51cd0d7`](https://github.com/chihung1024/backteststock/commit/c99916e7668a800e12d44b010becce43f51cd0d7) (PF-1I). ROADMAP-B01 is not part of production.
 - Active candidate: [PR #147](https://github.com/chihung1024/backteststock/pull/147), branch `codex/roadmap-batch-0-1`, still Draft.
 - Preserved recovery checkpoint commit: [`9ac88d1c79c7747329abd013a918c9c428e68874`](https://github.com/chihung1024/backteststock/commit/9ac88d1c79c7747329abd013a918c9c428e68874). Do not rewrite or discard this recovery point.
-- Latest fully validated implementation head before this live-handoff reconciliation: [`0dc83c2e1090de4830d9e55616c2d174ffbb23de`](https://github.com/chihung1024/backteststock/commit/0dc83c2e1090de4830d9e55616c2d174ffbb23de).
-- Exact-head candidate CI [#705](https://github.com/chihung1024/backteststock/actions/runs/31778607448) passed every repository gate at that implementation head: Python install/pip check, compile, Ruff, 287 pytest tests, JavaScript checks, Worker tests, generated Worker bindings, score tests, Portfolio TypeScript/build, Portfolio/Refinery source contracts, committed Portfolio asset verification, Chromium Playwright E2E, Vercel JSON validation, local D1 migrations and Wrangler deploy dry-run.
-- Focused R3 self-review found and fixed two trust-boundary issues before the green candidate: misspelled/nonstandard required-policy values now fail closed rather than disabling edge protection, and browser-controlled forwarding/IP/service-identity headers are stripped before trusted backend headers are applied. Regression coverage was added.
+- Fully validated implementation head: [`0dc83c2e1090de4830d9e55616c2d174ffbb23de`](https://github.com/chihung1024/backteststock/commit/0dc83c2e1090de4830d9e55616c2d174ffbb23de), full CI #705.
+- Fully validated implementation + documentation candidate: [`c7fb5c007bd47bf4b24d9f3bd14a8b8451a66f8b`](https://github.com/chihung1024/backteststock/commit/c7fb5c007bd47bf4b24d9f3bd14a8b8451a66f8b), full exact-head CI [#711](https://github.com/chihung1024/backteststock/actions/runs/31779112721).
+- CI #711 passed every repository gate: Python install/pip check, compile, Ruff, pytest, JavaScript checks, Worker tests, generated Worker bindings, score tests, Portfolio TypeScript/build, Portfolio/Refinery source contracts, canonical Portfolio asset verification, Chromium Playwright E2E, Vercel JSON validation, local D1 migrations and Wrangler deploy dry-run.
+- Focused R3 self-review at the final candidate found no remaining self-review blocker after the branch fixes. The audit note is PR review `#4934887081`; it is explicitly **not** an independent approval.
+- Focused review previously found and fixed two trust-boundary issues: misspelled/nonstandard required-policy values now fail closed rather than disabling edge protection, and browser-controlled forwarding/IP/service-identity headers are stripped before trusted backend headers are applied. Regression coverage was added.
 - Portfolio production-asset validation was repaired without disabling the gate: runtime assets remain byte-strict; JavaScript source maps remain strict for file set, mappings, names and other semantic fields while package-manager install-layout paths are normalized and non-runtime embedded `sourcesContent` is excluded from equality after structural validation.
-- [PR #146](https://github.com/chihung1024/backteststock/pull/146) was closed without merge as superseded by #147, preventing competing live-status documents.
+- [PR #146](https://github.com/chihung1024/backteststock/pull/146) is closed without merge as superseded by #147, preventing competing live-status documents.
 - No ROADMAP-B01 production secret write, production merge or deployment has been performed.
-- Any commit newer than the recorded green implementation head must obtain its own exact-head CI before the PR can be treated as release-ready. PR #147 is the authority for the current mutable head SHA.
+- This live-handoff-only update may make the mutable PR head newer than the recorded green SHA. Re-query PR #147 and require CI success for its actual current head before any merge decision; do not create another status-only commit merely to write that newest SHA back into this file.
 
 ### Remaining B01 release gates
 
-1. Current PR #147 exact head must be fully green after the final documentation reconciliation.
-2. Complete a genuinely independent review of the final high-risk diff. The current focused review is self-review and must not be labeled independent.
-3. Provision one random `BACKTESTSTOCK_EDGE_SECRET` of at least 32 bytes in both Vercel and Cloudflare without committing or exposing the value.
-4. Perform the documented two-phase origin-auth rollout: first run Vercel with `BACKTESTSTOCK_REQUIRE_EDGE_AUTH=false`, deploy/verify the Worker with the matching secret, then enable Vercel fail-closed enforcement.
-5. Verify Worker-routed protected APIs succeed, direct protected Vercel-origin calls return 403, and `/api/health` remains public.
-6. Only after those gates: mark #147 Ready, merge using the repository's approved method, then verify post-main CI, Vercel/Cloudflare deployment and production smokes before closing B01.
+1. Obtain a genuinely independent review of the final high-risk diff. The current focused review is self-review and must not be labeled independent.
+2. Provision one random `BACKTESTSTOCK_EDGE_SECRET` of at least 32 bytes in both Vercel and Cloudflare without committing, logging or exposing the value.
+3. Perform the documented two-phase origin-auth rollout: first run Vercel with `BACKTESTSTOCK_REQUIRE_EDGE_AUTH=false`, deploy/verify the Worker with the matching secret, then enable Vercel fail-closed enforcement.
+4. Verify Worker-routed protected APIs succeed, direct protected Vercel-origin calls return 403, and `/api/health` remains public.
+5. Mark #147 Ready and merge only after the required review/rollout gates are satisfied; then verify post-main CI, Vercel/Cloudflare deployment and production smokes before recording B01 CLOSED.
 
 Historical local recovery details remain in [`docs/ROADMAP_EXECUTION_HANDOFF_2026-08-14.md`](docs/ROADMAP_EXECUTION_HANDOFF_2026-08-14.md). That file is a historical checkpoint, not the current live-status authority.
 
@@ -98,17 +99,20 @@ Historical local recovery details remain in [`docs/ROADMAP_EXECUTION_HANDOFF_202
 
 **Primary Active Batch: ROADMAP-B01 closeout only.**
 
-Do not start Batch 2 implementation while #147 is still Draft, unreviewed by an independent reviewer, not safely rolled out, or not post-main verified. Newly discovered unrelated work goes to Backlog unless it is required to preserve B01 functional/security correctness.
+Do not start Batch 2 implementation while #147 is still Draft, lacks independent review, has not completed the safe production rollout, or is not post-main verified. Newly discovered unrelated work goes to Backlog unless it is required to preserve B01 functional/security correctness.
 
 ## B01 Validation Record
 
-Recorded exact-head green implementation candidate: `0dc83c2e1090de4830d9e55616c2d174ffbb23de`, CI #705.
+- Implementation head `0dc83c2e1090de4830d9e55616c2d174ffbb23de`: full CI #705 passed.
+- Implementation + reconciled documentation head `c7fb5c007bd47bf4b24d9f3bd14a8b8451a66f8b`: full exact-head CI #711 passed.
+- Difference from `0dc83c2e...` to `c7fb5c00...` was exactly two documentation files: `to_do_update_list.md` and `docs/README.md`.
+- PR #147 has no unresolved review threads at the recorded candidate.
 
-Passed gates:
+Passed repository gates include:
 
 - Python dependency install and `pip check`.
 - Python compile and Ruff.
-- `pytest`: 287 passed.
+- Full pytest suite.
 - JavaScript syntax checks.
 - Worker regression suite, including edge-auth/rate-limit/header-spoof coverage.
 - Wrangler-generated Worker binding check.
@@ -121,7 +125,7 @@ Passed gates:
 - Local D1 migration apply.
 - Cloudflare Wrangler deployment dry-run.
 
-The above evidence applies to that exact SHA only. A newer PR head must be re-queried and validated before merge decisions.
+Validation evidence is SHA-specific. Always re-query the actual current PR head before merge/deploy; a newer status-only commit does not inherit a green check by assertion.
 
 ## Decisions / Constraints
 
@@ -189,7 +193,7 @@ The above evidence applies to that exact SHA only. A newer PR head must be re-qu
 
 ### NOW
 
-Keep `main c99916e` as the verified production recovery point. Finish ROADMAP-B01 on PR #147 only: final exact-head CI after documentation reconciliation → genuine independent review → controlled Vercel/Cloudflare secret rollout → production smoke → merge/post-main verification → B01 closeout.
+Keep `main c99916e` as the verified production recovery point. Finish ROADMAP-B01 on PR #147 only: current-head check → genuine independent review → controlled Vercel/Cloudflare secret rollout → production smoke → Ready/merge/post-main verification → B01 closeout.
 
 ### NEXT
 
@@ -205,15 +209,14 @@ Use the Rejected section. Do not reopen closed PF/UX batches unless their functi
 
 ## Next Actions
 
-1. Re-query PR #147 current head and its exact-head CI after this documentation update.
-2. Complete focused final diff review and confirm no unresolved review threads.
-3. Obtain a genuinely independent reviewer for the final R3 candidate; do not substitute self-approval.
-4. Follow `docs/DEPLOYMENT.md` to provision the same >=32-byte edge secret in Vercel and Cloudflare using the compatibility-first two-phase sequence.
-5. Verify protected Worker-routed calls succeed, protected direct-origin calls fail with 403, and `/api/health` remains public.
-6. Mark #147 Ready and merge only after the required gates are satisfied.
-7. Verify post-main CI, Vercel production, Cloudflare deployment and Scanner/Portfolio/Refinery smokes; then record B01 CLOSED.
-8. Only then create the Batch 2 branch/work plan.
+1. Re-query PR #147 current head/checks; require green CI for the actual mutable head.
+2. Obtain a genuinely independent reviewer for the final R3 candidate; do not substitute self-approval.
+3. Follow `docs/DEPLOYMENT.md` to provision the same >=32-byte edge secret in Vercel and Cloudflare using the compatibility-first two-phase sequence.
+4. Verify protected Worker-routed calls succeed, protected direct-origin calls fail with 403, and `/api/health` remains public.
+5. Mark #147 Ready and merge only after the required gates are satisfied.
+6. Verify post-main CI, Vercel production, Cloudflare deployment and Scanner/Portfolio/Refinery smokes; then record B01 CLOSED.
+7. Only then create the Batch 2 branch/work plan.
 
 ## Exact Resume Point
 
-Production is still `main c99916e` (PF-1I). ROADMAP-B01 is preserved in Draft PR #147; recovery checkpoint `9ac88d1...` remains in history. Implementation head `0dc83c2e...` passed full CI #705 and focused self-review after the asset-verification, fail-closed policy-mode and forwarding-header hardening fixes. PR #146 is closed as superseded. Resume by re-querying #147's current mutable head/checks, then complete independent review and the two-phase secret rollout. Do not begin Batch 2 and do not describe B01 as deployed until post-main production verification is complete.
+Production is still `main c99916e` (PF-1I). ROADMAP-B01 is preserved in Draft PR #147; recovery checkpoint `9ac88d1...` remains in history. Candidate `c7fb5c00...` passed full CI #711 after implementation, security hardening, canonical-asset repair and documentation reconciliation; focused self-review is recorded as review `#4934887081` and is not independent approval. PR #146 is closed as superseded. This handoff-only update may create a newer mutable PR head, so resume by re-querying #147 and its CI rather than writing another self-referential status commit. The next substantive gate is genuinely independent review, followed by the two-phase secret rollout. Do not begin Batch 2 and do not describe B01 as deployed until post-main production verification is complete.
