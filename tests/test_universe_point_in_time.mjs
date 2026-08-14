@@ -71,7 +71,7 @@ const archive = {
   source_url: "https://example.com/source",
   is_proxy: 0,
   warning: null,
-  checksum: "abc123",
+  checksum: "7f5cfd72cb86434017dc803355e82f9c2ba4a757a57ba90cb329831f450a03c7",
   member_count: 2,
   members_json: JSON.stringify(["AAPL", "OLDCO"]),
 };
@@ -155,6 +155,20 @@ test("historical Universe lookup rejects future research dates", async () => {
 
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /未來日期/);
+});
+
+test("historical Universe lookup rejects valid-looking membership when checksum drifts", async () => {
+  const tamperedArchive = {
+    ...archive,
+    members_json: JSON.stringify(["AAPL", "MSFT"]),
+  };
+  const response = await worker.fetch(
+    new Request("https://example.com/api/v2/universes/sp500?asOf=2026-08-12"),
+    { DB: pitDatabase({ archive: tamperedArchive }) },
+  );
+
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /checksum/);
 });
 
 test("PIT membership-only screener never calls current fundamentals backend", async () => {
