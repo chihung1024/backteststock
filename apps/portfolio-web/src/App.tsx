@@ -269,8 +269,10 @@ export default function App() {
       if (requestVersion.current !== version) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(statusText(caught));
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setBusy(null);
+      if (requestVersion.current === version && activeController.current === controller) {
+        activeController.current = null;
+        setBusy(null);
+      }
     }
   }
 
@@ -300,8 +302,10 @@ export default function App() {
       if (requestVersion.current !== version) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(statusText(caught));
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setBusy(null);
+      if (requestVersion.current === version && activeController.current === controller) {
+        activeController.current = null;
+        setBusy(null);
+      }
     }
   }
 

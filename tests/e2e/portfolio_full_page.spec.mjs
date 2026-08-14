@@ -357,3 +357,61 @@ test("model changes invalidate late Portfolio evidence and replacement clears co
   await expect(page.getByRole("heading", { name: "回測結果" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "資料預檢" })).toHaveCount(0);
 });
+
+test("late Portfolio cleanup cannot clear busy state for a newer backtest", async ({ page }) => {
+  let releaseFirstBacktest;
+  let releaseSecondBacktest;
+  const firstBacktestGate = new Promise((resolve) => { releaseFirstBacktest = resolve; });
+  const secondBacktestGate = new Promise((resolve) => { releaseSecondBacktest = resolve; });
+  let firstBacktestStarted;
+  let secondBacktestStarted;
+  const firstBacktestStartedPromise = new Promise((resolve) => { firstBacktestStarted = resolve; });
+  const secondBacktestStartedPromise = new Promise((resolve) => { secondBacktestStarted = resolve; });
+  let backtestCount = 0;
+
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const requestInit = init ? { ...init } : undefined;
+      if (requestInit) delete requestInit.signal;
+      return originalFetch(input, requestInit);
+    };
+  });
+  await page.route("**/api/v3/portfolio/health", (route) => route.fulfill({ json: { status: "ok", service: "backteststock-portfolio-v3" } }));
+  await page.route("**/api/v3/portfolio/preflight", (route) => route.fulfill({ json: preflightPayload() }));
+  await page.route("**/api/v3/portfolio/backtests", async (route) => {
+    backtestCount += 1;
+    if (backtestCount === 1) {
+      firstBacktestStarted();
+      await firstBacktestGate;
+    } else if (backtestCount === 2) {
+      secondBacktestStarted();
+      await secondBacktestGate;
+    }
+    try {
+      await route.fulfill({ json: backtestPayload() });
+    } catch {
+      // A released request may already have been superseded by the next model run.
+    }
+  });
+  await page.route("**/api/v3/portfolio/assets/search**", (route) => route.fulfill({ json: [] }));
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: "載入範例" }).click();
+
+  await page.getByRole("button", { name: "執行回測" }).click();
+  await firstBacktestStartedPromise;
+  const weights = page.locator(".desktop-matrix input[type=number]");
+  await weights.nth(0).fill("60");
+  await weights.nth(2).fill("20");
+  await expect(page.getByRole("button", { name: "執行回測" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "執行回測" }).click();
+  await secondBacktestStartedPromise;
+  releaseFirstBacktest();
+
+  await expect(page.getByRole("button", { name: "回測中…" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取消" })).toBeVisible();
+
+  releaseSecondBacktest();
+  await expect(page.getByRole("heading", { name: "回測結果" })).toBeVisible();
+});
