@@ -58,6 +58,7 @@ class FXLevels:
     correction_count: int
     unresolved_count: int
     material_transition_count: int
+    future_assisted_correction_count: int = 0
     candidate_priority: int = 0
 
     @property
@@ -80,8 +81,11 @@ class YahooFXProvider:
     FX symbols are tried a finite number of times: the normal direct quote, an
     inverse quote, Yahoo's legacy USD aliases, then (for a non-USD currency) a
     source→USD→TWD triangulation.  All candidates are normalized before their
-    quality is compared.  The provider never turns a later rate into an earlier
-    one; calendar alignment is intentionally left to ``value_adjusted_close_in_twd``.
+    quality is compared.  Calendar alignment never forward-fills a later rate
+    into an earlier date.  Historical OHLC reconciliation can, however, use a
+    later trusted observation to repair an earlier malformed bar; such repairs
+    are explicitly counted as future-assisted/non-causal in the FX audit so
+    walk-forward/OOS consumers can exclude them.
     """
 
     def __init__(self) -> None:
@@ -242,6 +246,7 @@ class YahooFXProvider:
             correction_count=reconciliation.correction_count,
             unresolved_count=reconciliation.unresolved_count,
             material_transition_count=_material_transition_count(levels),
+            future_assisted_correction_count=reconciliation.future_assisted_count,
             candidate_priority=priority,
         )
 
@@ -323,6 +328,10 @@ def _triangulate_via_usd(
         correction_count=source_to_usd.correction_count + usd_to_twd.correction_count,
         unresolved_count=source_to_usd.unresolved_count + usd_to_twd.unresolved_count,
         material_transition_count=_material_transition_count(levels),
+        future_assisted_correction_count=(
+            source_to_usd.future_assisted_correction_count
+            + usd_to_twd.future_assisted_correction_count
+        ),
         candidate_priority=max(
             source_to_usd.candidate_priority,
             usd_to_twd.candidate_priority,
@@ -369,5 +378,6 @@ def _copy_fx_levels(value: FXLevels) -> FXLevels:
         correction_count=value.correction_count,
         unresolved_count=value.unresolved_count,
         material_transition_count=value.material_transition_count,
+        future_assisted_correction_count=value.future_assisted_correction_count,
         candidate_priority=value.candidate_priority,
     )
