@@ -429,3 +429,15 @@ def prepare_exhaustive_optimizer():
 
 
 app.register_blueprint(exhaustive_blueprint)
+
+
+@app.after_request
+def add_exhaustive_headers(response):
+    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Exhaustive-Optimizer-Version", EXHAUSTIVE_OPTIMIZER_VERSION)
+    response.headers.setdefault("X-Valuation-Currency", VALUATION_CURRENCY)
+    response.headers.setdefault(
+        "X-TWD-Valuation-Contract-Version", TWD_VALUATION_CONTRACT_VERSION
+    )
+    return response
