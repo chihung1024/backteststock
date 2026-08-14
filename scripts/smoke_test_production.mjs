@@ -13,6 +13,7 @@ const REQUEST_TIMEOUT_MS = 240_000;
 const BACKEND_VERSION_ATTEMPTS = 24;
 const BACKEND_VERSION_DELAY_MS = 15_000;
 const EXPECTED_TWD_VALUATION_CONTRACT = "twd-adjusted-close-union-calendar-2026-08-03.2";
+const EXPECTED_PIT_MEMBERSHIP_POLICY = "latest-causally-available-observation-on-or-before-max-10d-v2";
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -20,6 +21,11 @@ function sleep(milliseconds) {
 
 function assertCondition(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function datePart(value) {
+  const raw = String(value || "");
+  return /^\d{4}-\d{2}-\d{2}/u.test(raw) ? raw.slice(0, 10) : null;
 }
 
 async function requestJson(pathname, init = {}, options = {}) {
@@ -138,13 +144,26 @@ assertCondition(
   `${invalidMembers.length} Russell 2000 members do not have a valid ticker.`,
 );
 
+const fetchedDate = datePart(russellDetail.fetchedAt);
+assertCondition(fetchedDate !== null, "Russell 2000 detail is missing a valid fetchedAt date.");
+const pitSelectionAsOf = [russellCatalog.sourceAsOf, fetchedDate].sort().at(-1);
+assertCondition(
+  pitSelectionAsOf <= new Date().toISOString().slice(0, 10),
+  "PIT production smoke resolved to a future selection date.",
+);
+
 const pitDetailPayload = await requestJson(
-  `/api/v2/universes/russell2000?asOf=${encodeURIComponent(russellCatalog.sourceAsOf)}`,
+  `/api/v2/universes/russell2000?asOf=${encodeURIComponent(pitSelectionAsOf)}`,
 );
 const pitDetail = pitDetailPayload.data;
 assertCondition(pitDetail?.pointInTime === true, "PIT Universe detail is not marked point-in-time.");
+assertCondition(pitDetail?.membershipCausal === true, "PIT Universe detail is not marked causal.");
 assertCondition(
-  pitDetail?.requestedAsOf === russellCatalog.sourceAsOf,
+  pitDetail?.membershipAuthoritative === false,
+  "Russell 2000 IWM proxy must not be advertised as authoritative membership.",
+);
+assertCondition(
+  pitDetail?.requestedAsOf === pitSelectionAsOf,
   "PIT Universe detail did not preserve requestedAsOf.",
 );
 assertCondition(
@@ -152,8 +171,16 @@ assertCondition(
   "PIT Universe detail did not resolve the current source observation date.",
 );
 assertCondition(
-  pitDetail?.membershipPolicy === "latest-observed-on-or-before-max-10d-v1",
+  pitDetail?.evidenceAvailableAsOf === fetchedDate,
+  "PIT Universe detail did not disclose when the membership evidence became available.",
+);
+assertCondition(
+  pitDetail?.membershipPolicy === EXPECTED_PIT_MEMBERSHIP_POLICY,
   "PIT Universe detail returned the wrong membership policy.",
+);
+assertCondition(
+  pitDetail?.source?.isProxy === true,
+  "Russell 2000 PIT source must preserve the IWM proxy disclosure.",
 );
 assertCondition(
   Array.isArray(pitDetail?.members) && pitDetail.members.length === russellDetail.members.length,
@@ -167,7 +194,7 @@ const pitScreenerPayload = await requestJson(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       universe: "russell2000",
-      selectionAsOf: russellCatalog.sourceAsOf,
+      selectionAsOf: pitSelectionAsOf,
       sector: "any",
       filters: {},
       sort: "ticker-asc",
@@ -186,9 +213,12 @@ assertCondition(
 assertCondition(
   pitScreenerPayload.researchValidity?.selectionMode === "point_in_time_membership_only"
     && pitScreenerPayload.researchValidity?.membershipPointInTime === true
+    && pitScreenerPayload.researchValidity?.membershipCausal === true
+    && pitScreenerPayload.researchValidity?.membershipAuthoritative === false
+    && pitScreenerPayload.researchValidity?.membershipSourceType === "proxy"
     && pitScreenerPayload.researchValidity?.fundamentalsApplied === false
-    && pitScreenerPayload.researchValidity?.historicalSelectionSafe === true,
-  "PIT membership screener research-validity contract is incomplete.",
+    && pitScreenerPayload.researchValidity?.historicalSelectionSafe === false,
+  "PIT membership screener research-validity contract is incomplete or overstates proxy authority.",
 );
 
 const screenerPayload = await requestJson(
@@ -225,6 +255,7 @@ assertCondition(
 assertCondition(
   screenerPayload.researchValidity?.selectionMode === "current_snapshot_retrospective"
     && screenerPayload.researchValidity?.membershipPointInTime === false
+    && screenerPayload.researchValidity?.membershipCausal === false
     && screenerPayload.researchValidity?.fundamentalsPointInTime === false
     && screenerPayload.researchValidity?.historicalSelectionSafe === false,
   "Current screener did not disclose its retrospective research-validity boundary.",
@@ -313,7 +344,9 @@ console.log(
       twdValuationContractVersion: backendContract.twdContract,
       universeVersion: russellDetail.version,
       memberCount: russellDetail.members.length,
+      pitSelectionAsOf,
       pitSourceAsOf: pitDetail.sourceAsOf,
+      pitEvidenceAvailableAsOf: pitDetail.evidenceAvailableAsOf,
       pitMemberCount: pitDetail.members.length,
       pitSelectedTickers: pitScreenerPayload.candidates.map((candidate) => candidate.ticker),
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
