@@ -299,16 +299,18 @@ function contextText(context) {
     const authority = validity.membershipAuthoritative
       ? "官方／權威 membership"
       : "代理 membership（非官方歷史成分名單）";
+    const requestedAsOf = validity.requestedAsOf || universe.requestedAsOf || "—";
     return [
       "模式：PIT 歷史成分股",
       `Universe：${universe.name || universe.id || "—"}`,
       `版本：${universe.version || "—"}`,
-      `選股基準日：${validity.requestedAsOf || universe.requestedAsOf || "—"}`,
+      `選股基準日：${requestedAsOf}`,
       `成分觀測日：${validity.membershipObservationAsOf || universe.sourceAsOf || "—"}`,
       `證據可得日：${validity.membershipEvidenceAvailableAsOf || universe.evidenceAvailableAsOf || "—"}`,
       `成分來源：${authority}`,
       "基本面：未套用",
       "membership 因果性：已驗證",
+      `績效資料截止：不得晚於 ${requestedAsOf}`,
     ].join(" · ");
   }
   return [
@@ -347,6 +349,40 @@ function scheduleContextRender() {
     contextRenderScheduled = false;
     renderResearchContext();
   });
+}
+
+function pitSelectionAsOfForCurrentList() {
+  const context = matchingResearchContext();
+  const validity = context?.researchValidity || {};
+  if (validity.selectionMode !== "point_in_time_membership_only") return null;
+  const selectionAsOf = String(validity.requestedAsOf || context?.universe?.requestedAsOf || "").trim();
+  return validIsoDate(selectionAsOf) ? selectionAsOf : null;
+}
+
+function guardPitScanWindow(event) {
+  const selectionAsOf = pitSelectionAsOfForCurrentList();
+  if (!selectionAsOf) return true;
+  const endInput = document.querySelector("#scan-end-period");
+  const scanEnd = String(endInput?.value || "").trim();
+  if (!validIsoDate(scanEnd) || scanEnd <= selectionAsOf) return true;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  setMessage(
+    document.querySelector("#scan-error"),
+    `PIT 模式的績效結束日不得晚於選股基準日 ${selectionAsOf}；否則會使用選股當時尚未發生的未來價格資料。`,
+  );
+  endInput?.focus();
+  return false;
+}
+
+function handleScanSubmit(event) {
+  if (!guardPitScanWindow(event)) return;
+  setTimeout(scheduleContextRender, 0);
+}
+
+function handleRetryScan(event) {
+  guardPitScanWindow(event);
 }
 
 async function handleScreenerClick(event) {
@@ -438,9 +474,8 @@ function initialize() {
   document.querySelector("#run-screener")?.addEventListener("click", handleScreenerClick, true);
   document.querySelector("#cancel-request")?.addEventListener("click", handleCancel, true);
   document.querySelector("#scan-tickers")?.addEventListener("input", scheduleContextRender);
-  document.querySelector("#scan-form")?.addEventListener("submit", () => {
-    setTimeout(scheduleContextRender, 0);
-  }, true);
+  document.querySelector("#scan-form")?.addEventListener("submit", handleScanSubmit, true);
+  document.querySelector("#retry-scan")?.addEventListener("click", handleRetryScan, true);
   initializeContextObserver();
   scheduleContextRender();
 }
