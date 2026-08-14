@@ -400,7 +400,9 @@ test("late Portfolio cleanup cannot clear busy state for a newer backtest", asyn
 
   await page.getByRole("button", { name: "執行回測" }).click();
   await firstBacktestStartedPromise;
-  await page.locator(".desktop-matrix input[type=number]").first().fill("60");
+  const weights = page.locator(".desktop-matrix input[type=number]");
+  await weights.nth(0).fill("60");
+  await weights.nth(2).fill("20");
   await expect(page.getByRole("button", { name: "執行回測" })).toBeEnabled();
 
   await page.getByRole("button", { name: "執行回測" }).click();
