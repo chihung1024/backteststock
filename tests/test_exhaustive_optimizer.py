@@ -175,6 +175,10 @@ def test_prepare_exhaustive_accepts_variable_source_pool(monkeypatch):
     assert payload["summary"]["observations"] == 100
     assert snapshot["valuationCurrency"] == "TWD"
     assert snapshot["twdValuationContractVersion"]
+    assert snapshot["asOfPolicy"] == exhaustive_optimizer.date_policy.AS_OF_POLICY
+    assert snapshot["incompleteCurrentBarExcluded"] is True
+    assert payload["summary"]["asOfDate"] == snapshot["asOfDate"]
+    assert payload["summary"]["asOfPolicy"] == snapshot["asOfPolicy"]
     assert snapshot["nativePriceFingerprints"] == {}
     assert snapshot["fxPriceFingerprints"] == {}
     assert response.headers["X-Valuation-Currency"] == "TWD"
@@ -231,4 +235,35 @@ def test_prepare_exhaustive_rejects_more_than_platform_source_limit(monkeypatch)
 
     assert response.status_code == 400
     assert "100" in response.get_json()["error"]
+    assert calls == []
+
+
+def test_prepare_exhaustive_rejects_incomplete_date_before_market_download(monkeypatch):
+    exhaustive_optimizer.app.config.update(TESTING=True)
+    client = exhaustive_optimizer.app.test_client()
+    calls = []
+    monkeypatch.setattr(
+        exhaustive_optimizer.date_policy,
+        "latest_complete_utc_date",
+        lambda _now=None: pd.Timestamp("2026-08-13").date(),
+    )
+    monkeypatch.setattr(
+        exhaustive_optimizer,
+        "_download_full_period_prices",
+        lambda *_args: calls.append(_args),
+    )
+
+    response = client.post(
+        "/api/optimizer/exhaustive/prepare",
+        json={
+            "sourceTickers": ["AAPL", "MSFT"],
+            "holdingCount": 1,
+            "benchmark": "SPY",
+            "startDate": "2026-01-02",
+            "endDate": "2026-08-14",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "2026-08-13" in response.get_json()["error"]
     assert calls == []
