@@ -170,9 +170,10 @@ assertCondition(
   pitDetail?.sourceAsOf === russellCatalog.sourceAsOf,
   "PIT Universe detail did not resolve the current source observation date.",
 );
+const pitEvidenceAvailableAsOf = datePart(pitDetail?.evidenceAvailableAsOf);
 assertCondition(
-  pitDetail?.evidenceAvailableAsOf === fetchedDate,
-  "PIT Universe detail did not disclose when the membership evidence became available.",
+  pitEvidenceAvailableAsOf !== null && pitEvidenceAvailableAsOf <= pitSelectionAsOf,
+  "PIT Universe detail did not disclose causal membership evidence availability.",
 );
 assertCondition(
   pitDetail?.membershipPolicy === EXPECTED_PIT_MEMBERSHIP_POLICY,
@@ -346,7 +347,7 @@ console.log(
       memberCount: russellDetail.members.length,
       pitSelectionAsOf,
       pitSourceAsOf: pitDetail.sourceAsOf,
-      pitEvidenceAvailableAsOf: pitDetail.evidenceAvailableAsOf,
+      pitEvidenceAvailableAsOf,
       pitMemberCount: pitDetail.members.length,
       pitSelectedTickers: pitScreenerPayload.candidates.map((candidate) => candidate.ticker),
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
