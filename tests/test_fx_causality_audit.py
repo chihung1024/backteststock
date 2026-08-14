@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from apps.api.app.data.fx_price_quality import reconcile_ohlc_levels
 from apps.api.app.data.fx_provider import FXLevels, QuoteConvention
@@ -25,7 +26,7 @@ def test_interpolated_fx_repair_is_marked_future_assisted() -> None:
     assert reconciliation.future_assisted_count == 1
     assert bool(reconciliation.corrected.loc[pd.Timestamp("2024-01-02")]) is True
     assert bool(reconciliation.future_assisted.loc[pd.Timestamp("2024-01-02")]) is True
-    assert reconciliation.levels.loc[pd.Timestamp("2024-01-02")] == 110.0
+    assert reconciliation.levels.loc[pd.Timestamp("2024-01-02")] == pytest.approx(110.0)
 
 
 def test_open_supported_terminal_repair_remains_causal() -> None:
@@ -45,7 +46,7 @@ def test_open_supported_terminal_repair_remains_causal() -> None:
     assert reconciliation.correction_count == 1
     assert reconciliation.future_assisted_count == 0
     assert bool(reconciliation.future_assisted.iloc[-1]) is False
-    assert reconciliation.levels.iloc[-1] == 101.0
+    assert reconciliation.levels.iloc[-1] == pytest.approx(101.0)
 
 
 def test_fx_audit_exposes_non_causal_repair_count() -> None:
