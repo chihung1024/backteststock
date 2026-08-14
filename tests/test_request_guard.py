@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from api.request_guard import (
     EDGE_AUTH_HEADER,
@@ -78,6 +78,36 @@ def test_explicit_false_auth_mode_supports_only_the_documented_rollout(monkeypat
 
     assert decision.authenticated is False
     assert decision.mode == "local-unconfigured"
+
+
+def test_rollout_bypass_survives_secret_provisioning_until_worker_is_ready(
+    monkeypatch,
+) -> None:
+    _local_env(monkeypatch)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(EDGE_REQUIRED_ENV, "false")
+    secret = "test-edge-secret-with-at-least-32-bytes"
+    monkeypatch.setenv(EDGE_SECRET_ENV, secret)
+
+    missing = authorize_edge_request({}, fallback_client_id="127.0.0.1")
+    invalid = authorize_edge_request(
+        {EDGE_AUTH_HEADER: "wrong-edge-credential-with-at-least-32-bytes"},
+        fallback_client_id="127.0.0.1",
+    )
+    valid = authorize_edge_request(
+        {
+            EDGE_AUTH_HEADER: secret,
+            EDGE_CLIENT_ID_HEADER: "cf-client-123",
+        },
+        fallback_client_id="127.0.0.1",
+    )
+
+    assert missing.authenticated is False
+    assert missing.mode == "migration-bypass"
+    assert isinstance(invalid, GuardFailure)
+    assert invalid.status_code == 403
+    assert valid.authenticated is True
+    assert valid.client_id == "cf-client-123"
 
 
 def test_local_xff_is_only_a_best_effort_limiter_key(monkeypatch) -> None:
