@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { searchAssets } from "./api";
 import {
   addAsset,
@@ -30,6 +30,7 @@ export function AllocationEditor({
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
+  const searchRequestVersion = useRef(0);
   const activeAsset = model.assets.find((asset) => asset.id === activeSearchId);
 
   useEffect(() => {
@@ -38,24 +39,35 @@ export function AllocationEditor({
   }, [mobilePortfolioId, model.portfolios]);
 
   useEffect(() => {
+    const version = ++searchRequestVersion.current;
     const query = activeAsset?.symbol.trim() ?? "";
     if (!activeSearchId || query.length < 1) {
       setSuggestions([]);
+      setSearchBusy(false);
       return;
     }
+    setSuggestions([]);
+    setSearchBusy(false);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      if (searchRequestVersion.current !== version) return;
       setSearchBusy(true);
       searchAssets(query, controller.signal)
-        .then((items) => setSuggestions(items))
+        .then((items) => {
+          if (searchRequestVersion.current === version) setSuggestions(items);
+        })
         .catch((error: unknown) => {
+          if (searchRequestVersion.current !== version) return;
           if (!(error instanceof DOMException && error.name === "AbortError")) setSuggestions([]);
         })
-        .finally(() => setSearchBusy(false));
+        .finally(() => {
+          if (searchRequestVersion.current === version) setSearchBusy(false);
+        });
     }, 250);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      if (searchRequestVersion.current === version) searchRequestVersion.current += 1;
     };
   }, [activeAsset?.symbol, activeSearchId]);
 
