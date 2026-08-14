@@ -8,6 +8,7 @@ import time
 import pandas as pd
 from flask import Flask, jsonify, request
 
+from api import date_policy
 from api import index as date_contract
 from api import market_data
 from api import scan as legacy
@@ -88,6 +89,9 @@ def scan_handler():
 
         benchmark_ticker = legacy.normalize_ticker(data["benchmark"])
         start_date, end_exclusive = date_contract.parse_period(data)
+        period = date_policy.require_complete_period(start_date, end_exclusive)
+        start_date = period.start
+        end_exclusive = period.end_exclusive
 
         market_started = time.perf_counter()
         batch = twd_scan_service.run(
@@ -100,6 +104,13 @@ def scan_handler():
         market_duration_ms = (time.perf_counter() - market_started) * 1000
         compute_started = time.perf_counter()
         results = batch.results
+        for item in results:
+            item.setdefault("as_of_date", period.as_of_date.isoformat())
+            item.setdefault("as_of_policy", period.as_of_policy)
+            item.setdefault(
+                "incomplete_current_bar_excluded",
+                period.incomplete_current_bar_excluded,
+            )
         compute_duration_ms = (time.perf_counter() - compute_started) * 1000
         serialize_started = time.perf_counter()
         response = jsonify(results)
@@ -119,8 +130,14 @@ def scan_handler():
         response.headers["X-Scan-Resolved"] = str(
             sum(1 for item in results if item.get("status") == "ok")
         )
+        response.headers["X-As-Of-Date"] = period.as_of_date.isoformat()
+        response.headers["X-As-Of-Policy"] = period.as_of_policy
         return response
-    except (legacy.ValidationError, date_contract.ValidationError) as exc:
+    except (
+        legacy.ValidationError,
+        date_contract.ValidationError,
+        date_policy.DatePolicyError,
+    ) as exc:
         return error_response(str(exc), 400)
     except ValueError as exc:
         logger.warning("Metric configuration rejected", exc_info=exc)

@@ -8,6 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from api import date_policy
 from api import index as legacy
 from api import market_data
 from api.corporate_actions import (
@@ -35,6 +36,14 @@ from apps.api.app.data.twd_valuation import (
 
 logger = logging.getLogger(__name__)
 twd_backtest_service = TWDPortfolioBacktestService()
+BACKTEST_RETURN_SEMANTICS = "gross_before_transaction_costs"
+BACKTEST_COST_ASSUMPTIONS = {
+    "transactionCostsIncluded": False,
+    "transactionCostBps": None,
+    "slippageIncluded": False,
+    "taxesIncluded": False,
+}
+BACKTEST_GROSS_WARNING = "回測績效為 Gross，未計交易成本、滑價與稅負。"
 
 if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
     raise RuntimeError(
@@ -199,11 +208,21 @@ def _twd_failure_warning(failures: list[PortfolioFailure]) -> str | None:
     return "以下投組未產生結果，但其他投組已保留：" + "；".join(items)
 
 
+def _return_semantics_payload() -> dict:
+    return {
+        "basis": BACKTEST_RETURN_SEMANTICS,
+        **BACKTEST_COST_ASSUMPTIONS,
+    }
+
+
 def backtest_handler():
     request_started = time.perf_counter()
     try:
         data = legacy.require_json_object()
         start_date, end_exclusive = legacy.parse_period(data)
+        period = date_policy.require_complete_period(start_date, end_exclusive)
+        start_date = period.start
+        end_exclusive = period.end_exclusive
         initial_amount = legacy.validate_initial_amount(data.get("initialAmount"))
         default_period = data.get("rebalancingPeriod", "never")
         if default_period not in legacy.ALLOWED_REBALANCING_PERIODS:
@@ -240,7 +259,7 @@ def backtest_handler():
                 "沒有可完成的 TWD 回測投組。" + (f" {details}" if details else "")
             )
 
-        warning_parts = []
+        warning_parts = [BACKTEST_GROSS_WARNING]
         portfolio_failure_warning = _twd_failure_warning(batch.failures)
         if portfolio_failure_warning:
             warning_parts.append(portfolio_failure_warning)
@@ -273,10 +292,20 @@ def backtest_handler():
             extra={
                 "requested_start": start_date.strftime("%Y-%m-%d"),
                 "requested_end_exclusive": end_exclusive.strftime("%Y-%m-%d"),
+                "as_of_date": period.as_of_date.isoformat(),
+                "as_of_policy": period.as_of_policy,
+                "incomplete_current_bar_excluded": (
+                    period.incomplete_current_bar_excluded
+                ),
                 "valuation_currency": VALUATION_CURRENCY,
                 "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,
                 "calendar_policy": TWD_PORTFOLIO_CALENDAR_POLICY,
                 "market_data_contract_version": market_data.MARKET_DATA_CONTRACT_VERSION,
+                "return_semantics": BACKTEST_RETURN_SEMANTICS,
+                "transaction_costs_included": False,
+                "transaction_cost_bps": None,
+                "slippage_included": False,
+                "taxes_included": False,
                 "requested_tickers": list(batch.requested),
                 "resolved_tickers": list(batch.histories.histories),
                 "corporate_action_audits": action_audits,
@@ -310,9 +339,10 @@ def backtest_handler():
         payload = {
             "data": batch.results,
             "benchmark": batch.benchmark,
-            "warning": "；".join(warning_parts) if warning_parts else None,
+            "warning": "；".join(warning_parts),
             "failures": [_serialize_twd_failure(failure) for failure in batch.failures],
             "metadata": metadata,
+            "returnSemantics": _return_semantics_payload(),
         }
         compute_ms = (time.perf_counter() - compute_started) * 1000
         serialize_started = time.perf_counter()
@@ -327,8 +357,10 @@ def backtest_handler():
         response.headers["X-Backend-Server-Timing"] = timing
         response.headers["X-Backtest-Requested"] = str(len(batch.requested))
         response.headers["X-Backtest-Resolved"] = str(len(batch.histories.histories))
+        response.headers["X-As-Of-Date"] = period.as_of_date.isoformat()
+        response.headers["X-As-Of-Policy"] = period.as_of_policy
         return response
-    except legacy.ValidationError as exc:
+    except (legacy.ValidationError, date_policy.DatePolicyError) as exc:
         return legacy.error_response(str(exc), 400)
     except legacy.DataSourceError as exc:
         return legacy.error_response(str(exc), 503)

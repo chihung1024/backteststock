@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from flask import Blueprint, Flask, jsonify
 
+from api import date_policy
 from api import index as legacy
 from api import market_data
 from api.corporate_actions import CORPORATE_ACTION_POLICY_VERSION
@@ -32,7 +33,7 @@ from apps.api.app.data.twd_valuation import (
 exhaustive_blueprint = Blueprint("exhaustive_optimizer", __name__)
 app = Flask(__name__)
 
-EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-03.2"
+EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-14.1"
 EXHAUSTIVE_SNAPSHOT_FORMAT = "exhaustive-optimizer-snapshot-json-gzip-v1"
 EXHAUSTIVE_REBALANCE_ENGINE = "browser-exact-dynamic-k-v1"
 MIN_SOURCE_TICKERS = 2
@@ -282,6 +283,9 @@ def prepare_exhaustive_optimizer():
     try:
         data = legacy.require_json_object()
         start_date, end_exclusive = legacy.parse_period(data)
+        period = date_policy.require_complete_period(start_date, end_exclusive)
+        start_date = period.start
+        end_exclusive = period.end_exclusive
         raw_tickers = data.get("sourceTickers")
         if not isinstance(raw_tickers, list):
             raise legacy.ValidationError("來源股票必須為股票代碼列表。")
@@ -353,6 +357,9 @@ def prepare_exhaustive_optimizer():
             "requestedEndInclusive": (
                 end_exclusive - pd.Timedelta(days=1)
             ).strftime("%Y-%m-%d"),
+            "asOfDate": period.as_of_date.isoformat(),
+            "asOfPolicy": period.as_of_policy,
+            "incompleteCurrentBarExcluded": period.incomplete_current_bar_excluded,
             "actualStart": common.index[0].strftime("%Y-%m-%d"),
             "actualEnd": common.index[-1].strftime("%Y-%m-%d"),
             "commonCalendarPolicy": TWD_PORTFOLIO_CALENDAR_POLICY,
@@ -391,6 +398,11 @@ def prepare_exhaustive_optimizer():
                     "observations": len(common),
                     "actualStart": snapshot["actualStart"],
                     "actualEnd": snapshot["actualEnd"],
+                    "asOfDate": snapshot["asOfDate"],
+                    "asOfPolicy": snapshot["asOfPolicy"],
+                    "incompleteCurrentBarExcluded": snapshot[
+                        "incompleteCurrentBarExcluded"
+                    ],
                     "priceFingerprints": snapshot["priceFingerprints"],
                     "nativePriceFingerprints": snapshot["nativePriceFingerprints"],
                     "fxPriceFingerprints": snapshot["fxPriceFingerprints"],
@@ -407,7 +419,7 @@ def prepare_exhaustive_optimizer():
                 },
             }
         )
-    except legacy.ValidationError as exc:
+    except (legacy.ValidationError, date_policy.DatePolicyError) as exc:
         return _error_response(str(exc), 400)
     except legacy.DataSourceError as exc:
         return _error_response(str(exc), 503)

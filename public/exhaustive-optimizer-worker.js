@@ -9,6 +9,8 @@ import {
 } from "./exhaustive-optimizer-core.js?v=20260803.3";
 import { RETENTION_METRIC_KEYS } from "./exhaustive-retention.js?v=20260803.3";
 
+const MAX_TRANSACTION_COST_BPS = 1000;
+
 let state = null;
 let cancelled = false;
 
@@ -36,17 +38,33 @@ function normalizeSnapshot(snapshot) {
   };
 }
 
+function normalizeEvaluationSettings(settings = {}) {
+  const transactionCostBps = Number(settings.transactionCostBps ?? 0);
+  if (
+    !Number.isFinite(transactionCostBps)
+    || transactionCostBps < 0
+    || transactionCostBps > MAX_TRANSACTION_COST_BPS
+  ) {
+    throw new Error(`交易成本必須介於 0 與 ${MAX_TRANSACTION_COST_BPS} bps。`);
+  }
+  return {
+    ...settings,
+    transactionCostBps,
+  };
+}
+
 function evaluate(indexes, settings, collectEvents = false) {
+  const normalizedSettings = normalizeEvaluationSettings(settings);
   return simulateExactPortfolio({
     prices: state.prices,
     benchmarkPrices: state.benchmarkPrices,
     periodKeys: state.periodKeys,
     indexes,
     elapsedYears: state.elapsedYears,
-    rebalanceMode: settings.rebalanceMode,
-    bandRatio: settings.bandRatio,
-    transactionCostBps: settings.transactionCostBps,
-    executionDelayTradingDays: settings.executionDelayTradingDays,
+    rebalanceMode: normalizedSettings.rebalanceMode,
+    bandRatio: normalizedSettings.bandRatio,
+    transactionCostBps: normalizedSettings.transactionCostBps,
+    executionDelayTradingDays: normalizedSettings.executionDelayTradingDays,
     riskFreeRate: state.riskFreeRate,
     dailyRiskFreeRate: state.dailyRiskFreeRate,
     collectEvents,

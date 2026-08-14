@@ -18,6 +18,7 @@ class PriceLevelReconciliation:
     levels: pd.Series
     corrected: pd.Series
     unresolved: pd.Series
+    future_assisted: pd.Series
 
     @property
     def correction_count(self) -> int:
@@ -26,6 +27,12 @@ class PriceLevelReconciliation:
     @property
     def unresolved_count(self) -> int:
         return int(self.unresolved.sum())
+
+    @property
+    def future_assisted_count(self) -> int:
+        """Corrections that required a later trusted observation."""
+
+        return int(self.future_assisted.sum())
 
 
 def reconcile_ohlc_levels(
@@ -40,6 +47,11 @@ def reconcile_ohlc_levels(
     time-weighted log interpolation and constrain it to the observed bar.  A
     second pass repairs a reversible one-row scale pulse only when the bar gives
     independent support.  Valid, large price moves remain intact.
+
+    Some historical repairs deliberately use a later trusted observation.  They
+    remain useful for full-period data cleaning, but are marked in
+    ``future_assisted`` so walk-forward/OOS consumers can exclude them rather
+    than silently treating a non-causal repair as contemporaneously available.
 
     Inversion is applied to all OHLC fields before validation; high and low
     swap under a reciprocal quote.  That makes a direct and inverse FX quote
@@ -66,6 +78,7 @@ def reconcile_ohlc_levels(
 
     levels = close.copy()
     corrected = pd.Series(False, index=levels.index, dtype=bool)
+    future_assisted = pd.Series(False, index=levels.index, dtype=bool)
 
     bar_valid = _valid_bar(open_, high, low)
     trusted = bar_valid & _inside_bar(levels, high, low)
@@ -73,7 +86,7 @@ def reconcile_ohlc_levels(
     for position in range(len(levels)):
         if trusted.iloc[position] or not bar_valid.iloc[position]:
             continue
-        replacement = _bar_supported_replacement(
+        replacement, used_future = _bar_supported_replacement(
             levels=levels,
             trusted=trusted,
             open_=open_,
@@ -85,11 +98,13 @@ def reconcile_ohlc_levels(
             continue
         levels.iloc[position] = replacement
         corrected.iloc[position] = True
+        future_assisted.iloc[position] = used_future
         trusted.iloc[position] = True
 
     # A vendor can emit a one-row temporary unit change inside a formally wide
     # bar.  Repair it only if a geometric bridge between its neighbours lies in
-    # the bar, so a genuine large move is not silently changed.
+    # the bar, so a genuine large move is not silently changed.  Because this
+    # bridge requires the following observation, it is non-causal by definition.
     for position in range(1, len(levels) - 1):
         if corrected.iloc[position] or not bar_valid.iloc[position]:
             continue
@@ -126,6 +141,7 @@ def reconcile_ohlc_levels(
             continue
         levels.iloc[position] = min(max(replacement, lower), upper)
         corrected.iloc[position] = True
+        future_assisted.iloc[position] = True
         trusted.iloc[position] = True
 
     unresolved = bar_valid & ~_inside_bar(levels, high, low)
@@ -133,10 +149,12 @@ def reconcile_ohlc_levels(
     levels = levels[levels > 0.0]
     corrected = corrected.reindex(levels.index, fill_value=False)
     unresolved = unresolved.reindex(levels.index, fill_value=False)
+    future_assisted = future_assisted.reindex(levels.index, fill_value=False)
     return PriceLevelReconciliation(
         levels=levels.astype(float),
         corrected=corrected,
         unresolved=unresolved,
+        future_assisted=future_assisted,
     )
 
 
@@ -148,10 +166,11 @@ def _bar_supported_replacement(
     high: pd.Series,
     low: pd.Series,
     position: int,
-) -> float | None:
+) -> tuple[float | None, bool]:
     previous_position = _nearest_trusted(trusted, position, step=-1)
     next_position = _nearest_trusted(trusted, position, step=1)
     replacement: float | None = None
+    used_future = False
     if previous_position is not None and next_position is not None:
         replacement = _time_weighted_geometric_level(
             index=levels.index,
@@ -161,20 +180,22 @@ def _bar_supported_replacement(
             previous=float(levels.iloc[previous_position]),
             following=float(levels.iloc[next_position]),
         )
+        used_future = True
     elif _positive(float(open_.iloc[position])):
         replacement = float(open_.iloc[position])
     elif previous_position is not None:
         replacement = float(levels.iloc[previous_position])
     elif next_position is not None:
         replacement = float(levels.iloc[next_position])
+        used_future = True
 
     if replacement is None or not _positive(replacement):
-        return None
+        return None, False
     lower = float(low.iloc[position])
     upper = float(high.iloc[position])
     if not _positive(lower) or not _positive(upper) or lower > upper:
-        return None
-    return min(max(replacement, lower), upper)
+        return None, False
+    return min(max(replacement, lower), upper), used_future
 
 
 def _time_weighted_geometric_level(
