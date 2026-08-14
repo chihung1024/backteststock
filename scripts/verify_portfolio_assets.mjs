@@ -30,8 +30,24 @@ function normalizeSourceMap(sourceMap) {
     throw new Error("Portfolio JavaScript source map is missing a sources array");
   }
 
+  if (
+    sourceMap.sourcesContent !== undefined &&
+    (!Array.isArray(sourceMap.sourcesContent) ||
+      sourceMap.sourcesContent.length !== sourceMap.sources.length)
+  ) {
+    throw new Error(
+      "Portfolio JavaScript source map has invalid sourcesContent structure",
+    );
+  }
+
+  // Embedded source text is debugging metadata, not runtime output. Different
+  // package-manager installs can embed different dependency source text even
+  // when the emitted JavaScript and the source-map mappings are identical.
+  // Keep every runtime asset byte-strict and every other source-map field
+  // strict; only omit sourcesContent and normalize pnpm's install-layout path.
+  const { sourcesContent: _sourcesContent, ...comparable } = sourceMap;
   return {
-    ...sourceMap,
+    ...comparable,
     sources: sourceMap.sources.map(normalizeSourcePath),
   };
 }
@@ -66,7 +82,7 @@ function listCommittedJavaScriptMaps() {
     .sort();
 }
 
-function assertOnlyJavaScriptMapLayoutDiffs() {
+function assertOnlyJavaScriptMapNonRuntimeDiffs() {
   const status = git(
     "status",
     "--porcelain=v1",
@@ -86,7 +102,7 @@ function assertOnlyJavaScriptMapLayoutDiffs() {
 
   if (unexpected.length > 0) {
     console.error(
-      "Portfolio build changed committed production assets other than JavaScript source-map install-layout metadata:",
+      "Portfolio build changed committed runtime assets or package-lock.json:",
     );
     console.error(unexpected.join("\n"));
     process.exit(1);
@@ -129,8 +145,8 @@ function compareJavaScriptMaps() {
   }
 }
 
-assertOnlyJavaScriptMapLayoutDiffs();
+assertOnlyJavaScriptMapNonRuntimeDiffs();
 compareJavaScriptMaps();
 console.log(
-  "Portfolio production assets match the committed build; package-manager-only JavaScript source-map paths were normalized for comparison.",
+  "Portfolio runtime assets match the committed build; JavaScript source maps match after excluding non-runtime embedded source text and normalizing package-manager install-layout paths.",
 );
