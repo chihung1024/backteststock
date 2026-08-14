@@ -47,6 +47,18 @@ def test_production_fails_closed_when_secret_is_missing(monkeypatch) -> None:
     assert decision.code == "edge_auth_not_configured"
 
 
+def test_invalid_explicit_auth_mode_fails_closed(monkeypatch) -> None:
+    _local_env(monkeypatch)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(EDGE_REQUIRED_ENV, "flase")
+
+    decision = authorize_edge_request({}, fallback_client_id="127.0.0.1")
+
+    assert isinstance(decision, GuardFailure)
+    assert decision.status_code == 503
+    assert decision.code == "edge_auth_not_configured"
+
+
 def test_configured_secret_only_trusts_edge_supplied_client_identity(monkeypatch) -> None:
     _local_env(monkeypatch)
     secret = "test-edge-secret-with-at-least-32-bytes"
