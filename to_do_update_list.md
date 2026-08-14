@@ -4,6 +4,14 @@
 
 ## Current Status
 
+**PF-1H Portfolio stale-request busy cleanup — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
+
+- [PR #143](https://github.com/chihung1024/backteststock/pull/143) first exposed a regression-test setup error in candidate CI [#691](https://github.com/chihung1024/backteststock/actions/runs/31759482485): all non-browser gates passed, but the test changed only one weight and correctly left the model invalid at 110%. The test was corrected to keep the replacement portfolio at 60% + 20% + 20%; exact-head candidate CI [#692](https://github.com/chihung1024/backteststock/actions/runs/31759745907) then passed, received exact-head independent review [#4932950767](https://github.com/chihung1024/backteststock/pull/143#pullrequestreview-4932950767), was marked Ready, and was squash-merged to main as [`a7b28a06a5856233c6340be9a0c05de8d4be67cc`](https://github.com/chihung1024/backteststock/commit/a7b28a06a5856233c6340be9a0c05de8d4be67cc) on 2026-08-14.
+- Post-main CI [#693](https://github.com/chihung1024/backteststock/actions/runs/31759931008), Vercel production [deployment](https://vercel.com/cchungs-projects/back-test/81B1uzVNC8PeRWQqnugYRWwQKGXj), and [Deploy Cloudflare Worker #69](https://github.com/chihung1024/backteststock/actions/runs/31759931005) all passed at the merged SHA; candidate and post-main CI executed the Chromium browser flow, and Cloudflare smoke covered Scanner, Portfolio v3 and Refinery v1.
+- Direct production `/portfolio/` served `index-BIvLQLXK.js`; Portfolio health returned `deployment_sha=a7b28a06a5856233c6340be9a0c05de8d4be67cc`; the bundle returned HTTP 200 and `/api/v3/portfolio/assets/search?q=AP&limit=3` returned valid suggestions.
+- Local validation passed TypeScript/build, Portfolio source contracts (4), Worker tests (77), score tests (12), Python compileall, JavaScript syntax checks, entry/source-map consistency and git diff --check. Local targeted browser E2E was attempted but the sandbox lacks Chromium; corrected candidate CI supplied that gate successfully.
+- The change only guards stale Portfolio preflight/backtest `finally` cleanup so an old request cannot clear the current busy state; Portfolio/API/data contracts, selection and weight semantics, persistence, Worker routing/cache, Refinery and Scanner are unchanged.
+
 **PF-1G Portfolio asset autocomplete late-response guard — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R1).**
 
 - [PR #141](https://github.com/chihung1024/backteststock/pull/141) passed exact-head candidate CI [#687](https://github.com/chihung1024/backteststock/actions/runs/31758308660), received exact-head independent review [#4932802399](https://github.com/chihung1024/backteststock/pull/141#pullrequestreview-4932802399), was marked Ready, and was squash-merged to main as [`dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`](https://github.com/chihung1024/backteststock/commit/dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2) on 2026-08-14.
@@ -60,6 +68,30 @@
 - UX-1A remains closed at [4598ecf1a2870bcec7b71c69b5d7642601e0c55a](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
+
+## Closed Batch — PF-1H / R2
+
+### Objective / Scope Lock
+
+- **Objective:** keep the Portfolio execution bar bound to the current preflight/backtest request when an older request completes after cancellation or replacement.
+- **In scope:** guard the two Portfolio request `finally` paths with request version and active-controller identity, add a delayed-response Chromium regression, and update the tracked Portfolio bundle.
+- **Out of scope:** Portfolio/API/data/ledger/quant, selection or weight semantics, capacity, persistence, Worker routing/cache, Refinery, Scanner, methodology and unrelated cleanup.
+- **Risk class:** R2 client-side execution-state correctness; exact-head review, full candidate CI including Chromium, protected merge, Cloudflare production smoke and post-main verification were required.
+- **Rollback:** normal revert of PR #143; no data, storage, persistence or schema migration is introduced.
+
+### Evidence / Root Cause
+
+- **Reproduction:** start a backtest, change a weight to invalidate the first request, start a second valid backtest, then release the old response while the second remains pending.
+- **Failure point:** request version guards already rejected stale success/error state, but both `finally` blocks unconditionally called `setBusy(null)`; an old transport could therefore hide the newer request's progress and cancel action.
+- **Downstream impact:** the Portfolio UI could appear idle while a current request was still running, allowing a user to start conflicting work or lose the visible cancel affordance.
+
+### Closure / Stable Checkpoint
+
+- `App.tsx` now clears `activeController` and `busy` only when both the request version and controller still identify the current request.
+- The delayed-response E2E removes the signal from the test transport, keeps the replacement model valid at 60% + 20% + 20%, releases the old response first, and asserts the newer 回測中/取消 state remains before releasing the current response.
+- Candidate CI [#692](https://github.com/chihung1024/backteststock/actions/runs/31759745907) passed at corrected exact head `20157201fe6b1597f8f5ce6875a92b7a2ee6c8f6`; the prior #691 failure was isolated to the invalid test model setup, not runtime behavior. Vercel Preview completed successfully.
+- Post-main CI [#693](https://github.com/chihung1024/backteststock/actions/runs/31759931008), Vercel production, and Cloudflare Deploy [#69](https://github.com/chihung1024/backteststock/actions/runs/31759931005) passed at merged head `a7b28a06a5856233c6340be9a0c05de8d4be67cc`; direct production bundle, health and asset-search checks passed.
+- Rollback is a normal revert of PR #143; no data, storage, persistence or schema migration is involved.
 
 ## Closed Batch — PF-1G / R1
 
@@ -310,8 +342,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`](https://github.com/chihung1024/backteststock/commit/dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2).
-- Previous verified baseline: [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7).
+- Current functional recovery baseline: `main` [`a7b28a06a5856233c6340be9a0c05de8d4be67cc`](https://github.com/chihung1024/backteststock/commit/a7b28a06a5856233c6340be9a0c05de8d4be67cc).
+- Previous verified baseline: [`28fc07dfa7911f4654c9691c151795c18e86c0c9`](https://github.com/chihung1024/backteststock/commit/28fc07dfa7911f4654c9691c151795c18e86c0c9).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -327,17 +359,18 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner edge-cache namespace invalidation from PR #135 / `f8c08ca`;
   - Portfolio stale-run evidence invalidation from PR #137 / `2dda223`;
   - Refinery stale-run evidence invalidation from PR #139 / `a4c4312`;
-  - Portfolio asset autocomplete late-response guard from PR #141 / `dac6e6c`.
+  - Portfolio asset autocomplete late-response guard from PR #141 / `dac6e6c`;
+  - Portfolio stale-request busy cleanup from PR #143 / `a7b28a0`.
 
 ## Deployment Record
 
-The protected PF-1G merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `dac6e6c`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and the live asset-search route passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+The protected PF-1H merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `a7b28a0`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and the live asset-search route passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ## NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-No active runtime implementation batch. Preserve `main` `dac6e6c` as the current functional recovery point; PF-1G, PF-1F, PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+No active runtime implementation batch. Preserve `main` `a7b28a0` as the current functional recovery point; PF-1H, PF-1G, PF-1F, PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ### NEXT
 
@@ -361,4 +394,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1G is closed at main `dac6e6c`. Portfolio autocomplete now version-guards late results and busy cleanup after fast query changes; candidate CI #687, post-main CI #688, Vercel production, Cloudflare Deploy #68, browser flow, production bundle/health and live asset-search checks passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh single-batch functionality review from current main; do not reopen PF-1G or earlier closed batches unless their invariants regress.
+PF-1H is closed at main `a7b28a0`. Portfolio now version-guards stale preflight/backtest cleanup so an older request cannot clear the current busy state; corrected candidate CI #692, post-main CI #693, Vercel production, Cloudflare Deploy #69, browser flow, production bundle/health and live asset-search checks passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh single-batch functionality review from current main; do not reopen PF-1H or earlier closed batches unless their invariants regress.
