@@ -4,6 +4,14 @@
 
 ## Current Status
 
+**PF-1F Refinery stale-run evidence invalidation — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
+
+- [PR #139](https://github.com/chihung1024/backteststock/pull/139) passed exact-head candidate CI [#683](https://github.com/chihung1024/backteststock/actions/runs/31756855611), received an exact-head independent review, was marked Ready, and was squash-merged to main as [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7) on 2026-08-14.
+- Post-main CI [#684](https://github.com/chihung1024/backteststock/actions/runs/31757115193), Vercel production [deployment](https://vercel.com/cchungs-projects/back-test/3afr1Cdcp6kEr57QyqUmFaowXCrb), and [Deploy Cloudflare Worker #67](https://github.com/chihung1024/backteststock/actions/runs/31757115174) all passed at the merged SHA. Candidate and post-main CI executed the Chromium browser flow; Cloudflare smoke covered Scanner, Portfolio v3 and Refinery v1.
+- Cloudflare uploaded `/portfolio/index.html`, `index-BwTpryJd.js` and its source map. Direct production `/portfolio/` served that bundle; Portfolio health returned `deployment_sha=a4c43120a472e2e716bccaacb31937f8f77f01a7`; Refinery unknown-method guard returned 405.
+- Local validation passed TypeScript/build, Portfolio/Refinery source contracts (24), Worker tests (77), score tests (12), Python compileall, JavaScript syntax checks, production entry/source-map consistency and git diff --check. Local browser E2E, pytest and Ruff were unavailable in the sandbox; candidate CI supplied those gates successfully.
+- The change only invalidates stale Refinery preflight/analyze evidence after model, Phase 6 plan, replacement, cancel or unmount changes, and updates the tracked bundle; Refinery API, ResearchDataset, risk mathematics, Portfolio ledger, Scanner, persistence, Worker routing/cache and data sources are unchanged.
+
 **PF-1E Portfolio stale-run evidence invalidation — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
 - [PR #137](https://github.com/chihung1024/backteststock/pull/137) passed exact-head candidate CI [#679](https://github.com/chihung1024/backteststock/actions/runs/31731720049), received follow-up exact-head review after the generated source-map correction, was marked Ready, and was squash-merged to main as [`2dda223ebf49f22f04ad51eb7c34b850f9734918`](https://github.com/chihung1024/backteststock/commit/2dda223ebf49f22f04ad51eb7c34b850f9734918) on 2026-08-13.
@@ -44,6 +52,31 @@
 - UX-1A remains closed at [4598ecf1a2870bcec7b71c69b5d7642601e0c55a](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
+
+## Closed Batch — PF-1F / R2
+
+### Objective / Scope Lock
+
+- **Objective:** keep Refinery preflight/analyze evidence bound to the current candidate model and experiment plan, so a late response cannot repopulate a diagnostic result for an older workspace.
+- **In scope:** add a monotonic request-version guard for Refinery preflight/analyze success and error responses, invalidate on model/plan/replacement/cancel/unmount, protect busy cleanup and deferred scrolling, add a delayed-response browser regression, and update the tracked production bundle.
+- **Out of scope:** Refinery API, ResearchDataset, risk mathematics, data sources, Portfolio ledger, Scanner, persistence schema, Worker routing/cache, methodology, and unrelated UI cleanup.
+- **Risk class:** R2 client-side evidence consistency; exact-head independent review, full candidate CI including Chromium, protected merge, Cloudflare production smoke and post-main verification were required.
+- **Rollback:** normal revert of PR #139; no data, storage, persistence or schema migration is introduced.
+
+### Evidence / Root Cause
+
+- **Reproduction:** after a Refinery analyze request was held open, changing a candidate symbol cleared visible evidence and called `AbortController.abort()`, but a transport that completed after abort could still write the old response into `analysis`.
+- **Failure point:** `RefineryWorkspace.execute()` had no request identity guard; stale success/error handlers could update state, and an older `finally` could clear the busy state for a newer request.
+- **Downstream impact:** users could see a Refinery diagnostic result whose symbols and evidence no longer matched the visible candidate workspace.
+
+### Closure / Stable Checkpoint
+
+- `RefineryWorkspace.tsx` now increments a request version for every request and invalidation; success, error, deferred scroll and `finally` paths are accepted only for the current version/controller.
+- The delayed-response E2E removes the signal from the test transport to prove the UI guard, then changes `AAPL` to `NVDA` and asserts the old diagnostic never reappears.
+- Candidate CI [#683](https://github.com/chihung1024/backteststock/actions/runs/31756855611) passed at exact head `02fa34fd008145d050b05df03f1a42cba0cc2da6`; Vercel Preview completed successfully.
+- Post-main CI [#684](https://github.com/chihung1024/backteststock/actions/runs/31757115193), Vercel production, and Cloudflare Deploy [#67](https://github.com/chihung1024/backteststock/actions/runs/31757115174) passed at merged head `a4c43120a472e2e716bccaacb31937f8f77f01a7`; direct production bundle/health and Refinery route guard checks passed.
+- Portfolio asset autocomplete late-response ordering was found during the same review but intentionally remains a separate NEXT batch; it was not mixed into PF-1F.
+- Rollback is a normal revert of PR #139; no data, storage, persistence or schema migration is involved.
 
 ## Closed Batch — PF-1E / R2
 
@@ -245,8 +278,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`2dda223ebf49f22f04ad51eb7c34b850f9734918`](https://github.com/chihung1024/backteststock/commit/2dda223ebf49f22f04ad51eb7c34b850f9734918).
-- Previous verified baseline: [`f8c08caa2e604acf193263667fd6815cbad1c2ec`](https://github.com/chihung1024/backteststock/commit/f8c08caa2e604acf193263667fd6815cbad1c2ec).
+- Current functional recovery baseline: `main` [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7).
+- Previous verified baseline: [`2dda223ebf49f22f04ad51eb7c34b850f9734918`](https://github.com/chihung1024/backteststock/commit/2dda223ebf49f22f04ad51eb7c34b850f9734918).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -260,25 +293,27 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - Scanner → Portfolio legacy-date handoff from PR #131 / `3a93afe`;
   - TWD Scanner raw-calendar coverage audit from PR #133 / `47ca2ea`;
   - Scanner edge-cache namespace invalidation from PR #135 / `f8c08ca`;
-  - Portfolio stale-run evidence invalidation from PR #137 / `2dda223`.
+  - Portfolio stale-run evidence invalidation from PR #137 / `2dda223`;
+  - Refinery stale-run evidence invalidation from PR #139 / `a4c4312`.
 
 ## Deployment Record
 
-The protected PF-1E merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `2dda223`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and direct `/api/scan` MISS→HIT behavior passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+The protected PF-1F merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `a4c4312`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and Refinery method guard passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ## NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-No active runtime implementation batch. Preserve `main` `2dda223` as the current functional recovery point; PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+No active runtime implementation batch. Preserve `main` `a4c4312` as the current functional recovery point; PF-1F, PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ### NEXT
 
-Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; first candidate is the Portfolio asset autocomplete late-response guard (stale suggestions and busy state after fast query changes). Keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
 - distributed Refinery rate limiting;
+- Portfolio asset autocomplete late-response invalidation (R1 UX correctness; reproduced ordering, not yet implemented);
 - instrument/security master and regional factor routing;
 - traceable theme provider/taxonomy;
 - public sourcemap policy only as a dedicated build/deployment batch;
@@ -294,4 +329,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1E is closed at main `2dda223`. Portfolio now aborts and version-guards stale preflight/backtest evidence after model edits or replacement; candidate CI #679, post-main CI #680, Vercel production, Cloudflare Deploy #66, browser flow, production bundle/health and direct scan MISS→HIT smoke passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh Product Functionality Review with one narrow scope lock; do not reopen PF-1E, PF-1D, PF-1C, PF-1B or PF-1A unless their invariants regress.
+PF-1F is closed at main `a4c4312`. Refinery now aborts and version-guards stale preflight/analyze evidence after candidate, Phase 6 plan, replacement, cancel or unmount changes; candidate CI #683, post-main CI #684, Vercel production, Cloudflare Deploy #67, browser flow, production bundle/health and Refinery route guard passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh single-batch review of the Portfolio asset autocomplete late-response ordering; do not reopen PF-1F or earlier closed batches unless their invariants regress.
