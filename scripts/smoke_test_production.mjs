@@ -13,6 +13,7 @@ const REQUEST_TIMEOUT_MS = 240_000;
 const BACKEND_VERSION_ATTEMPTS = 24;
 const BACKEND_VERSION_DELAY_MS = 15_000;
 const EXPECTED_TWD_VALUATION_CONTRACT = "twd-adjusted-close-union-calendar-2026-08-03.2";
+const EXPECTED_PIT_MEMBERSHIP_POLICY = "latest-causally-available-observation-on-or-before-max-10d-v2";
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -20,6 +21,11 @@ function sleep(milliseconds) {
 
 function assertCondition(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function datePart(value) {
+  const raw = String(value || "");
+  return /^\d{4}-\d{2}-\d{2}/u.test(raw) ? raw.slice(0, 10) : null;
 }
 
 async function requestJson(pathname, init = {}, options = {}) {
@@ -118,6 +124,10 @@ assertCondition(
   Number(russellCatalog.memberCount) >= MIN_RUSSELL_MEMBERS,
   `Russell 2000 catalog contains only ${russellCatalog?.memberCount ?? 0} members.`,
 );
+assertCondition(
+  /^\d{4}-\d{2}-\d{2}$/u.test(String(russellCatalog.sourceAsOf || "")),
+  "Russell 2000 catalog is missing a sourceAsOf date required for PIT verification.",
+);
 
 const detailPayload = await requestJson("/api/v2/universes/russell2000");
 const russellDetail = detailPayload.data;
@@ -132,6 +142,84 @@ const invalidMembers = russellDetail.members.filter(
 assertCondition(
   invalidMembers.length === 0,
   `${invalidMembers.length} Russell 2000 members do not have a valid ticker.`,
+);
+
+const fetchedDate = datePart(russellDetail.fetchedAt);
+assertCondition(fetchedDate !== null, "Russell 2000 detail is missing a valid fetchedAt date.");
+const pitSelectionAsOf = [russellCatalog.sourceAsOf, fetchedDate].sort().at(-1);
+assertCondition(
+  pitSelectionAsOf <= new Date().toISOString().slice(0, 10),
+  "PIT production smoke resolved to a future selection date.",
+);
+
+const pitDetailPayload = await requestJson(
+  `/api/v2/universes/russell2000?asOf=${encodeURIComponent(pitSelectionAsOf)}`,
+);
+const pitDetail = pitDetailPayload.data;
+assertCondition(pitDetail?.pointInTime === true, "PIT Universe detail is not marked point-in-time.");
+assertCondition(pitDetail?.membershipCausal === true, "PIT Universe detail is not marked causal.");
+assertCondition(
+  pitDetail?.membershipAuthoritative === false,
+  "Russell 2000 IWM proxy must not be advertised as authoritative membership.",
+);
+assertCondition(
+  pitDetail?.requestedAsOf === pitSelectionAsOf,
+  "PIT Universe detail did not preserve requestedAsOf.",
+);
+assertCondition(
+  pitDetail?.sourceAsOf === russellCatalog.sourceAsOf,
+  "PIT Universe detail did not resolve the current source observation date.",
+);
+const pitEvidenceAvailableAsOf = datePart(pitDetail?.evidenceAvailableAsOf);
+assertCondition(
+  pitEvidenceAvailableAsOf !== null && pitEvidenceAvailableAsOf <= pitSelectionAsOf,
+  "PIT Universe detail did not disclose causal membership evidence availability.",
+);
+assertCondition(
+  pitDetail?.membershipPolicy === EXPECTED_PIT_MEMBERSHIP_POLICY,
+  "PIT Universe detail returned the wrong membership policy.",
+);
+assertCondition(
+  pitDetail?.source?.isProxy === true,
+  "Russell 2000 PIT source must preserve the IWM proxy disclosure.",
+);
+assertCondition(
+  Array.isArray(pitDetail?.members) && pitDetail.members.length === russellDetail.members.length,
+  "PIT Universe archive member count does not match the active snapshot.",
+);
+
+const pitScreenerPayload = await requestJson(
+  "/api/v2/screener",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      universe: "russell2000",
+      selectionAsOf: pitSelectionAsOf,
+      sector: "any",
+      filters: {},
+      sort: "ticker-asc",
+      limit: 3,
+    }),
+  },
+);
+assertCondition(
+  Array.isArray(pitScreenerPayload.candidates) && pitScreenerPayload.candidates.length === 3,
+  "PIT membership screener did not return the requested bounded candidate set.",
+);
+assertCondition(
+  pitScreenerPayload.fundamentalsAsOf === null,
+  "PIT membership-only screener unexpectedly reported fundamentals provenance.",
+);
+assertCondition(
+  pitScreenerPayload.researchValidity?.selectionMode === "point_in_time_membership_only"
+    && pitScreenerPayload.researchValidity?.membershipPointInTime === true
+    && pitScreenerPayload.researchValidity?.membershipCausal === true
+    && pitScreenerPayload.researchValidity?.membershipAuthoritative === false
+    && pitScreenerPayload.researchValidity?.membershipSourceType === "proxy"
+    && pitScreenerPayload.researchValidity?.fundamentalsApplied === false
+    && pitScreenerPayload.researchValidity?.historicalSelectionSafe === false,
+  "PIT membership screener research-validity contract is incomplete or overstates proxy authority.",
 );
 
 const screenerPayload = await requestJson(
@@ -164,6 +252,14 @@ assertCondition(
 assertCondition(
   Number(screenerPayload.funnel?.fundamentalsAvailable) >= MIN_FUNDAMENTALS_COVERAGE,
   `Russell 2000 fundamentals coverage is only ${screenerPayload.funnel?.fundamentalsAvailable ?? 0}.`,
+);
+assertCondition(
+  screenerPayload.researchValidity?.selectionMode === "current_snapshot_retrospective"
+    && screenerPayload.researchValidity?.membershipPointInTime === false
+    && screenerPayload.researchValidity?.membershipCausal === false
+    && screenerPayload.researchValidity?.fundamentalsPointInTime === false
+    && screenerPayload.researchValidity?.historicalSelectionSafe === false,
+  "Current screener did not disclose its retrospective research-validity boundary.",
 );
 
 const scanContract = await requestJson(
@@ -249,6 +345,11 @@ console.log(
       twdValuationContractVersion: backendContract.twdContract,
       universeVersion: russellDetail.version,
       memberCount: russellDetail.members.length,
+      pitSelectionAsOf,
+      pitSourceAsOf: pitDetail.sourceAsOf,
+      pitEvidenceAvailableAsOf,
+      pitMemberCount: pitDetail.members.length,
+      pitSelectedTickers: pitScreenerPayload.candidates.map((candidate) => candidate.ticker),
       fundamentalsAvailable: screenerPayload.funnel.fundamentalsAvailable,
       returnedTickers: screenerPayload.candidates.map((candidate) => candidate.ticker),
       scanContractStatus: scanRow.status,
