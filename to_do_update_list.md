@@ -4,6 +4,14 @@
 
 ## Current Status
 
+**PF-1G Portfolio asset autocomplete late-response guard — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R1).**
+
+- [PR #141](https://github.com/chihung1024/backteststock/pull/141) passed exact-head candidate CI [#687](https://github.com/chihung1024/backteststock/actions/runs/31758308660), received exact-head independent review [#4932802399](https://github.com/chihung1024/backteststock/pull/141#pullrequestreview-4932802399), was marked Ready, and was squash-merged to main as [`dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`](https://github.com/chihung1024/backteststock/commit/dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2) on 2026-08-14.
+- Post-main CI [#688](https://github.com/chihung1024/backteststock/actions/runs/31758555458), Vercel production [deployment](https://vercel.com/cchungs-projects/back-test/EvHFxjup7tKUnW3EYSrWFY7aj6Rx), and [Deploy Cloudflare Worker #68](https://github.com/chihung1024/backteststock/actions/runs/31758555481) all passed at the merged SHA; candidate and post-main CI executed the Chromium browser flow, and Cloudflare smoke covered Scanner, Portfolio v3 and Refinery v1.
+- Direct production `/portfolio/` served `index-BUOzbdxv.js`; Portfolio health returned `deployment_sha=dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`; the live `/api/v3/portfolio/assets/search?q=AP&limit=5` route returned valid suggestions and the bundle returned HTTP 200.
+- Local validation passed TypeScript/build, Portfolio source contracts (4), Worker tests (77), score tests (12), Python compileall, JavaScript syntax checks, entry/source-map consistency and git diff --check. Local targeted browser E2E was attempted but the sandbox lacks Chromium; candidate CI supplied that gate successfully.
+- The change only version-guards autocomplete success/error/finally state and clears stale suggestions on query changes; Portfolio/API/data contracts, selection and weight semantics, persistence, Worker routing/cache, Refinery and Scanner are unchanged.
+
 **PF-1F Refinery stale-run evidence invalidation — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
 - [PR #139](https://github.com/chihung1024/backteststock/pull/139) passed exact-head candidate CI [#683](https://github.com/chihung1024/backteststock/actions/runs/31756855611), received an exact-head independent review, was marked Ready, and was squash-merged to main as [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7) on 2026-08-14.
@@ -52,6 +60,30 @@
 - UX-1A remains closed at [4598ecf1a2870bcec7b71c69b5d7642601e0c55a](https://github.com/chihung1024/backteststock/commit/4598ecf1a2870bcec7b71c69b5d7642601e0c55a).
 
 Primary Goal completed: make Scanner execution scale, pending-first-result state, and downstream destination capacity explicit without changing data, quant, defaults, selection semantics, retry/resume behavior or persistence contracts.
+
+## Closed Batch — PF-1G / R1
+
+### Objective / Scope Lock
+
+- **Objective:** keep Portfolio asset autocomplete suggestions and busy state bound to the current query when users type quickly.
+- **In scope:** add a monotonic request-version guard to `AllocationEditor`, clear stale suggestions on query changes, guard success/error/finally state updates, add a delayed-response Chromium regression, and update the tracked Portfolio bundle.
+- **Out of scope:** Portfolio/API/data source, selection or weight semantics, capacity, preflight/backtest contracts, persistence, Worker routing/cache, Refinery, Scanner, methodology and unrelated cleanup.
+- **Risk class:** R1 client-side UX correctness; exact-head review, full candidate CI including Chromium, protected merge, Cloudflare production smoke and post-main verification were required.
+- **Rollback:** normal revert of PR #141; no data, storage, persistence or schema migration is introduced.
+
+### Evidence / Root Cause
+
+- **Reproduction:** hold an `A` search open, type `AP`, hold the newer request, then release `A`; the old response overwrote the newer suggestions and its `finally` cleared the newer busy state.
+- **Failure point:** `AllocationEditor` used one shared suggestions/busy state without request identity checks; abort was best-effort and could not protect a transport that completed after abort.
+- **Downstream impact:** users could select or see an asset result that did not match the visible query, and the UI could falsely appear idle while the newer request was still pending.
+
+### Closure / Stable Checkpoint
+
+- `AllocationEditor.tsx` now increments a request version for query/asset changes and cleanup; timer, success, non-abort error and `finally` paths only update state for the current version.
+- The delayed-response E2E removes the signal from the test transport, holds `A` then `AP`, confirms the old result cannot replace the new state or clear busy, then confirms the current `AP` result renders.
+- Candidate CI [#687](https://github.com/chihung1024/backteststock/actions/runs/31758308660) passed at exact head `c33bdf495e69139fe06d6383100e87be1adb12f6`; Vercel Preview completed successfully.
+- Post-main CI [#688](https://github.com/chihung1024/backteststock/actions/runs/31758555458), Vercel production, and Cloudflare Deploy [#68](https://github.com/chihung1024/backteststock/actions/runs/31758555481) passed at merged head `dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`; direct production bundle, health and search-route checks passed.
+- Rollback is a normal revert of PR #141; no data, storage, persistence or schema migration is involved.
 
 ## Closed Batch — PF-1F / R2
 
@@ -278,8 +310,8 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
 
 ## Stable State / Rollback
 
-- Current functional recovery baseline: `main` [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7).
-- Previous verified baseline: [`2dda223ebf49f22f04ad51eb7c34b850f9734918`](https://github.com/chihung1024/backteststock/commit/2dda223ebf49f22f04ad51eb7c34b850f9734918).
+- Current functional recovery baseline: `main` [`dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2`](https://github.com/chihung1024/backteststock/commit/dac6e6c7cd19375b0ae6d8504492a8a32e7de2e2).
+- Previous verified baseline: [`a4c43120a472e2e716bccaacb31937f8f77f01a7`](https://github.com/chihung1024/backteststock/commit/a4c43120a472e2e716bccaacb31937f8f77f01a7).
 - Rollback for UX-1B is a normal revert of PR #127; UX-1A remains a normal revert of PR #125. No data migration, persistence migration or schema change is involved.
 - The current functional baseline includes:
   - Phase 6 Refinery marginal experiments from [#116](https://github.com/chihung1024/backteststock/pull/116), merged as `72b15c4`;
@@ -294,26 +326,26 @@ Primary Goal completed: make Scanner execution scale, pending-first-result state
   - TWD Scanner raw-calendar coverage audit from PR #133 / `47ca2ea`;
   - Scanner edge-cache namespace invalidation from PR #135 / `f8c08ca`;
   - Portfolio stale-run evidence invalidation from PR #137 / `2dda223`;
-  - Refinery stale-run evidence invalidation from PR #139 / `a4c4312`.
+  - Refinery stale-run evidence invalidation from PR #139 / `a4c4312`;
+  - Portfolio asset autocomplete late-response guard from PR #141 / `dac6e6c`.
 
 ## Deployment Record
 
-The protected PF-1F merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `a4c4312`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and Refinery method guard passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+The protected PF-1G merge automatically triggered the configured Vercel production deployment and Cloudflare Worker deployment; both reported success at merged SHA `dac6e6c`. Candidate and post-main Chromium flow, Cloudflare scan/Portfolio/Refinery smoke, production Portfolio bundle/health, and the live asset-search route passed. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ## NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-No active runtime implementation batch. Preserve `main` `a4c4312` as the current functional recovery point; PF-1F, PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
+No active runtime implementation batch. Preserve `main` `dac6e6c` as the current functional recovery point; PF-1G, PF-1F, PF-1E, PF-1D, PF-1C, PF-1B and PF-1A are closed and repository/CI verified. The sparse partial-calendar coverage assertion remains NOT VERIFIED.
 
 ### NEXT
 
-Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; first candidate is the Portfolio asset autocomplete late-response guard (stale suggestions and busy state after fast query changes). Keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
+Re-run Product Functionality Review as a new single active batch only after querying current `main`, PRs, checks, deployment state and applicable contracts; select the next candidate only from a newly reproduced functional invariant. Keep the current Scanner audit table, exports, selection semantics, methodology, and destination contracts unchanged unless a new functional invariant is proven.
 
 ### BACKLOG
 
 - distributed Refinery rate limiting;
-- Portfolio asset autocomplete late-response invalidation (R1 UX correctness; reproduced ordering, not yet implemented);
 - instrument/security master and regional factor routing;
 - traceable theme provider/taxonomy;
 - public sourcemap policy only as a dedicated build/deployment batch;
@@ -329,4 +361,4 @@ Re-run Product Functionality Review as a new single active batch only after quer
 
 ## Exact Resume Point
 
-PF-1F is closed at main `a4c4312`. Refinery now aborts and version-guards stale preflight/analyze evidence after candidate, Phase 6 plan, replacement, cancel or unmount changes; candidate CI #683, post-main CI #684, Vercel production, Cloudflare Deploy #67, browser flow, production bundle/health and Refinery route guard passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh single-batch review of the Portfolio asset autocomplete late-response ordering; do not reopen PF-1F or earlier closed batches unless their invariants regress.
+PF-1G is closed at main `dac6e6c`. Portfolio autocomplete now version-guards late results and busy cleanup after fast query changes; candidate CI #687, post-main CI #688, Vercel production, Cloudflare Deploy #68, browser flow, production bundle/health and live asset-search checks passed. The sparse partial-calendar `0.5` output remains NOT VERIFIED in production. The next action is a fresh single-batch functionality review from current main; do not reopen PF-1G or earlier closed batches unless their invariants regress.
