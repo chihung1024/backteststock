@@ -8,6 +8,7 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response  # noqa: E4
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
+from api import date_policy  # noqa: E402
 from apps.api.app.portfolio.analytics import (  # noqa: E402
     PORTFOLIO_ANALYTICS_CONTRACT_VERSION,
 )
@@ -112,6 +114,20 @@ def _error_response(status_code: int, detail: str) -> JSONResponse:
     )
 
 
+def _complete_period(payload: PortfolioRequest) -> date_policy.CompletePeriod:
+    """Validate Portfolio v3's inclusive end date against the shared daily-bar policy."""
+
+    return date_policy.require_complete_period(
+        payload.start_date,
+        payload.end_date + timedelta(days=1),
+    )
+
+
+def _apply_as_of_headers(response: Response, period: date_policy.CompletePeriod) -> None:
+    response.headers["X-As-Of-Date"] = period.as_of_date.isoformat()
+    response.headers["X-As-Of-Policy"] = period.as_of_policy
+
+
 @app.middleware("http")
 async def request_guard(request: Request, call_next: Any) -> Response:
     path = request.url.path
@@ -176,10 +192,13 @@ async def search_assets(
     "/api/v3/portfolio/preflight",
     response_model=PreflightResponse,
 )
-async def preflight(payload: PortfolioRequest) -> PreflightResponse:
+async def preflight(payload: PortfolioRequest, response: Response) -> PreflightResponse:
     try:
-        return await asyncio.to_thread(get_service().preflight, payload)
-    except ValueError as exc:
+        period = _complete_period(payload)
+        result = await asyncio.to_thread(get_service().preflight, payload)
+        _apply_as_of_headers(response, period)
+        return result
+    except (ValueError, date_policy.DatePolicyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -189,10 +208,13 @@ async def preflight(payload: PortfolioRequest) -> PreflightResponse:
     "/api/v3/portfolio/backtests",
     response_model=BacktestResponse,
 )
-async def backtests(payload: PortfolioRequest) -> BacktestResponse:
+async def backtests(payload: PortfolioRequest, response: Response) -> BacktestResponse:
     try:
-        return await asyncio.to_thread(get_service().backtest, payload)
-    except ValueError as exc:
+        period = _complete_period(payload)
+        result = await asyncio.to_thread(get_service().backtest, payload)
+        _apply_as_of_headers(response, period)
+        return result
+    except (ValueError, date_policy.DatePolicyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

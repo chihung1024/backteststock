@@ -386,6 +386,8 @@ def _fx_audit(
             "method": "identity",
             "tickers": [],
             "correction_count": 0,
+            "future_assisted_correction_count": 0,
+            "non_causal_repair_present": False,
             "unresolved_count": 0,
             "material_transition_count": 0,
         }
@@ -398,6 +400,8 @@ def _fx_audit(
         "method": levels.method,
         "tickers": list(levels.tickers),
         "correction_count": levels.correction_count,
+        "future_assisted_correction_count": levels.future_assisted_correction_count,
+        "non_causal_repair_present": levels.future_assisted_correction_count > 0,
         "unresolved_count": levels.unresolved_count,
         "material_transition_count": levels.material_transition_count,
     }

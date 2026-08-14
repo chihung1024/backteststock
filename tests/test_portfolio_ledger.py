@@ -245,6 +245,75 @@ def test_fixed_debt_interest_reduces_equity_without_changing_principal() -> None
     assert ledger.equity.iloc[-1] == pytest.approx(99.9, rel=1e-6)
 
 
+def test_fixed_debt_interest_accrues_over_weekend_and_holiday_gap() -> None:
+    history = _history(
+        "AAA",
+        ["2024-01-12", "2024-01-16"],
+        [0.0, 0.0],
+    )
+    ledger = simulate_portfolio_ledger(
+        PortfolioSpec.from_weights("Gap debt", {"AAA": 1.0}),
+        {"AAA": history},
+        SimulationConfig(
+            initial_amount=100.0,
+            leverage=LeverageConfig(
+                type=LeverageType.FIXED_DEBT,
+                debt_amount=50.0,
+                annual_interest_rate_percent=36.52425,
+                maintenance_margin_percent=0.0,
+            ),
+        ),
+    )
+
+    assert ledger.borrowing_costs == pytest.approx(0.2, rel=1e-6)
+    assert ledger.equity.iloc[-1] == pytest.approx(99.8, rel=1e-6)
+    event = next(event for event in ledger.events if event.type == "borrowing_interest")
+    assert event.details["calendar_days"] == 4
+    assert event.details["debt_before_interest"] == pytest.approx(50.0)
+
+
+def test_fixed_debt_interest_counts_feb_29_in_leap_year() -> None:
+    leap_history = _history(
+        "AAA",
+        ["2024-02-28", "2024-03-01"],
+        [0.0, 0.0],
+    )
+    non_leap_history = _history(
+        "AAA",
+        ["2023-02-28", "2023-03-01"],
+        [0.0, 0.0],
+    )
+    config = SimulationConfig(
+        initial_amount=100.0,
+        leverage=LeverageConfig(
+            type=LeverageType.FIXED_DEBT,
+            debt_amount=50.0,
+            annual_interest_rate_percent=36.52425,
+            maintenance_margin_percent=0.0,
+        ),
+    )
+
+    leap = simulate_portfolio_ledger(
+        PortfolioSpec.from_weights("Leap debt", {"AAA": 1.0}),
+        {"AAA": leap_history},
+        config,
+    )
+    non_leap = simulate_portfolio_ledger(
+        PortfolioSpec.from_weights("Non-leap debt", {"AAA": 1.0}),
+        {"AAA": non_leap_history},
+        config,
+    )
+
+    assert leap.borrowing_costs == pytest.approx(0.1, rel=1e-6)
+    assert non_leap.borrowing_costs == pytest.approx(0.05, rel=1e-6)
+    leap_event = next(event for event in leap.events if event.type == "borrowing_interest")
+    non_leap_event = next(
+        event for event in non_leap.events if event.type == "borrowing_interest"
+    )
+    assert leap_event.details["calendar_days"] == 2
+    assert non_leap_event.details["calendar_days"] == 1
+
+
 def test_percentage_withdrawal_is_capped_at_available_equity() -> None:
     history = _history(
         "AAA",

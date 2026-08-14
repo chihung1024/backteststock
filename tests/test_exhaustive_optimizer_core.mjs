@@ -165,3 +165,24 @@ test("periodic mode rebalances at calendar boundaries", () => {
   assert.equal(result.events[0].executionPosition, 3);
   assert.equal(result.events[0].reason, "monthly");
 });
+
+test("post-cost fixed point closes exactly at the supported 1000 bps ceiling", () => {
+  const dates = ["2024-01-02", "2024-01-03"];
+  const result = simulateExactPortfolio({
+    prices: [
+      Float64Array.from([100, 100]),
+      Float64Array.from([100, 100]),
+    ],
+    benchmarkPrices: Float64Array.from([100, 100]),
+    periodKeys: buildPeriodKeys(dates),
+    indexes: Uint16Array.from([0, 1]),
+    elapsedYears: 1 / 365.25,
+    rebalanceMode: "never",
+    transactionCostBps: 1000,
+  });
+
+  const expectedPostCostNav = 1 / 1.1;
+  assert.ok(Math.abs(result.final_nav - expectedPostCostNav) < 1e-12);
+  assert.ok(Math.abs(result.transaction_cost - (1 - expectedPostCostNav)) < 1e-12);
+  assert.ok(Math.abs(result.final_nav + result.transaction_cost - 1) < 1e-12);
+});

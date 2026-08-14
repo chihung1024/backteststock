@@ -76,6 +76,18 @@ test("worker streams rank-selection metrics and materializes full compact metric
     assert.equal(materialized.completed, 2);
     assert.ok(materialized.metrics instanceof Float32Array);
     assert.equal(materialized.metrics.length, 2 * METRIC_KEYS.length);
+
+    listener({
+      data: {
+        type: "calibrate",
+        ranks: [0],
+        settings: { ...settings, transactionCostBps: 1000.1 },
+      },
+    });
+    const rejected = messages.at(-1);
+    assert.equal(rejected.type, "error");
+    assert.equal(rejected.requestType, "calibrate");
+    assert.match(rejected.error, /0.*1000 bps/u);
   } finally {
     globalThis.self = originalSelf;
   }
