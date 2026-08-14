@@ -1,0 +1,31 @@
+name: Temporary Batch 2 Production Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/temporary-batch2-production-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Smoke production Russell 2000 flow
+        run: node scripts/smoke_test_production.mjs "https://backteststock.chired.workers.dev"
+      - name: Smoke production Portfolio v3 exact deployment
+        env:
+          EXPECTED_DEPLOYMENT_SHA: d7edc11835e6591dd2f49dc64deaa8b799c70f3f
+          PORTFOLIO_READINESS_TIMEOUT_MS: "120000"
+          PORTFOLIO_READINESS_POLL_MS: "5000"
+        run: node scripts/smoke_test_portfolio_v3.mjs "https://backteststock.chired.workers.dev"
+      - name: Smoke production Refinery v1 Phase 5 flow
+        run: node scripts/smoke_test_refinery_v1.mjs "https://backteststock.chired.workers.dev"
