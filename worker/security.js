@@ -1,6 +1,7 @@
 const EDGE_AUTH_HEADER = "x-backteststock-edge-auth";
 const EDGE_CLIENT_ID_HEADER = "x-backteststock-client-id";
 const MIN_EDGE_SECRET_LENGTH = 32;
+const FALSE_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
 const EXPENSIVE_PATHS = new Set([
   "/api/backtest",
@@ -16,9 +17,9 @@ function configured(value) {
   return String(value || "").trim();
 }
 
-function truthy(value) {
-  return new Set(["1", "true", "yes", "on", "required"])
-    .has(configured(value).toLowerCase());
+function requiredMode(value) {
+  const mode = configured(value).toLowerCase();
+  return Boolean(mode) && !FALSE_VALUES.has(mode);
 }
 
 function policyFailure(status, code, message, retryAfter = null) {
@@ -57,8 +58,8 @@ async function enforceEdgeRequestPolicy(request, env, options = {}) {
   const pathname = new URL(request.url).pathname;
   const expensive = options.expensive ?? isExpensiveApiPath(pathname);
   const secret = configured(env.BACKTESTSTOCK_EDGE_SECRET);
-  const requireAuthentication = truthy(env.BACKTESTSTOCK_REQUIRE_EDGE_AUTH);
-  const requireRateLimit = truthy(env.BACKTESTSTOCK_REQUIRE_RATE_LIMIT);
+  const requireAuthentication = requiredMode(env.BACKTESTSTOCK_REQUIRE_EDGE_AUTH);
+  const requireRateLimit = requiredMode(env.BACKTESTSTOCK_REQUIRE_RATE_LIMIT);
 
   if (requireAuthentication && secret.length < MIN_EDGE_SECRET_LENGTH) {
     return policyFailure(
@@ -117,12 +118,21 @@ function applyTrustedBackendHeaders(headers, identity) {
   for (const name of [
     "host",
     "content-length",
-    "cf-connecting-ip",
-    "cf-ipcountry",
-    "cf-ray",
-    "x-forwarded-for",
     "authorization",
     "cookie",
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-port",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-client-ip",
+    "x-cluster-client-ip",
+    "true-client-ip",
+    "cf-connecting-ip",
+    "cf-pseudo-ipv4",
+    "cf-ipcountry",
+    "cf-ray",
     EDGE_AUTH_HEADER,
     EDGE_CLIENT_ID_HEADER,
   ]) headers.delete(name);
