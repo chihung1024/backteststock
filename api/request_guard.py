@@ -50,6 +50,8 @@ MAX_EXHAUSTIVE_HISTORY_DAYS = 15 * 366
 MAX_EXHAUSTIVE_TICKER_DAYS = 750_000
 MAX_EXHAUSTIVE_SECONDS = 180.0
 
+_FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
+
 
 @dataclass(frozen=True, slots=True)
 class GuardFailure:
@@ -70,16 +72,11 @@ class EdgeIdentity:
     mode: str
 
 
-def _env_truthy(name: str) -> bool:
-    raw = os.getenv(name, "").strip().lower()
-    return raw in {"1", "true", "yes", "on", "required"}
-
-
 def _edge_auth_rollout_bypass_enabled() -> bool:
     """Return whether the explicit temporary migration bypass is active."""
 
     raw = os.getenv(EDGE_REQUIRED_ENV, "").strip().lower()
-    return raw in {"0", "false", "no", "off", "disabled"}
+    return raw in _FALSE_VALUES
 
 
 def production_runtime() -> bool:
@@ -104,14 +101,16 @@ def production_runtime() -> bool:
 
 
 def edge_auth_required() -> bool:
-    """Whether a request must carry the configured edge service secret."""
+    """Whether a request must carry the configured edge service secret.
 
-    configured_mode = os.getenv(EDGE_REQUIRED_ENV)
-    if configured_mode is not None and configured_mode.strip():
-        # An explicit false value supports the documented two-phase rollout.
-        # Once the edge is forwarding credentials, production must set this
-        # to true; an absent setting remains fail closed in production.
-        return _env_truthy(EDGE_REQUIRED_ENV)
+    Only explicit false values activate the temporary migration bypass.  Any
+    other non-empty configured value is treated as required so a typo cannot
+    silently weaken a deployed perimeter.
+    """
+
+    configured_mode = os.getenv(EDGE_REQUIRED_ENV, "").strip().lower()
+    if configured_mode:
+        return configured_mode not in _FALSE_VALUES
     return production_runtime()
 
 
