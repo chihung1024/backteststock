@@ -58,6 +58,7 @@ export function RefineryWorkspace() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const activeController = useRef<AbortController | null>(null);
+  const requestVersion = useRef(0);
   const resultsRef = useRef<HTMLDivElement>(null);
   const validationRef = useRef<HTMLDivElement>(null);
   const issues = useMemo(
@@ -71,10 +72,15 @@ export function RefineryWorkspace() {
   );
   const weightTotal = useMemo(() => refineryWeightTotal(model), [model]);
 
-  function invalidateEvidence() {
+  function invalidateActiveRequest() {
+    requestVersion.current += 1;
     activeController.current?.abort();
     activeController.current = null;
     setBusy(null);
+  }
+
+  function invalidateEvidence() {
+    invalidateActiveRequest();
     setPreflight(null);
     setAnalysis(null);
     setMessage("");
@@ -105,7 +111,11 @@ export function RefineryWorkspace() {
     }
   }, [model]);
 
-  useEffect(() => () => activeController.current?.abort(), []);
+  useEffect(() => () => {
+    requestVersion.current += 1;
+    activeController.current?.abort();
+    activeController.current = null;
+  }, []);
 
   async function execute(kind: "preflight" | "analyze") {
     if (issues.length > 0) {
@@ -120,6 +130,7 @@ export function RefineryWorkspace() {
 
     activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++requestVersion.current;
     activeController.current = controller;
     setBusy(kind);
     setError("");
@@ -128,29 +139,36 @@ export function RefineryWorkspace() {
       const request = toRefineryApiRequest(model, experimentPlan);
       if (kind === "preflight") {
         const result = await runRefineryPreflight(request, controller.signal);
+        if (requestVersion.current !== version) return;
         setPreflight(result);
         setAnalysis(null);
         setMessage(statusExplanation(result.status));
       } else {
         const result = await runRefineryAnalyze(request, controller.signal);
+        if (requestVersion.current !== version) return;
         setAnalysis(result);
         setMessage(result.status === "ok" ? "Refinery 風險診斷完成。" : statusExplanation(result.status));
-        window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+        window.setTimeout(() => {
+          if (requestVersion.current === version) {
+            resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 0);
       }
     } catch (requestError) {
+      if (requestVersion.current !== version) return;
       if (requestError instanceof DOMException && requestError.name === "AbortError") return;
       setError(errorText(requestError));
       setMessage("");
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setBusy(null);
+      if (activeController.current === controller) {
+        activeController.current = null;
+        setBusy(null);
+      }
     }
   }
 
   function cancelRequest() {
-    activeController.current?.abort();
-    activeController.current = null;
-    setBusy(null);
+    invalidateActiveRequest();
     setMessage("已取消目前 Refinery 請求。 ");
   }
 

@@ -264,6 +264,60 @@ test("Refinery preflight then analyze keeps portfolio risk unavailable when weig
   await expect(page.getByText("Portfolio risk unavailable")).toBeVisible();
 });
 
+test("model changes invalidate late Refinery evidence", async ({ page }) => {
+  let releaseFirstAnalyze;
+  const firstAnalyzeGate = new Promise((resolve) => {
+    releaseFirstAnalyze = resolve;
+  });
+  let firstAnalyzeStarted;
+  const firstAnalyzeStartedPromise = new Promise((resolve) => {
+    firstAnalyzeStarted = resolve;
+  });
+  let analyzeCount = 0;
+
+  // Exercise the UI guard even if a transport completes after AbortController.abort().
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (!init?.signal) return nativeFetch(input, init);
+      const passthrough = { ...init };
+      delete passthrough.signal;
+      return nativeFetch(input, passthrough);
+    };
+  });
+  await mockPortfolioHealth(page);
+  await page.route("**/api/v1/refinery/preflight", (route) => route.fulfill({
+    json: preflightResponse(["AAPL", "MSFT"]),
+  }));
+  await page.route("**/api/v1/refinery/analyze", async (route) => {
+    analyzeCount += 1;
+    if (analyzeCount === 1) {
+      firstAnalyzeStarted();
+      await firstAnalyzeGate;
+    }
+    try {
+      await route.fulfill({ json: analyzeResponse(["AAPL", "MSFT"]) });
+    } catch {
+      // The delayed response may be released after the route was superseded.
+    }
+  });
+
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: /持股精煉診斷/ }).click();
+  await page.getByLabel("Refinery 持股 1 代碼", { exact: true }).fill("AAPL");
+  await page.getByLabel("Refinery 持股 2 代碼", { exact: true }).fill("MSFT");
+  await page.getByRole("button", { name: "資料預檢" }).click();
+  await expect(page.getByRole("heading", { name: "Refinery 資料預檢" })).toBeVisible();
+  await page.getByRole("button", { name: "執行風險診斷" }).click();
+  await firstAnalyzeStartedPromise;
+
+  await page.getByLabel("Refinery 持股 1 代碼", { exact: true }).fill("NVDA");
+  await expect(page.getByRole("heading", { name: "結構摘要" })).toHaveCount(0);
+
+  releaseFirstAnalyze();
+  await expect(page.getByRole("heading", { name: "結構摘要" })).toHaveCount(0);
+});
+
 test("large correlation results use pair summary instead of mounting a full matrix", async ({ page }) => {
   const symbols = Array.from({ length: 21 }, (_, index) => `SYM${String(index + 1).padStart(2, "0")}`);
   const model = {
