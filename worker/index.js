@@ -17,7 +17,7 @@ const UNIVERSE_PIT_MAX_AGE_MS = UNIVERSE_STALE_MS;
 const UNIVERSE_ID_PATTERN = /^[a-z0-9-]{2,40}$/;
 const UNIVERSE_TICKER_PATTERN = /^[A-Z0-9.^=_-]{1,20}$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const PIT_MEMBERSHIP_POLICY = "latest-observed-on-or-before-max-10d-v1";
+const PIT_MEMBERSHIP_POLICY = "latest-causally-available-observation-on-or-before-max-10d-v2";
 const CURRENT_SCREENER_RESEARCH_WARNING =
   "目前成分股與基本面為 current snapshot；將結果用於更早期間屬回溯研究，不能視為歷史時點選股（PIT）。";
 
@@ -260,6 +260,11 @@ function parseIsoDate(value) {
   return { raw, timestamp };
 }
 
+function timestampDate(value) {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : null;
+}
+
 function universeFromRow(row) {
   const available = Boolean(row.version_id);
   const warnings = [];
@@ -374,6 +379,10 @@ async function loadUniverseSnapshotAsOf(env, universeId, requestedAsOf, requestI
   if (!requestedDate) {
     return jsonResponse({ error: "selectionAsOf / asOf 必須是有效的 YYYY-MM-DD 日期。" }, 400, requestId);
   }
+  const today = new Date().toISOString().slice(0, 10);
+  if (requestedDate.raw > today) {
+    return jsonResponse({ error: "selectionAsOf / asOf 不得晚於今天；未來日期沒有可驗證的歷史資訊集。" }, 400, requestId);
+  }
   const db = requireUniverseDatabase(env, requestId);
   if (db instanceof Response) return db;
 
@@ -390,13 +399,15 @@ async function loadUniverseSnapshotAsOf(env, universeId, requestedAsOf, requestI
          universe_id, source_as_of, version, fetched_at, source_label,
          source_url, is_proxy, warning, checksum, member_count, members_json
        FROM universe_snapshot_archive
-       WHERE universe_id = ?1 AND source_as_of <= ?2
+       WHERE universe_id = ?1
+         AND source_as_of <= ?2
+         AND date(fetched_at) <= ?2
        ORDER BY source_as_of DESC, fetched_at DESC
        LIMIT 1`,
     ).bind(universeId, requestedDate.raw).first();
     if (!row) {
       return jsonResponse(
-        { error: "所選日期之前沒有可驗證的歷史 Universe 快照；已停止使用目前成分股替代。" },
+        { error: "所選日期之前沒有可驗證且當時已取得的歷史 Universe 快照；已停止使用目前成分股替代。" },
         409,
         requestId,
       );
@@ -405,6 +416,17 @@ async function loadUniverseSnapshotAsOf(env, universeId, requestedAsOf, requestI
     const observedDate = parseIsoDate(row.source_as_of);
     if (!observedDate) {
       return jsonResponse({ error: "歷史 Universe 快照缺少有效成分日。" }, 503, requestId);
+    }
+    const fetchedDate = timestampDate(row.fetched_at);
+    if (!fetchedDate) {
+      return jsonResponse({ error: "歷史 Universe 快照缺少有效取得時間。" }, 503, requestId);
+    }
+    if (fetchedDate > requestedDate.raw) {
+      return jsonResponse(
+        { error: "歷史 Universe 快照在所選日期之後才被系統取得；為避免回看未來資訊，已停止執行。" },
+        409,
+        requestId,
+      );
     }
     const observationAgeMs = requestedDate.timestamp - observedDate.timestamp;
     if (observationAgeMs < 0 || observationAgeMs > UNIVERSE_PIT_MAX_AGE_MS) {
@@ -429,17 +451,21 @@ async function loadUniverseSnapshotAsOf(env, universeId, requestedAsOf, requestI
       return jsonResponse({ error: "歷史 Universe 快照完整性檢查失敗，已停止使用此版本。" }, 503, requestId);
     }
 
+    const membershipAuthoritative = !Boolean(row.is_proxy);
     return {
       id: universe.id,
       name: universe.name,
       version: row.version,
       sourceAsOf: row.source_as_of,
       fetchedAt: row.fetched_at,
+      evidenceAvailableAsOf: fetchedDate,
       proxyNote: row.warning,
       checksum: row.checksum,
       requestedAsOf: requestedDate.raw,
-      selectionMode: "point_in_time_last_observed",
+      selectionMode: "point_in_time_last_causally_available",
       pointInTime: true,
+      membershipCausal: true,
+      membershipAuthoritative,
       observationAgeDays: Math.floor(observationAgeMs / (24 * 60 * 60 * 1000)),
       membershipPolicy: PIT_MEMBERSHIP_POLICY,
       source: {
@@ -523,8 +549,13 @@ function pointInTimeMembershipScreener(payload, snapshot, requestId) {
   const warnings = [];
   if (snapshot.proxyNote) warnings.push(snapshot.proxyNote);
   warnings.push(
-    "歷史 PIT 模式只使用所選日期當時可得的成分股快照；沒有套用目前 fundamentals。需要歷史基本面條件時會 fail closed。",
+    "歷史 PIT 模式只使用所選日期當時已取得的成分股快照；沒有套用目前 fundamentals。需要歷史基本面條件時會 fail closed。",
   );
+  if (!snapshot.membershipAuthoritative) {
+    warnings.push(
+      "此 Universe 使用 proxy membership；時間因果性已驗證，但不能等同官方指數歷史成分名單。",
+    );
+  }
 
   return jsonResponse(
     {
@@ -534,11 +565,13 @@ function pointInTimeMembershipScreener(payload, snapshot, requestId) {
         version: snapshot.version,
         sourceAsOf: snapshot.sourceAsOf,
         fetchedAt: snapshot.fetchedAt,
+        evidenceAvailableAsOf: snapshot.evidenceAvailableAsOf,
         proxyNote: snapshot.proxyNote,
         checksum: snapshot.checksum,
         requestedAsOf: snapshot.requestedAsOf,
         observationAgeDays: snapshot.observationAgeDays,
         membershipPolicy: snapshot.membershipPolicy,
+        source: snapshot.source,
       },
       fundamentalsAsOf: null,
       fundamentalsSources: [],
@@ -558,10 +591,14 @@ function pointInTimeMembershipScreener(payload, snapshot, requestId) {
         selectionMode: "point_in_time_membership_only",
         requestedAsOf: snapshot.requestedAsOf,
         membershipObservationAsOf: snapshot.sourceAsOf,
+        membershipEvidenceAvailableAsOf: snapshot.evidenceAvailableAsOf,
         membershipPointInTime: true,
+        membershipCausal: true,
+        membershipAuthoritative: snapshot.membershipAuthoritative,
+        membershipSourceType: snapshot.membershipAuthoritative ? "authoritative" : "proxy",
         fundamentalsPointInTime: false,
         fundamentalsApplied: false,
-        historicalSelectionSafe: true,
+        historicalSelectionSafe: snapshot.membershipAuthoritative,
         membershipPolicy: snapshot.membershipPolicy,
       },
     },
@@ -600,6 +637,8 @@ async function annotateCurrentScreenerResponse(response, snapshot, requestId) {
         selectionMode: "current_snapshot_retrospective",
         membershipObservationAsOf: snapshot.sourceAsOf || null,
         membershipPointInTime: false,
+        membershipCausal: false,
+        membershipAuthoritative: null,
         fundamentalsPointInTime: false,
         fundamentalsApplied: true,
         historicalSelectionSafe: false,
