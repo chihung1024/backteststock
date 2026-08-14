@@ -312,6 +312,28 @@ test("asset autocomplete ignores late responses from older queries", async ({ pa
   await expect(desktopSearchMenu.getByText("AAPL", { exact: true })).toHaveCount(0);
 });
 
+test("switching asset inputs keeps the newer autocomplete menu open", async ({ page }) => {
+  await page.route("**/api/v3/portfolio/health", (route) => route.fulfill({ json: { status: "ok", service: "backteststock-portfolio-v3" } }));
+  await page.route("**/api/v3/portfolio/assets/search**", (route) => route.fulfill({ json: [{ symbol: "AP ETF", name: "AP result", exchange: "TEST", currency: "USD" }] }));
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: "載入範例" }).click();
+
+  await page.evaluate(() => {
+    const inputs = document.querySelectorAll(".desktop-matrix input[id^=ticker-]");
+    const first = inputs[0];
+    const second = inputs[1];
+    if (!(first instanceof HTMLInputElement) || !(second instanceof HTMLInputElement)) throw new Error("ticker inputs missing");
+    first.focus();
+    second.focus();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(second, "AP");
+    second.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  const desktopSearchMenu = page.locator(".desktop-matrix .search-suggestions");
+  await expect(desktopSearchMenu.getByRole("option", { name: /AP ETF/ })).toBeVisible();
+});
+
 test("model changes invalidate late Portfolio evidence and replacement clears completed evidence", async ({ page }) => {
   let releaseFirstBacktest;
   const firstBacktestGate = new Promise((resolve) => {
