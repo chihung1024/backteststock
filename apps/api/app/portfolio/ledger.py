@@ -20,7 +20,7 @@ from apps.api.app.portfolio.models import (
     SimulationConfig,
 )
 
-PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-04.1"
+PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-14.1"
 _EPSILON = 1e-12
 
 
@@ -133,9 +133,10 @@ def simulate_portfolio_ledger(
     """Run one portfolio under the published daily event-order contract.
 
     For every valuation interval the engine applies: beginning cashflow, market
-    and distribution returns, debt interest, end cashflow, close-of-period or
-    drift-triggered rebalancing, then maintenance-margin liquidation. External
-    flows are removed from the time-weighted daily return at their actual timing.
+    and distribution returns, debt interest for the actual elapsed calendar
+    days, end cashflow, close-of-period or drift-triggered rebalancing, then
+    maintenance-margin liquidation. External flows are removed from the
+    time-weighted daily return at their actual timing.
     """
 
     symbols = portfolio.symbols
@@ -201,6 +202,8 @@ def simulate_portfolio_ledger(
             )
             continue
 
+        calendar_days = _calendar_days_between(index[position - 1], timestamp)
+
         beginning_flow = 0.0
         if (
             config.cashflow.type != CashflowType.NONE
@@ -251,7 +254,8 @@ def simulate_portfolio_ledger(
                     )
                 )
 
-        interest = debt * (config.leverage.annual_interest_rate_percent / 100.0) / 365.2425
+        annual_interest_rate = config.leverage.annual_interest_rate_percent / 100.0
+        interest = debt * annual_interest_rate * calendar_days / 365.2425
         if interest > 0.0:
             cash -= interest
             borrowing_costs += interest
@@ -259,7 +263,14 @@ def simulate_portfolio_ledger(
                 LedgerEvent(
                     date=timestamp.date().isoformat(),
                     type="borrowing_interest",
-                    details={"amount": interest, "debt_before_interest": debt},
+                    details={
+                        "amount": interest,
+                        "debt_before_interest": debt,
+                        "calendar_days": calendar_days,
+                        "annual_interest_rate_percent": (
+                            config.leverage.annual_interest_rate_percent
+                        ),
+                    },
                 )
             )
 
@@ -481,6 +492,15 @@ def _threshold_breached(
         return False
     current = asset_values / gross
     return bool(np.max(np.abs(current - target_weights)) >= threshold)
+
+
+def _calendar_days_between(previous: pd.Timestamp, current: pd.Timestamp) -> int:
+    """Return actual elapsed calendar days for one daily valuation interval."""
+
+    days = (current.date() - previous.date()).days
+    if days <= 0:
+        raise ValueError("aligned valuation dates must increase by calendar day")
+    return days
 
 
 def _cashflow_amount(
