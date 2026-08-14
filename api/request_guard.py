@@ -5,8 +5,10 @@ the Vercel origin share a static service secret through
 ``BACKTESTSTOCK_EDGE_SECRET``.  A request may also carry an opaque
 ``X-Backteststock-Client-Id`` value; that value is trusted only after the
 service secret has been verified.  Until the Worker rollout is complete,
-local/test execution remains usable when no secret is configured.  Vercel
-runtime requests fail closed when the secret is missing or invalid.
+local/test execution remains usable when no secret is configured.  Deployed
+Vercel requests fail closed unless the explicit two-phase rollout bypass is
+active; during that temporary bypass a missing edge credential is accepted as
+unauthenticated, while an invalid supplied credential is still rejected.
 
 This module deliberately does not implement a distributed rate limiter.  The
 existing in-process limiters are still useful as a per-instance overload
@@ -71,6 +73,13 @@ class EdgeIdentity:
 def _env_truthy(name: str) -> bool:
     raw = os.getenv(name, "").strip().lower()
     return raw in {"1", "true", "yes", "on", "required"}
+
+
+def _edge_auth_rollout_bypass_enabled() -> bool:
+    """Return whether the explicit temporary migration bypass is active."""
+
+    raw = os.getenv(EDGE_REQUIRED_ENV, "").strip().lower()
+    return raw in {"0", "false", "no", "off", "disabled"}
 
 
 def production_runtime() -> bool:
@@ -152,7 +161,18 @@ def authorize_edge_request(
         client_id = _safe_client_id(fallback_client_id) or "unknown"
         return EdgeIdentity(False, client_id, "local-unconfigured")
 
-    if not provided or not hmac.compare_digest(provided, configured):
+    if not provided:
+        if _edge_auth_rollout_bypass_enabled():
+            client_id = _safe_client_id(fallback_client_id) or "unknown"
+            return EdgeIdentity(False, client_id, "migration-bypass")
+        return GuardFailure(
+            403,
+            "edge_auth_required",
+            "A trusted edge service identity is required.",
+            retryable=False,
+        )
+
+    if not hmac.compare_digest(provided, configured):
         return GuardFailure(
             403,
             "edge_auth_required",
