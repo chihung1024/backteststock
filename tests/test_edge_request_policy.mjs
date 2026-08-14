@@ -44,6 +44,28 @@ test("required edge authentication fails closed when its secret is absent", asyn
   assert.equal(decision.code, "edge_auth_not_configured");
 });
 
+test("invalid required-policy modes fail closed instead of disabling protection", async () => {
+  const authDecision = await enforceEdgeRequestPolicy(
+    new Request("https://example.com/api/health"),
+    {
+      BACKTESTSTOCK_REQUIRE_EDGE_AUTH: "treu",
+      BACKTESTSTOCK_REQUIRE_RATE_LIMIT: "false",
+    },
+  );
+  assert.equal(authDecision.ok, false);
+  assert.equal(authDecision.code, "edge_auth_not_configured");
+
+  const rateDecision = await enforceEdgeRequestPolicy(
+    new Request("https://example.com/api/health"),
+    protectedEnv({
+      BACKTESTSTOCK_REQUIRE_RATE_LIMIT: "treu",
+      API_RATE_LIMITER: undefined,
+    }),
+  );
+  assert.equal(rateDecision.ok, false);
+  assert.equal(rateDecision.code, "rate_limit_not_configured");
+});
+
 test("expensive and general routes use distinct rate-limit bindings", async () => {
   const env = protectedEnv();
   const requestHeaders = { "cf-connecting-ip": "198.51.100.8" };
@@ -87,14 +109,34 @@ test("trusted backend headers replace spoofed identity and sensitive headers", a
   const headers = applyTrustedBackendHeaders(new Headers({
     authorization: "Bearer browser-token",
     cookie: "session=browser",
+    forwarded: "for=203.0.113.10;proto=http",
     "x-forwarded-for": "203.0.113.10",
+    "x-forwarded-host": "attacker.example",
+    "x-forwarded-port": "81",
+    "x-forwarded-proto": "http",
+    "x-real-ip": "203.0.113.11",
+    "x-client-ip": "203.0.113.12",
+    "true-client-ip": "203.0.113.13",
+    "cf-pseudo-ipv4": "203.0.113.14",
     "x-backteststock-edge-auth": "attacker",
     "x-backteststock-client-id": "attacker-id",
   }), identity);
 
   assert.equal(headers.get("authorization"), null);
   assert.equal(headers.get("cookie"), null);
-  assert.equal(headers.get("x-forwarded-for"), null);
+  for (const name of [
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-port",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-client-ip",
+    "true-client-ip",
+    "cf-pseudo-ipv4",
+  ]) {
+    assert.equal(headers.get(name), null, `${name} must be stripped`);
+  }
   assert.equal(
     headers.get("x-backteststock-edge-auth"),
     env.BACKTESTSTOCK_EDGE_SECRET,
@@ -126,6 +168,9 @@ test("Worker injects authenticated identity before proxying a protected request"
         "cf-connecting-ip": "198.51.100.8",
         authorization: "Bearer browser-token",
         cookie: "session=browser",
+        forwarded: "for=203.0.113.10;proto=http",
+        "x-real-ip": "203.0.113.11",
+        "x-forwarded-proto": "http",
         "x-backteststock-edge-auth": "attacker",
         "x-backteststock-client-id": "attacker-id",
       },
@@ -135,6 +180,9 @@ test("Worker injects authenticated identity before proxying a protected request"
     assert.equal(response.status, 200);
     assert.equal(captured.headers.get("authorization"), null);
     assert.equal(captured.headers.get("cookie"), null);
+    assert.equal(captured.headers.get("forwarded"), null);
+    assert.equal(captured.headers.get("x-real-ip"), null);
+    assert.equal(captured.headers.get("x-forwarded-proto"), "https");
     assert.equal(
       captured.headers.get("x-backteststock-edge-auth"),
       "test-edge-secret-with-at-least-32-bytes",
