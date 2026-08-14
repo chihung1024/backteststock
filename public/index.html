@@ -7,6 +7,7 @@
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css?v=20260803.5">
   <script type="module" src="/app.js?v=20260814.2"></script>
+  <script type="module" src="/screener-research.js?v=20260815.1"></script>
   <script type="module" src="/scan-output-ui.js?v=20260814.2"></script>
   <script type="module" src="/scan-composite-score.js?v=20260814.2"></script>
 </head>
@@ -289,7 +290,7 @@
         <article class="panel">
           <h3>資料完整性</h3>
           <p>行情逐檔取得並驗證；來源暫時缺漏時不產生半套結果，而是保存已完成進度並自動接續。</p>
-          <p>使用現行指數成分做歷史篩選時存在存活者偏差。</p>
+          <p>使用現行指數成分做歷史篩選時存在存活者偏差；PIT 模式只使用當時已取得的成分股證據，歷史基本面尚未可用時不會以目前資料替代。</p>
         </article>
         <article class="panel">
           <h3>不包含項目</h3>
