@@ -89,6 +89,12 @@ export function AllocationEditor({
     setActiveSearchId(null);
   }
 
+  function deferCloseSearch(assetId: string) {
+    window.setTimeout(() => {
+      setActiveSearchId((current) => (current === assetId ? null : current));
+    }, 120);
+  }
+
   function updateWeight(portfolioId: string, assetId: string, value: number) {
     setModel((current) => ({
       ...current,
@@ -191,7 +197,7 @@ export function AllocationEditor({
                       placeholder="例如 SPY / 2330"
                       autoComplete="off"
                       onFocus={() => setActiveSearchId(asset.id)}
-                      onBlur={() => window.setTimeout(() => setActiveSearchId(null), 120)}
+                      onBlur={() => deferCloseSearch(asset.id)}
                       onChange={(event) => {
                         updateAssetSymbol(asset.id, event.target.value.toUpperCase());
                         setActiveSearchId(asset.id);
@@ -267,7 +273,7 @@ export function AllocationEditor({
                       placeholder="SPY"
                       autoComplete="off"
                       onFocus={() => setActiveSearchId(asset.id)}
-                      onBlur={() => window.setTimeout(() => setActiveSearchId(null), 120)}
+                      onBlur={() => deferCloseSearch(asset.id)}
                       onChange={(event) => {
                         updateAssetSymbol(asset.id, event.target.value.toUpperCase());
                         setActiveSearchId(asset.id);
