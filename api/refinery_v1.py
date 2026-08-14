@@ -23,10 +23,15 @@ from fastapi import FastAPI, Request, Response  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from api.request_guard import (  # noqa: E402
+    MAX_REQUEST_BYTES,
+    authorize_edge_request,
+    request_body_failure,
+    resolve_local_client_id,
+)
 from apps.api.app.refinery import (  # noqa: E402
     ANALYZE_REQUESTS_PER_MINUTE,
     GENERAL_REQUESTS_PER_MINUTE,
-    MAX_REQUEST_BYTES,
     MAX_RESPONSE_BYTES,
     REFINERY_API_CONTRACT_VERSION,
     REFINERY_API_SCHEMA_VERSION,
@@ -158,12 +163,6 @@ def _error_response(
     )
 
 
-def _client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    fallback = request.client.host if request.client else "unknown"
-    return forwarded.split(",")[0].strip() or fallback
-
-
 def _upstream_failure(exc: RuntimeError, *, request_id: str) -> Response:
     logger.warning("Refinery upstream failure request_id=%s: %s", request_id, exc)
     return _error_response(
@@ -181,7 +180,25 @@ async def request_guard(request: Request, call_next: Any) -> Response:
     request.state.request_id = request_id
     path = request.url.path
     if path.startswith(REFINERY_PREFIX):
-        client_key = _client_key(request)
+        fallback = request.client.host if request.client else "unknown"
+        identity = authorize_edge_request(
+            request.headers,
+            fallback_client_id=fallback,
+        )
+        if not hasattr(identity, "client_id"):
+            return _error_response(
+                identity.status_code,
+                identity.code,
+                identity.message,
+                request_id=request_id,
+                retryable=identity.retryable,
+            )
+        client_key = (
+            identity.client_id
+            if identity.authenticated
+            else resolve_local_client_id(request.headers, fallback_client_id=fallback)
+        )
+        request.state.client_identity = client_key
         if not _general_limiter.allow(client_key):
             return _error_response(
                 429,
@@ -199,39 +216,34 @@ async def request_guard(request: Request, call_next: Any) -> Response:
                 retryable=True,
             )
 
-        declared_header = request.headers.get("content-length")
-        if declared_header:
-            try:
-                declared = int(declared_header)
-            except ValueError:
-                return _error_response(
-                    400,
-                    "invalid_content_length",
-                    "Content-Length must be an integer.",
-                    request_id=request_id,
-                )
-            if declared < 0:
-                return _error_response(
-                    400,
-                    "invalid_content_length",
-                    "Content-Length cannot be negative.",
-                    request_id=request_id,
-                )
-            if declared > MAX_REQUEST_BYTES:
-                return _error_response(
-                    413,
-                    "request_too_large",
-                    "Refinery request body is too large.",
-                    request_id=request_id,
-                )
+        failure = request_body_failure(
+            request.headers,
+            maximum_bytes=MAX_REQUEST_BYTES,
+            message="Refinery request body is too large.",
+        )
+        if failure:
+            return _error_response(
+                failure.status_code,
+                failure.code,
+                failure.message,
+                request_id=request_id,
+                retryable=failure.retryable,
+            )
         if request.method in {"POST", "PUT", "PATCH"}:
             body = await request.body()
-            if len(body) > MAX_REQUEST_BYTES:
+            failure = request_body_failure(
+                request.headers,
+                body,
+                maximum_bytes=MAX_REQUEST_BYTES,
+                message="Refinery request body is too large.",
+            )
+            if failure:
                 return _error_response(
-                    413,
-                    "request_too_large",
-                    "Refinery request body is too large.",
+                    failure.status_code,
+                    failure.code,
+                    failure.message,
                     request_id=request_id,
+                    retryable=failure.retryable,
                 )
 
     response = await call_next(request)

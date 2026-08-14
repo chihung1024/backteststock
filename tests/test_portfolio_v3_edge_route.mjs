@@ -41,7 +41,8 @@ test("Portfolio v3 GET preserves path and query on BACKEND_ORIGIN", async () => 
     assert.equal(forwardedHeaders.get("authorization"), null);
     assert.equal(forwardedHeaders.get("origin"), null);
     assert.equal(forwardedHeaders.get("referer"), null);
-    assert.equal(forwardedHeaders.get("x-forwarded-for"), "203.0.113.10");
+    assert.equal(forwardedHeaders.get("x-forwarded-for"), null);
+    assert.equal(forwardedHeaders.get("cf-connecting-ip"), null);
     assert.equal(response.headers.get("server"), null);
     assert.equal(response.headers.get("set-cookie"), null);
     assert.ok(response.headers.get("x-request-id"));

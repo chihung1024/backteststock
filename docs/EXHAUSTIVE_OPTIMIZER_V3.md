@@ -10,6 +10,11 @@ The old 60-ticker source-list limit is removed. The platform accepts up to 100 s
 
 This is a **full-period historical research/exploration** path. The same historical period is used for search and ranking; its winners are not out-of-sample evidence and must not be described as forward-performance validation.
 
+User-facing label: **Historical in-sample research**. If the source list came from a
+Universe selector, it is also **Current-universe constituents** rather than a
+point-in-time historical membership file. Exhaustive scores are descriptive
+research evidence only, not an investment recommendation.
+
 ## TWD valuation snapshot
 
 Before browser computation, every source ticker and benchmark is converted to the shared daily TWD adjusted-close series. The signed snapshot records `valuationCurrency: "TWD"`, the TWD contract version, corporate-action audits, and FX-source audits. The browser refuses a non-TWD snapshot, so a saved native-currency job cannot be resumed or displayed as a TWD result.

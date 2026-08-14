@@ -10,6 +10,17 @@ from flask import Flask, jsonify, request
 
 from api import index as date_contract
 from api import market_data
+from api.request_guard import (
+    MAX_REQUEST_BYTES,
+    MAX_SCAN_HISTORY_DAYS,
+    MAX_SCAN_SECONDS,
+    MAX_SCAN_TICKER_DAYS,
+    MAX_SCAN_TICKERS,
+    authorize_edge_request,
+    elapsed_budget_failure,
+    request_body_failure,
+    validate_work_budget,
+)
 from api import scan as legacy
 from api.metrics import DATA_SOURCE_SETTINGS, METRIC_DEFINITION_VERSION
 from apps.api.app.scan_service import TWDScanService, TWD_SCAN_CALENDAR_POLICY
@@ -21,6 +32,7 @@ from apps.api.app.data.twd_valuation import (
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
 twd_scan_service = TWDScanService()
+app.config.setdefault("MAX_CONTENT_LENGTH", MAX_REQUEST_BYTES)
 
 if DATA_SOURCE_SETTINGS["auto_adjust"] or not DATA_SOURCE_SETTINGS["actions"]:
     raise RuntimeError(
@@ -70,6 +82,30 @@ def error_response(message, status):
     return jsonify({"error": message, "retryable": status >= 500}), status
 
 
+@app.before_request
+def enforce_scan_request_guard():
+    """Keep direct-origin scan requests behind the same finite contract."""
+
+    identity = authorize_edge_request(
+        request.headers,
+        fallback_client_id=request.remote_addr or "unknown",
+    )
+    if not hasattr(identity, "client_id"):
+        return error_response(identity.message, identity.status_code)
+
+    body = None
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = request.get_data(cache=True, parse_form_data=False)
+    failure = request_body_failure(
+        request.headers,
+        body,
+        maximum_bytes=MAX_REQUEST_BYTES,
+        message="Scan request body is too large.",
+    )
+    if failure:
+        return error_response(failure.message, failure.status_code)
+
+
 @app.route("/api/scan", methods=["POST"])
 def scan_handler():
     request_started = time.perf_counter()
@@ -83,11 +119,25 @@ def scan_handler():
         if not isinstance(raw_tickers, list) or not raw_tickers:
             raise legacy.ValidationError("股票代碼列表不可為空。")
         tickers = legacy.deduplicate(legacy.normalize_ticker(ticker) for ticker in raw_tickers)
+        if len(tickers) > MAX_SCAN_TICKERS:
+            raise legacy.ValidationError(
+                f"單次最多掃描 {MAX_SCAN_TICKERS} 檔標的。"
+            )
         if not data.get("benchmark"):
             raise legacy.ValidationError("請指定比較基準，以完整計算 Beta 與 Alpha。")
 
         benchmark_ticker = legacy.normalize_ticker(data["benchmark"])
         start_date, end_exclusive = date_contract.parse_period(data)
+        budget_failure = validate_work_budget(
+            start_date.date(),
+            end_exclusive.date(),
+            len(tickers) + 1,
+            max_history_days=MAX_SCAN_HISTORY_DAYS,
+            max_unit_days=MAX_SCAN_TICKER_DAYS,
+            label="Scan",
+        )
+        if budget_failure:
+            return error_response(budget_failure.message, budget_failure.status_code)
 
         market_started = time.perf_counter()
         batch = twd_scan_service.run(
@@ -97,6 +147,14 @@ def scan_handler():
             benchmark=benchmark_ticker,
             risk_free_rate=legacy.RISK_FREE_RATE,
         )
+        time_failure = elapsed_budget_failure(
+            request_started,
+            time.perf_counter(),
+            maximum_seconds=MAX_SCAN_SECONDS,
+            label="Scan",
+        )
+        if time_failure:
+            return error_response(time_failure.message, time_failure.status_code)
         market_duration_ms = (time.perf_counter() - market_started) * 1000
         compute_started = time.perf_counter()
         results = batch.results

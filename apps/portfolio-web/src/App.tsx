@@ -400,6 +400,11 @@ export default function App() {
               </div>
             </section>
 
+            <div className="notice warning research-boundary" role="note" aria-label="研究使用界線">
+              <strong>研究使用界線</strong>
+              <p>Portfolio v3 結果是 Historical in-sample research；若資產來自目前 Universe，資料屬 Current-universe constituents 快照而非 point-in-time 歷史成分。歷史結果僅供研究與教育用途，不構成投資建議或未來績效保證。</p>
+            </div>
+
             <section className="model-summary" aria-label="目前模型摘要">
               <span><strong>{activePortfolioCount}</strong> 組有效投組</span>
               <span><strong>{uniqueSymbols}</strong> 項唯一資產</span>

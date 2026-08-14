@@ -9,16 +9,27 @@ import hmac
 import json
 import math
 import os
+import time
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from flask import Blueprint, Flask, jsonify
+from flask import Blueprint, Flask, jsonify, request
 
 from api import index as legacy
 from api import market_data
 from api.corporate_actions import CORPORATE_ACTION_POLICY_VERSION
 from api.metrics import DATA_SOURCE_SETTINGS, METRIC_DEFINITION_VERSION, series_fingerprint
+from api.request_guard import (
+    MAX_EXHAUSTIVE_HISTORY_DAYS,
+    MAX_EXHAUSTIVE_SECONDS,
+    MAX_EXHAUSTIVE_TICKER_DAYS,
+    MAX_REQUEST_BYTES,
+    authorize_edge_request,
+    elapsed_budget_failure,
+    request_body_failure,
+    validate_work_budget,
+)
 from apps.api.app.backtest_service import (
     TWD_PORTFOLIO_CALENDAR_POLICY,
     align_twd_price_frame,
@@ -31,6 +42,7 @@ from apps.api.app.data.twd_valuation import (
 
 exhaustive_blueprint = Blueprint("exhaustive_optimizer", __name__)
 app = Flask(__name__)
+app.config.setdefault("MAX_CONTENT_LENGTH", MAX_REQUEST_BYTES)
 
 EXHAUSTIVE_OPTIMIZER_VERSION = "exhaustive-full-period-twd-2026-08-03.2"
 EXHAUSTIVE_SNAPSHOT_FORMAT = "exhaustive-optimizer-snapshot-json-gzip-v1"
@@ -42,6 +54,32 @@ MINIMUM_PERIOD_COVERAGE = 0.98
 MAX_SNAPSHOT_COMPRESSED_BYTES = 5 * 1024 * 1024 // 2
 MAX_SNAPSHOT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
 twd_history_service = TWDHistoryService()
+
+
+@app.before_request
+def enforce_exhaustive_request_guard():
+    if request.path != "/api/optimizer/exhaustive/prepare":
+        return None
+
+    identity = authorize_edge_request(
+        request.headers,
+        fallback_client_id=request.remote_addr or "unknown",
+    )
+    if not hasattr(identity, "client_id"):
+        return _error_response(identity.message, identity.status_code)
+
+    body = None
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = request.get_data(cache=True, parse_form_data=False)
+    failure = request_body_failure(
+        request.headers,
+        body,
+        maximum_bytes=MAX_REQUEST_BYTES,
+        message="Exhaustive optimizer request body is too large.",
+    )
+    if failure:
+        return _error_response(failure.message, failure.status_code)
+    return None
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -279,6 +317,7 @@ def _validated_search_shape(data: dict, source_count: int) -> tuple[int, int]:
 
 @exhaustive_blueprint.route("/api/optimizer/exhaustive/prepare", methods=["POST"])
 def prepare_exhaustive_optimizer():
+    request_started = time.perf_counter()
     try:
         data = legacy.require_json_object()
         start_date, end_exclusive = legacy.parse_period(data)
@@ -296,6 +335,16 @@ def prepare_exhaustive_optimizer():
             raise legacy.ValidationError(
                 f"全量最佳化單次最多 {MAX_SOURCE_TICKERS} 檔來源股票。"
             )
+        budget_failure = validate_work_budget(
+            start_date.date(),
+            end_exclusive.date(),
+            len(source_tickers) + 1,
+            max_history_days=MAX_EXHAUSTIVE_HISTORY_DAYS,
+            max_unit_days=MAX_EXHAUSTIVE_TICKER_DAYS,
+            label="Exhaustive optimizer",
+        )
+        if budget_failure:
+            return _error_response(budget_failure.message, budget_failure.status_code)
         holding_count, combination_count = _validated_search_shape(
             data, len(source_tickers)
         )
@@ -317,6 +366,14 @@ def prepare_exhaustive_optimizer():
             source_tickers,
             benchmark,
         )
+        time_failure = elapsed_budget_failure(
+            request_started,
+            time.perf_counter(),
+            maximum_seconds=MAX_EXHAUSTIVE_SECONDS,
+            label="Exhaustive optimizer",
+        )
+        if time_failure:
+            return _error_response(time_failure.message, time_failure.status_code)
         unverified = sorted(
             ticker
             for ticker in required

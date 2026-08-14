@@ -6,7 +6,7 @@
   <meta name="description" content="多市場 TWD 投資組合回測與個股績效掃描工具">
   <title>Backtest Stock</title>
   <link rel="stylesheet" href="/styles.css?v=20260803.5">
-  <script type="module" src="/app.js?v=20260814.2"></script>
+  <script type="module" src="/app.js?v=20260814.3"></script>
   <script type="module" src="/scan-output-ui.js?v=20260814.2"></script>
   <script type="module" src="/scan-composite-score.js?v=20260814.2"></script>
 </head>
@@ -24,6 +24,11 @@
       <span id="service-status">檢查服務狀態…</span>
     </div>
   </header>
+
+  <aside class="message warning research-boundary" role="note" aria-label="研究使用界線">
+    <strong>研究使用界線</strong>
+    <span>Historical in-sample research；若使用目前 Universe，資料屬 Current-universe constituents 快照而非 point-in-time 歷史成分；<code>/api/backtest</code> 的區間總報酬為 Gross return。結果僅供研究與教育用途，不構成投資建議或未來績效保證。</span>
+  </aside>
 
   <nav class="tab-nav" aria-label="主要功能">
     <button class="tab-button active" type="button" data-tab="backtest" aria-selected="true">投資組合回測</button>
@@ -79,7 +84,7 @@
 
         <div id="backtest-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">預設為今天 day 0 往前十個完整年度（起始日為十年前同日、結束日為昨天）；日期可自行調整，調整後股價包含拆股及股息效果。</p>
+          <p class="form-note">預設為今天 day 0 往前十個完整年度（起始日為十年前同日、結束日為昨天）；日期可自行調整，調整後股價包含拆股及股息效果。<strong>/api/backtest 區間總報酬 = Gross return</strong>（Yahoo Adj Close 毛額配發再投入，未含交易成本、滑價與稅費）。</p>
           <button id="run-backtest" class="button primary" type="submit">執行回測</button>
         </div>
       </form>
@@ -127,7 +132,7 @@
         <div class="panel-heading">
           <div>
             <h3>Universe 基礎池與基本面預篩選</h3>
-            <p class="form-note">成分股採版本化快照；資料更新失敗時自動沿用上一個有效版本。</p>
+            <p class="form-note">成分股採版本化快照；資料更新失敗時自動沿用上一個有效版本。這是 <strong>Current-universe constituents</strong>，不是 point-in-time 歷史成分。</p>
           </div>
           <span id="universe-status" class="status-badge">載入 Universe…</span>
         </div>
@@ -216,7 +221,7 @@
         </div>
         <div id="scan-error" class="message error hidden" role="alert"></div>
         <div class="submit-row">
-          <p class="form-note">日期預設為今天 day 0 往前十個完整年度，可自行調整；優先每批 100 檔一次取得並逐檔驗收，只重排實際缺漏標的，並在此瀏覽器保存未完成進度。</p>
+          <p class="form-note">日期預設為今天 day 0 往前十個完整年度，可自行調整；優先每批 100 檔一次取得並逐檔驗收，只重排實際缺漏標的，並在此瀏覽器保存未完成進度。掃描結果屬 <strong>Historical in-sample research</strong>，不構成投資建議。</p>
           <div class="toolbar">
             <button id="retry-scan" class="button ghost hidden" type="button">繼續未完成回測</button>
             <button id="run-scan" class="button primary" type="submit">開始集體回測</button>
@@ -289,11 +294,12 @@
         <article class="panel">
           <h3>資料完整性</h3>
           <p>行情逐檔取得並驗證；來源暫時缺漏時不產生半套結果，而是保存已完成進度並自動接續。</p>
-          <p>使用現行指數成分做歷史篩選時存在存活者偏差。</p>
+          <p>使用 <strong>Current-universe constituents</strong> 做歷史篩選時，名單不是 point-in-time 歷史成分，可能存在存活者偏差、前視偏差與下市偏差。</p>
         </article>
         <article class="panel">
           <h3>不包含項目</h3>
           <p>未完整納入交易成本、滑價、稅務、融資成本及流動性限制；匯率採趨勢追蹤的每日 TWD 換算，並非交易可得的精確報價。</p>
+          <p><code>/api/backtest</code> 的 <strong>Gross return</strong> 是 Yahoo `Adj Close` 毛額總報酬序列，不是淨可執行報酬。</p>
           <p>結果僅供研究與教育用途，不構成投資建議或未來績效保證。</p>
         </article>
       </div>

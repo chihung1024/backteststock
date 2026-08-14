@@ -5,7 +5,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/router.js",
   "vars": {
-    "BACKEND_ORIGIN": "https://stockbacktest.vercel.app"
+    "BACKEND_ORIGIN": "https://stockbacktest.vercel.app",
+    "BACKTESTSTOCK_REQUIRE_EDGE_AUTH": "true",
+    "BACKTESTSTOCK_REQUIRE_RATE_LIMIT": "true"
+  },
+  "secrets": {
+    "required": ["BACKTESTSTOCK_EDGE_SECRET"]
   },
   "assets": {
     "directory": "./public",
@@ -19,7 +24,21 @@
       "database_name": "backteststock-universe"
     }
   ],
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1024001",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "EXPENSIVE_API_RATE_LIMITER",
+      "namespace_id": "1024002",
+      "simple": { "limit": 12, "period": 60 }
+    }
+  ],
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
   }
 }

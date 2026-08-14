@@ -9,15 +9,18 @@ Status: **Canonical documentation navigation. Not a live project-status tracker.
 | Engineering governance / AI workflow | `../AI_PROJECT_PLAYBOOK.md` |
 | Product / architecture / run / test / deploy | `../README.md` |
 | Current Phase / Batch / blocker / exact resume point | `../to_do_update_list.md` |
+| 2026-08-14 Roadmap Batch 0/1 local checkpoint | `ROADMAP_EXECUTION_HANDOFF_2026-08-14.md` |
 | Documentation authority / freshness / cleanup rules | `PROJECT_DOCUMENTATION_POLICY.md` |
 | Portfolio v3 ledger/API semantics | `PORTFOLIO_V3_CONTRACT.md` |
 | Research contract map | `research/README.md` |
+| Research-use boundaries / user-facing labels | `RESEARCH_USE_BOUNDARIES.md` |
 
 ## Current architecture / operations
 
 - `adr/0001-runtime-and-quant-authority.md` — durable runtime/quant architecture decision.
 - `UNIFIED_TWD_CONTRACT.md` — cross-market TWD valuation contract.
 - `METRICS_REPRODUCIBILITY.md` — metric reproducibility/provenance rules.
+- `RESEARCH_USE_BOUNDARIES.md` — required Historical in-sample, Current-universe, and compatibility Gross return wording.
 - `PORTFOLIO_V3_CONTRACT.md` — current Portfolio v3 ledger/API/analytics/Edge semantic contract.
 - `DEPLOYMENT.md` — deployment/runtime environment procedures.
 - `UNIVERSE_SCANNER_V2.md` — Scanner/Universe behavior and maintenance contract.

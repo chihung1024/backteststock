@@ -8,8 +8,15 @@ import requests
 from cachetools import TTLCache, cached
 from flask import Flask, jsonify, request
 
+from api.request_guard import (
+    MAX_REQUEST_BYTES,
+    authorize_edge_request,
+    request_body_failure,
+)
+
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
+app.config.setdefault("MAX_CONTENT_LENGTH", MAX_REQUEST_BYTES)
 
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=_-]{1,20}$")
 MAX_UNIVERSE_MEMBERS = 3_000
@@ -365,6 +372,38 @@ def sort_screener_candidates(candidates, sort_name):
 
 def error_response(message, status):
     return jsonify({"error": message}), status
+
+
+@app.before_request
+def enforce_screener_request_guard():
+    """Protect cached-but-expensive fundamentals reads at the origin."""
+
+    if request.path not in {
+        "/api/v2/screener",
+        "/api/screener",
+        "/api/all-tickers",
+    }:
+        return None
+
+    identity = authorize_edge_request(
+        request.headers,
+        fallback_client_id=request.remote_addr or "unknown",
+    )
+    if not hasattr(identity, "client_id"):
+        return error_response(identity.message, identity.status_code)
+
+    body = None
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = request.get_data(cache=True, parse_form_data=False)
+    failure = request_body_failure(
+        request.headers,
+        body,
+        maximum_bytes=MAX_REQUEST_BYTES,
+        message="Screener request body is too large.",
+    )
+    if failure:
+        return error_response(failure.message, failure.status_code)
+    return None
 
 
 @app.route("/api/v2/screener", methods=["POST"])

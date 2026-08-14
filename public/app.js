@@ -20,6 +20,7 @@ const MIN_MANUAL_OPTIMIZER_TICKERS = 2;
 const MAX_MANUAL_OPTIMIZER_TICKERS = 100;
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#334155"];
 const METRICS = [
+  ["total_return", "區間總報酬（Gross return）", "percent", "positive"],
   ["cagr", "年化報酬率", "percent", "positive"],
   ["volatility", "年化波動率", "percent", "negative"],
   ["mdd", "最大回撤", "percent", "negative"],
@@ -29,7 +30,7 @@ const METRICS = [
   ["alpha", "Alpha", "percent", "positive"],
 ];
 const SCAN_METRICS = [
-  ["total_return", "區間總報酬", "percent", "positive"],
+  ["total_return", "區間總報酬（Gross return）", "percent", "positive"],
   ["cagr", "年化報酬率", "percent", "positive"],
   ["volatility", "年化波動率", "percent", "negative"],
   ["mdd", "最大回撤", "percent", "negative"],
@@ -755,6 +756,12 @@ async function runBacktest(event) {
 function renderBacktestResults(result) {
   const series = [...result.data];
   if (result.benchmark) series.push(result.benchmark);
+  const returnBasis = result.metadata?.return_basis || result.data?.[0]?.return_basis;
+  const grossBasis = returnBasis === "yahoo_adjusted_close_total_return_gross_reinvestment";
+  const researchBoundary = grossBasis
+    ? "Historical in-sample research；區間總報酬為 Gross return（Yahoo Adj Close 毛額配發再投入），未含交易成本、滑價與稅費；結果不構成投資建議。"
+    : "Historical in-sample research；結果僅供研究與教育用途，不構成投資建議或未來績效保證。";
+  setMessage(dom.backtestWarning, [researchBoundary, result.warning].filter(Boolean).join("；"));
   renderMetrics(series, result.benchmark?.name);
   renderChart(series, result.benchmark?.name);
 }

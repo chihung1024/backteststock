@@ -231,17 +231,22 @@ export function ResultsDashboard({
   return (
     <section className="workspace-card results-card" id="portfolio-results" aria-labelledby="results-title">
       <div className="section-heading result-heading">
-        <div>
-          <span className="section-index">03</span>
           <div>
-            <h2 id="results-title">回測結果</h2>
-            <p>{response.requested_start} 至 {response.effective_end} · TWD · {response.schema_version}</p>
-          </div>
+            <span className="section-index">03</span>
+            <div>
+              <h2 id="results-title">回測結果</h2>
+              <p>{response.requested_start} 至 {response.effective_end} · TWD · {response.schema_version} · Historical in-sample research</p>
+            </div>
         </div>
         <div className="section-actions">
           <button type="button" className="secondary" onClick={onExportCsv}>匯出 CSV</button>
           <button type="button" className="secondary" onClick={onExportJson}>匯出 JSON</button>
         </div>
+      </div>
+
+      <div className="notice warning research-boundary" role="note" aria-label="回測結果研究使用界線">
+        <strong>研究使用界線</strong>
+        <p>這些數字描述指定歷史期間，不是 out-of-sample 驗證或未來績效保證。若資產來自目前 Universe，請將其視為 Current-universe constituents 快照，而非 point-in-time 歷史成分；結果不構成投資建議。</p>
       </div>
 
       <PortfolioComparison results={response.results} />

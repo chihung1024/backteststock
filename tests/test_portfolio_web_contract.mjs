@@ -69,3 +69,21 @@ test("Vite emits the directly addressable application under public portfolio", a
   assert.match(entry, /id="root"/u);
   assert.match(entry, /skip-link/u);
 });
+
+test("research-use boundaries remain visible in request and result surfaces", async () => {
+  const app = await readFile(path.join(sourceRoot, "App.tsx"), "utf8");
+  const results = await readFile(path.join(sourceRoot, "ResultsDashboard.tsx"), "utf8");
+  const docs = await readFile(path.join(root, "docs", "RESEARCH_USE_BOUNDARIES.md"), "utf8");
+  const staticIndex = await readFile(path.join(root, "public", "index.html"), "utf8");
+  const optimizer = await readFile(path.join(root, "public", "optimizer.html"), "utf8");
+  const legacyApp = await readFile(path.join(root, "public", "app.js"), "utf8");
+
+  for (const source of [app, results, docs, staticIndex, optimizer]) {
+    assert.match(source, /Historical in-sample research/u);
+    assert.match(source, /Current-universe constituents/u);
+  }
+  assert.match(docs, /POST `?\/api\/backtest`?[\s\S]*Gross return/u);
+  assert.match(staticIndex, /`?\/api\/backtest`?[\s\S]*Gross return/u);
+  assert.match(legacyApp, /total_return.*區間總報酬（Gross return）/u);
+  assert.match(`${app}\n${results}\n${staticIndex}`, /不構成投資建議/u);
+});

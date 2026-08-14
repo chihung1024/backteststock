@@ -14,6 +14,19 @@ Status: **Current deployment/runbook contract.** Live check, ruleset and deploym
 
 Environment variables depend on enabled features. Existing examples include `GIST_RAW_URL`, `RISK_FREE_RATE`, and FRED credentials used only by features that own them. Never add secrets to repository files, PR bodies, screenshots, browser bundles or chat transcripts.
 
+The protected API origin also requires:
+
+```text
+BACKTESTSTOCK_EDGE_SECRET=<the same random value configured as a Cloudflare Worker secret>
+BACKTESTSTOCK_REQUIRE_EDGE_AUTH=true
+```
+
+Use at least 32 random bytes. The Worker replaces client-supplied identity and
+authentication headers before forwarding `X-Backteststock-Edge-Auth` and an
+opaque `X-Backteststock-Client-Id`. Deployed Vercel handlers fail closed when
+authentication is required but missing or invalid. `/api/health` remains a
+minimal readiness surface; market-data and analysis routes require the edge.
+
 ### Readiness / smoke surfaces
 
 Portfolio v3 exposes an explicit health route:
@@ -45,6 +58,35 @@ The deployment workflow resolves `backteststock-universe`, applies D1 migrations
 
 `wrangler.jsonc` stores non-secret `BACKEND_ORIGIN` as the Vercel HTTPS origin without `/api`. For local development, copy `.dev.vars.example` to `.dev.vars`; `.dev.vars` must not be committed.
 
+Before deployment, provision the matching Worker secret outside source control:
+
+```bash
+npx wrangler secret put BACKTESTSTOCK_EDGE_SECRET
+```
+
+`wrangler.jsonc` declares this secret as required, so deployment fails rather
+than publishing a Worker that cannot authenticate to the origin. It also
+declares general and expensive-route Rate Limiting bindings. Those counters
+are edge-distributed, per Cloudflare location, permissive/eventually
+consistent protection; they are not an accounting-grade global quota.
+
+### Two-phase origin-auth rollout
+
+Avoid an outage caused by deploying backend enforcement before the Worker can
+send credentials:
+
+1. Provision the same secret in Vercel and Cloudflare. Temporarily set the
+   Vercel `BACKTESTSTOCK_REQUIRE_EDGE_AUTH=false` migration override.
+2. Deploy the Worker and backend candidate; verify Worker-routed API requests
+   carry an authenticated opaque client identity.
+3. Set `BACKTESTSTOCK_REQUIRE_EDGE_AUTH=true` in Vercel and redeploy it.
+4. Confirm Worker routes succeed and direct origin calls to protected routes
+   fail with HTTP 403. Remove any operational reliance on the temporary false
+   override.
+
+If the explicit Vercel flag is absent, a deployed production runtime defaults
+to fail closed.
+
 ## 3. Validation before merge/deploy
 
 Validation scope follows `AI_PROJECT_PLAYBOOK.md` risk classification. A broad runtime/quant candidate normally includes:
@@ -57,6 +99,7 @@ npm run check
 npm run test:worker
 npm run test:score
 npm run check:portfolio
+npm run types:check
 npm run test:e2e
 npx wrangler d1 migrations apply backteststock-universe --local
 npx wrangler deploy --dry-run

@@ -2,6 +2,8 @@
 
 BacktestStock 是一個以 **TWD 統一估值**為核心的多市場投資研究平台，包含 Universe / Scanner、Exhaustive historical search、Portfolio v3 與 Portfolio Refinery。
 
+> **研究使用界線**：所有結果都是研究／教育用途。畫面與 API 會標示 `Historical in-sample research`、`Current-universe constituents` 與相容 `/api/backtest` 的 `Gross return` 語意；這些結果不構成投資建議或未來績效保證。完整定義見 [`docs/RESEARCH_USE_BOUNDARIES.md`](docs/RESEARCH_USE_BOUNDARIES.md)。
+
 > **文件權威**：本 README 回答「專案是什麼、怎麼跑、怎麼測、怎麼部署」。目前 Phase / Batch / PR / blocker / exact resume point 以 [`to_do_update_list.md`](to_do_update_list.md) 為 repository 內的 live handoff；GitHub / Vercel / Cloudflare 的即時遠端狀態是 operational truth。文件分類與衝突處理見 [`docs/PROJECT_DOCUMENTATION_POLICY.md`](docs/PROJECT_DOCUMENTATION_POLICY.md)，完整索引見 [`docs/README.md`](docs/README.md)。
 
 ## 1. 架構
@@ -77,6 +79,14 @@ TWD adjusted close = native adjusted close × (TWD per native currency unit)
 `ResearchDatasetV1` 是 audited TWD history 與 research engine 間的 reproducibility boundary，保存 requested/resolved/failure membership、calendar/coverage、daily/weekly matrices、native/FX/TWD components、audits、fingerprints 與 deterministic dataset hash。
 
 Research contract 入口：[`docs/research/README.md`](docs/research/README.md)。
+
+### 研究使用界線
+
+- `Historical in-sample research`：歷史期間同時用於計算與搜尋／排名時，不能當作 walk-forward、out-of-sample 或未來績效證據。
+- `Current-universe constituents`：目前 Universe 的版本化成分快照，不是逐日 point-in-time 歷史成分；向歷史回推可能存在 survivorship、look-ahead 與 delisting bias。
+- `POST /api/backtest` 的 `total_return` 是 `Gross return`：以 TWD Yahoo `Adj Close` 總報酬序列計算，股利／配發以毛額再投入，未包含交易成本、滑價、稅費或基金費用。
+
+這些定義與使用者可見文案由 [`docs/RESEARCH_USE_BOUNDARIES.md`](docs/RESEARCH_USE_BOUNDARIES.md) 統一維護。
 
 ## 3. 目錄
 
@@ -166,12 +176,13 @@ npx wrangler deploy --dry-run
 - 新版本完整寫入/驗證後才切換 current pointer；來源/內容失敗時維持 last-good。
 - 預篩選不能 silent truncate；手動清單採批次處理並保存工作進度。
 - 股票、投組、基準與 Exhaustive snapshot 使用 TWD valuation contract。
+- Universe 預篩選使用的是 `Current-universe constituents` 版本快照；除非另有 point-in-time 資料，不得把目前成分向歷史回推當成歷史成分證據。
 
 詳見 [`docs/UNIVERSE_SCANNER_V2.md`](docs/UNIVERSE_SCANNER_V2.md)。
 
 ## 7. Exhaustive historical search
 
-`api/exhaustive_optimizer.py` 是 **full-period historical research/exploration**。同一歷史資料被搜尋與排名，因此結果不得直接宣稱為 out-of-sample 未來績效證據。
+`api/exhaustive_optimizer.py` 是 **Historical in-sample research / full-period historical research-exploration**。同一歷史資料被搜尋與排名，因此結果不得直接宣稱為 out-of-sample 未來績效證據或投資建議。
 
 目前 active contract：[`docs/EXHAUSTIVE_OPTIMIZER_V3.md`](docs/EXHAUSTIVE_OPTIMIZER_V3.md)。已停用的 MVP、V2 history 與 rollout status 不再保留在 live documentation tree；需要歷史時由 Git history reconstruct。
 
@@ -233,3 +244,4 @@ Current main contracts / active review work見 [`docs/research/README.md`](docs/
 - API 有 request/date/weight/resource guards；失敗不能 silent delete ticker、shorten period 或把 unavailable 變成 zero。
 - Yahoo/yfinance 與目前 Universe history 適合研究/教育用途；歷史搜尋不等於未來報酬保證。
 - 尚未具備完整 point-in-time Universe/fundamental history 的期間，不應宣稱消除了 survivorship/look-ahead bias。
+- Compatibility `POST /api/backtest` 的區間總報酬必須標示為 `Gross return`，不可重新命名為淨報酬或可執行報酬。

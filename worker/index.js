@@ -1,3 +1,8 @@
+import {
+  applyTrustedBackendHeaders,
+  enforceEdgeRequestPolicy,
+} from "./security.js";
+
 const API_ROUTES = new Map([
   ["/api/health", new Set(["GET"])],
   ["/api/all-tickers", new Set(["GET"])],
@@ -11,6 +16,7 @@ const MAX_REQUEST_BYTES = 256 * 1024;
 const API_TIMEOUT_MS = 240_000;
 const EDGE_CACHE_VERSION = "2026-08-14.1";
 const EDGE_CACHE_TTL_SECONDS = 15 * 60;
+const MAX_EDGE_CACHE_RESPONSE_BYTES = 1024 * 1024;
 const EDGE_CACHEABLE_ROUTES = new Set(["/api/scan"]);
 const UNIVERSE_STALE_MS = 10 * 24 * 60 * 60 * 1000;
 const UNIVERSE_ID_PATTERN = /^[a-z0-9-]{2,40}$/;
@@ -83,14 +89,16 @@ function cacheBackend(env) {
   return env.API_CACHE || globalThis.caches?.default || null;
 }
 
-async function buildEdgeCacheKey(pathname, requestBody) {
+async function buildEdgeCacheKey(pathname, search, requestBody) {
   const digest = await crypto.subtle.digest("SHA-256", requestBody);
   const hash = [...new Uint8Array(digest)]
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
-  return new Request(
+  const keyUrl = new URL(
     `https://edge-cache.invalid/${EDGE_CACHE_VERSION}${pathname}/${hash}`,
   );
+  keyUrl.search = search || "";
+  return new Request(keyUrl);
 }
 
 function withEdgeCacheStatus(response, status, requestId) {
@@ -120,35 +128,105 @@ function isCacheableApiResponse(pathname, response) {
     && resolved === requested;
 }
 
+async function readBoundedResponseBody(response) {
+  const clone = response.clone();
+  const reader = clone.body?.getReader();
+  if (!reader) return new Uint8Array();
+
+  const cancelReader = (reason) => {
+    // A Response clone is a tee; awaiting cancellation can block on the sibling
+    // body that is returned to the caller, so cancellation stays fire-and-forget.
+    try {
+      const cancellation = reader.cancel(reason);
+      if (cancellation && typeof cancellation.catch === "function") {
+        void cancellation.catch(() => {});
+      }
+    } catch {
+      // The response is already ineligible or unreadable; cancellation is best effort.
+    }
+  };
+
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += chunk.byteLength;
+      if (totalBytes > MAX_EDGE_CACHE_RESPONSE_BYTES) {
+        cancelReader("edge cache response too large");
+        return null;
+      }
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    cancelReader(error);
+    throw error;
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 async function cacheSuccessfulResponse(cache, key, response, pathname) {
   if (!cache || response.status !== 200) return;
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return;
   if (!isCacheableApiResponse(pathname, response)) return;
+
+  const declaredLength = Number(response.headers.get("content-length") || "");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_EDGE_CACHE_RESPONSE_BYTES) {
+    return;
+  }
+
   const headers = new Headers(response.headers);
   headers.delete("x-request-id");
   headers.set("cache-control", `public, max-age=${EDGE_CACHE_TTL_SECONDS}`);
-  const body = await response.clone().arrayBuffer();
-  await cache.put(key, new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  }));
+  try {
+    const body = await readBoundedResponseBody(response);
+    if (body === null) return;
+    await cache.put(key, new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }));
+  } catch (error) {
+    console.warn("Edge cache population bypassed", { message: String(error) });
+  }
 }
 
-async function proxyBackend(request, env, requestId, requestBody) {
+function edgePolicyResponse(failure, requestId) {
+  const response = jsonResponse(
+    { error: failure.message, code: failure.code },
+    failure.status,
+    requestId,
+  );
+  if (!failure.retryAfter) return response;
+  const headers = new Headers(response.headers);
+  headers.set("retry-after", String(failure.retryAfter));
+  return new Response(response.body, { status: response.status, headers });
+}
+
+async function proxyBackend(request, env, requestId, requestBody, edgeIdentity = null) {
   const incomingUrl = new URL(request.url);
   const backendOrigin = validateBackendOrigin(env, requestId);
   if (backendOrigin instanceof Response) return backendOrigin;
 
+  const identity = edgeIdentity || await enforceEdgeRequestPolicy(request, env);
+  if (!identity.ok) return edgePolicyResponse(identity, requestId);
+
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.delete("content-length");
-  headers.delete("cf-connecting-ip");
-  headers.delete("cf-ipcountry");
-  headers.delete("cf-ray");
-  headers.delete("x-forwarded-for");
+  const headers = applyTrustedBackendHeaders(
+    new Headers(request.headers),
+    identity,
+  );
   headers.set("x-request-id", requestId);
   headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
 
@@ -204,6 +282,9 @@ async function proxyApi(request, env, requestId) {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
 
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env);
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
+
   const requestBody = await readValidatedBody(
     request,
     requestId,
@@ -221,15 +302,32 @@ async function proxyApi(request, env, requestId) {
     && !request.headers.has("cookie")
   );
   if (!cacheEligible) {
-    return proxyBackend(request, env, requestId, requestBody);
+    return proxyBackend(request, env, requestId, requestBody, edgeIdentity);
   }
 
-  const cacheKey = await buildEdgeCacheKey(incomingUrl.pathname, requestBody);
-  const cached = await cache.match(cacheKey);
-  if (cached) return withEdgeCacheStatus(cached, "HIT", requestId);
+  let cacheKey;
+  try {
+    cacheKey = await buildEdgeCacheKey(
+      incomingUrl.pathname,
+      incomingUrl.search,
+      requestBody,
+    );
+    const cached = await cache.match(cacheKey);
+    if (cached) return withEdgeCacheStatus(cached, "HIT", requestId);
+  } catch (error) {
+    console.warn("Edge cache read bypassed", { message: String(error) });
+  }
 
-  const response = await proxyBackend(request, env, requestId, requestBody);
-  await cacheSuccessfulResponse(cache, cacheKey, response, incomingUrl.pathname);
+  const response = await proxyBackend(
+    request,
+    env,
+    requestId,
+    requestBody,
+    edgeIdentity,
+  );
+  if (cacheKey) {
+    await cacheSuccessfulResponse(cache, cacheKey, response, incomingUrl.pathname);
+  }
   return withEdgeCacheStatus(response, "MISS", requestId);
 }
 
@@ -376,6 +474,10 @@ async function runVersionedScreener(request, env, requestId) {
   if (request.method !== "POST") {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+    expensive: true,
+  });
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
   const rawBody = await readValidatedBody(
     request,
     requestId,
@@ -405,7 +507,7 @@ async function runVersionedScreener(request, env, requestId) {
   if (body.byteLength > MAX_REQUEST_BYTES) {
     return jsonResponse({ error: "Universe 快照超過安全請求大小。" }, 503, requestId);
   }
-  return proxyBackend(request, env, requestId, body);
+  return proxyBackend(request, env, requestId, body, edgeIdentity);
 }
 
 export {
@@ -437,11 +539,19 @@ export default {
       if (request.method !== "GET") {
         return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
       }
+      const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+        expensive: false,
+      });
+      if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
       return getUniverseCatalog(env, requestId);
     }
 
     const universeMatch = url.pathname.match(/^\/api\/v2\/universes\/([a-z0-9-]+)$/);
     if (universeMatch) {
+      const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+        expensive: false,
+      });
+      if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
       return getUniverseDetail(request, env, requestId, universeMatch[1]);
     }
 

@@ -1,4 +1,8 @@
 import worker from "./index.js";
+import {
+  applyTrustedBackendHeaders,
+  enforceEdgeRequestPolicy,
+} from "./security.js";
 
 const LEGACY_BACKTEST_PATH = "/api/backtest";
 const EXHAUSTIVE_PREPARE_PATH = "/api/optimizer/exhaustive/prepare";
@@ -45,35 +49,30 @@ function validatedBackendOrigin(env, requestId) {
   }
 }
 
-function safeProxyHeaders(request, requestId, incomingUrl) {
-  const headers = new Headers(request.headers);
-  for (const name of [
-    "host",
-    "content-length",
-    "cf-ipcountry",
-    "cf-ray",
-    "x-forwarded-for",
-    "authorization",
-    "cookie",
-  ]) headers.delete(name);
+function edgePolicyResponse(failure, requestId) {
+  const response = jsonResponse(
+    { error: failure.message, code: failure.code },
+    failure.status,
+    requestId,
+  );
+  if (!failure.retryAfter) return response;
+  const headers = new Headers(response.headers);
+  headers.set("retry-after", String(failure.retryAfter));
+  return new Response(response.body, { status: response.status, headers });
+}
+
+function safeProxyHeaders(request, requestId, incomingUrl, edgeIdentity) {
+  const headers = applyTrustedBackendHeaders(
+    new Headers(request.headers),
+    edgeIdentity,
+  );
   headers.set("x-request-id", requestId);
   headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
   return headers;
 }
 
-function legacyProxyHeaders(request, requestId, incomingUrl) {
-  const headers = new Headers(request.headers);
-  for (const name of [
-    "host",
-    "content-length",
-    "cf-connecting-ip",
-    "cf-ipcountry",
-    "cf-ray",
-    "x-forwarded-for",
-  ]) headers.delete(name);
-  headers.set("x-request-id", requestId);
-  headers.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
-  return headers;
+function legacyProxyHeaders(request, requestId, incomingUrl, edgeIdentity) {
+  return safeProxyHeaders(request, requestId, incomingUrl, edgeIdentity);
 }
 
 function sanitizedProxyResponse(response, requestId) {
@@ -110,6 +109,10 @@ async function proxyLegacyBacktest(request, env) {
   if (request.method !== "POST") {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+    expensive: true,
+  });
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
 
   const body = await readBoundedBody(
     request,
@@ -123,7 +126,7 @@ async function proxyLegacyBacktest(request, env) {
   if (backendOrigin instanceof Response) return backendOrigin;
   const incomingUrl = new URL(request.url);
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = legacyProxyHeaders(request, requestId, incomingUrl);
+  const headers = legacyProxyHeaders(request, requestId, incomingUrl, edgeIdentity);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
@@ -163,6 +166,10 @@ async function proxyRefineryV1(request, env) {
   if (request.method !== route.method) {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+    expensive: routeName === "analyze",
+  });
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
 
   const body = await readBoundedBody(
     request,
@@ -175,9 +182,7 @@ async function proxyRefineryV1(request, env) {
   const backendOrigin = validatedBackendOrigin(env, requestId);
   if (backendOrigin instanceof Response) return backendOrigin;
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = safeProxyHeaders(request, requestId, incomingUrl);
-  const clientIp = request.headers.get("cf-connecting-ip");
-  if (clientIp) headers.set("x-forwarded-for", clientIp);
+  const headers = safeProxyHeaders(request, requestId, incomingUrl, edgeIdentity);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
@@ -213,6 +218,10 @@ async function proxyPortfolioV3(request, env) {
   if (request.method !== route.method) {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+    expensive: routeName === "backtests",
+  });
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
 
   let body;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -228,9 +237,7 @@ async function proxyPortfolioV3(request, env) {
   const backendOrigin = validatedBackendOrigin(env, requestId);
   if (backendOrigin instanceof Response) return backendOrigin;
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = safeProxyHeaders(request, requestId, incomingUrl);
-  const clientIp = request.headers.get("cf-connecting-ip");
-  if (clientIp) headers.set("x-forwarded-for", clientIp);
+  const headers = safeProxyHeaders(request, requestId, incomingUrl, edgeIdentity);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);
@@ -262,6 +269,10 @@ async function proxyExhaustivePrepare(request, env) {
   if (request.method !== "POST") {
     return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
   }
+  const edgeIdentity = await enforceEdgeRequestPolicy(request, env, {
+    expensive: true,
+  });
+  if (!edgeIdentity.ok) return edgePolicyResponse(edgeIdentity, requestId);
 
   const body = await readBoundedBody(
     request,
@@ -275,7 +286,7 @@ async function proxyExhaustivePrepare(request, env) {
   if (backendOrigin instanceof Response) return backendOrigin;
   const incomingUrl = new URL(request.url);
   const target = new URL(incomingUrl.pathname + incomingUrl.search, backendOrigin);
-  const headers = safeProxyHeaders(request, requestId, incomingUrl);
+  const headers = safeProxyHeaders(request, requestId, incomingUrl, edgeIdentity);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("timeout"), API_TIMEOUT_MS);

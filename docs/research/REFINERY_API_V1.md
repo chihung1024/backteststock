@@ -69,7 +69,13 @@ MAX_EXPERIMENT_UNION_SYMBOLS    = 24
 MAX_HISTORY_CALENDAR_DAYS      = 15 × 366
 ```
 
-Backend rate limiting is best-effort/in-process, not a globally distributed quota. The Worker also enforces body size and fixed route/method allowlists before proxying.
+Backend rate limiting remains a per-instance overload brake. The Worker adds
+authenticated client identity plus Cloudflare Rate Limiting bindings, body
+size enforcement, and fixed route/method allowlists before proxying. The edge
+counters are distributed across isolates within a Cloudflare location but are
+per-location and eventually consistent, not an accounting-grade global quota.
+Protected production origin requests without the Worker service credential
+fail closed.
 
 Responses use `Cache-Control: no-store`. Authorization/cookie headers are not required and are not forwarded through the Refinery edge path. Backend/server/set-cookie disclosure is stripped at the edge.
 

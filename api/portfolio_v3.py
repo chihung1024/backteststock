@@ -21,6 +21,12 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response  # noqa: E4
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
+from api.request_guard import (  # noqa: E402
+    MAX_REQUEST_BYTES,
+    authorize_edge_request,
+    request_body_failure,
+    resolve_local_client_id,
+)
 from apps.api.app.portfolio.analytics import (  # noqa: E402
     PORTFOLIO_ANALYTICS_CONTRACT_VERSION,
 )
@@ -46,7 +52,6 @@ from apps.api.app.portfolio.service import (  # noqa: E402
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-MAX_REQUEST_BYTES = 512 * 1024
 GENERAL_REQUESTS_PER_MINUTE = 20
 BACKTEST_REQUESTS_PER_MINUTE = 4
 
@@ -116,9 +121,19 @@ def _error_response(status_code: int, detail: str) -> JSONResponse:
 async def request_guard(request: Request, call_next: Any) -> Response:
     path = request.url.path
     if path.startswith("/api/v3/portfolio/"):
-        forwarded = request.headers.get("x-forwarded-for", "")
         fallback = request.client.host if request.client else "unknown"
-        client_key = forwarded.split(",")[0].strip() or fallback
+        identity = authorize_edge_request(
+            request.headers,
+            fallback_client_id=fallback,
+        )
+        if not hasattr(identity, "client_id"):
+            return _error_response(identity.status_code, identity.message)
+        client_key = (
+            identity.client_id
+            if identity.authenticated
+            else resolve_local_client_id(request.headers, fallback_client_id=fallback)
+        )
+        request.state.client_identity = client_key
         if not _general_limiter.allow(client_key):
             return _error_response(
                 429,
@@ -129,20 +144,23 @@ async def request_guard(request: Request, call_next: Any) -> Response:
                 429,
                 "Portfolio backtest rate limit exceeded. Try again in one minute.",
             )
-        declared_header = request.headers.get("content-length")
-        if declared_header:
-            try:
-                declared = int(declared_header)
-            except ValueError:
-                return _error_response(400, "Content-Length must be an integer.")
-            if declared < 0:
-                return _error_response(400, "Content-Length cannot be negative.")
-            if declared > MAX_REQUEST_BYTES:
-                return _error_response(413, "Portfolio request body is too large.")
+        failure = request_body_failure(
+            request.headers,
+            maximum_bytes=MAX_REQUEST_BYTES,
+            message="Portfolio request body is too large.",
+        )
+        if failure:
+            return _error_response(failure.status_code, failure.message)
         if request.method in {"POST", "PUT", "PATCH"}:
             body = await request.body()
-            if len(body) > MAX_REQUEST_BYTES:
-                return _error_response(413, "Portfolio request body is too large.")
+            failure = request_body_failure(
+                request.headers,
+                body,
+                maximum_bytes=MAX_REQUEST_BYTES,
+                message="Portfolio request body is too large.",
+            )
+            if failure:
+                return _error_response(failure.status_code, failure.message)
     return _secure_response(await call_next(request))
 
 

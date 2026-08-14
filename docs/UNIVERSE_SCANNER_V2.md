@@ -8,6 +8,11 @@
 
 ## Universe sources
 
+所有 Universe 結果都必須視為 **Current-universe constituents**：回應中的
+`version`、`sourceAsOf` 與更新日期描述目前發布的成分快照，不代表請求期間每一日
+實際存在的 point-in-time 成分。若把這些目前成分向歷史回推，結果可能有
+survivorship、look-ahead 與 delisting bias；畫面與匯出資料不得省略版本／來源日期。
+
 | Universe ID | 顯示名稱 | 機器來源 | 合理數量 | 說明 |
 | --- | --- | --- | ---: | --- |
 | `sp500` | S&P 500（IVV holdings） | iShares IVV official holdings CSV | 480–530 | ETF 公開持股代理池 |

@@ -13,8 +13,15 @@ import yfinance as yf
 from cachetools import TTLCache, cached
 from flask import Flask, jsonify, request
 
+from api.request_guard import (
+    MAX_REQUEST_BYTES,
+    authorize_edge_request,
+    request_body_failure,
+)
+
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
+app.config.setdefault("MAX_CONTENT_LENGTH", MAX_REQUEST_BYTES)
 
 TRADING_DAYS_PER_YEAR = 252
 DAYS_PER_YEAR = 365.25
@@ -74,6 +81,39 @@ def add_api_headers(response):
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     return response
+
+
+@app.before_request
+def enforce_legacy_expensive_request_guard():
+    """Guard the legacy app routes that remain reachable at the Vercel origin.
+
+    ``api/index_v2.py`` reuses this Flask application and replaces only the
+    backtest view, so keeping the perimeter here covers both runtime and
+    compatibility test clients without changing auxiliary read-only routes.
+    """
+
+    if request.path not in {"/api/backtest", "/api/scan"}:
+        return None
+
+    identity = authorize_edge_request(
+        request.headers,
+        fallback_client_id=request.remote_addr or "unknown",
+    )
+    if not hasattr(identity, "client_id"):
+        return error_response(identity.message, identity.status_code)
+
+    body = None
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = request.get_data(cache=True, parse_form_data=False)
+    failure = request_body_failure(
+        request.headers,
+        body,
+        maximum_bytes=MAX_REQUEST_BYTES,
+        message="Backtest request body is too large.",
+    )
+    if failure:
+        return error_response(failure.message, failure.status_code)
+    return None
 
 
 def require_json_object():

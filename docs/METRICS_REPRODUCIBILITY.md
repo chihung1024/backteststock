@@ -28,6 +28,18 @@ yahoo_adjusted_close_total_return_gross_reinvestment
 
 其經濟意義是：把 Yahoo `Adj Close` 視為股利與資本利得配發在除權息時以未扣稅金額再投入的總報酬序列。它不包含交易成本、滑價、所得稅、股利預扣稅、ADR 保管費或基金申購贖回費。
 
+## `/api/backtest` Gross return 邊界
+
+相容 `POST /api/backtest` 的 `data[].total_return` 與 `benchmark.total_return`
+使用上述 `yahoo_adjusted_close_total_return_gross_reinvestment` 基礎。這些欄位在
+使用者介面必須標示為 **Gross return（毛總報酬）**，代表以 TWD Yahoo
+`Adj Close` 計算，並將標準配發視為未扣稅的毛額再投入。
+
+這個 endpoint 不包含交易成本、滑價、所得稅、股利預扣稅、ADR 保管費或基金
+申購贖回費，因此 `total_return` 不得被描述成淨可執行報酬、預測或投資建議。
+完整的研究使用界線（包括 `Historical in-sample research` 與
+`Current-universe constituents`）見 [`RESEARCH_USE_BOUNDARIES.md`](RESEARCH_USE_BOUNDARIES.md)。
+
 ## TWD 統一估值
 
 所有績效公式與投資組合模擬使用下列 TWD 價格序列，而不是原幣別 `Adj Close`：

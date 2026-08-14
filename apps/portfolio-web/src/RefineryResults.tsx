@@ -131,7 +131,7 @@ function StructureSummary({ response }: { response: RefineryAnalyzeResponse }) {
   return (
     <section className="workspace-card" aria-labelledby="refinery-structure-title">
       <div className="section-heading">
-        <div><span className="section-index">1</span><div><h2 id="refinery-structure-title">結構摘要</h2><p>風險結構，不是選股或推薦分數。</p></div></div>
+        <div><span className="section-index">1</span><div><h2 id="refinery-structure-title">結構摘要</h2><p>風險結構，不是選股或推薦分數。</p><p>Historical in-sample research；若 candidate 來自目前 Universe，屬 Current-universe constituents 快照而非 point-in-time 歷史成分。</p></div></div>
       </div>
       <div className="refinery-summary-grid">
         <article className="summary-metric"><span>名目持股</span><strong>{analysis.symbols.length}</strong><small>Requested candidates</small></article>

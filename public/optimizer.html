@@ -27,7 +27,8 @@
       <div class="optimizer-contract-grid">
         <div><strong>來源池</strong><span>輸入多少檔就固定使用多少檔，不自動換股或預先排名</span></div>
         <div><strong>組合</strong><span>完整枚舉 C(N,K)，每組持有 K 檔並等權配置</span></div>
-        <div><strong>期間</strong><span>整段歷史統一精確回測，不切訓練期與樣本外期</span></div>
+        <div><strong>期間</strong><span>整段歷史統一精確回測，不切訓練期與樣本外期；標示為 Historical in-sample research</span></div>
+        <div><strong>成分界線</strong><span>若來源來自 Universe，屬 Current-universe constituents 快照，不是 point-in-time 歷史成分</span></div>
         <div><strong>估值</strong><span>每檔每日還原股價乘上對 TWD 匯率；FX-only 日也反映匯率變動</span></div>
         <div><strong>再平衡</strong><span>權重門檻、月、季、年或不再平衡；成本逐次計入</span></div>
         <div><strong>運算</strong><span>執行前以本機精確校準估時，確認後才啟動多 Worker</span></div>
@@ -35,6 +36,11 @@
       </div>
       <p class="message warning">這是完整期間歷史排名工具。組合越多，越需要留意資料探勘與事後選擇偏誤；結果不等同未見資料預測。</p>
     </section>
+
+    <aside class="message warning research-boundary" role="note" aria-label="研究使用界線">
+      <strong>研究使用界線</strong>
+      <span>全量精確結果是 Historical in-sample research，不是 out-of-sample 驗證或投資建議；Universe 來源屬 Current-universe constituents。</span>
+    </aside>
 
     <section class="panel">
       <div class="panel-heading">

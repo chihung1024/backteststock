@@ -22,6 +22,13 @@ from api.metrics import (
     reproducibility_metadata,
     series_fingerprint,
 )
+from api.request_guard import (
+    MAX_BACKTEST_HISTORY_DAYS,
+    MAX_BACKTEST_SECONDS,
+    MAX_BACKTEST_TICKER_DAYS,
+    elapsed_budget_failure,
+    validate_work_budget,
+)
 from apps.api.app.backtest_service import (
     PortfolioFailure,
     PortfolioSpec,
@@ -221,6 +228,21 @@ def backtest_handler():
             )
             for portfolio in portfolios
         ]
+        requested_tickers = {
+            ticker for portfolio in portfolios for ticker in portfolio["tickers"]
+        }
+        if benchmark_ticker:
+            requested_tickers.add(benchmark_ticker)
+        budget_failure = validate_work_budget(
+            start_date.date(),
+            end_exclusive.date(),
+            len(requested_tickers),
+            max_history_days=MAX_BACKTEST_HISTORY_DAYS,
+            max_unit_days=MAX_BACKTEST_TICKER_DAYS,
+            label="Backtest",
+        )
+        if budget_failure:
+            return legacy.error_response(budget_failure.message, budget_failure.status_code)
         market_started = time.perf_counter()
         batch = twd_backtest_service.run(
             specs,
@@ -230,6 +252,14 @@ def backtest_handler():
             benchmark=benchmark_ticker,
             risk_free_rate=legacy.RISK_FREE_RATE,
         )
+        time_failure = elapsed_budget_failure(
+            request_started,
+            time.perf_counter(),
+            maximum_seconds=MAX_BACKTEST_SECONDS,
+            label="Backtest",
+        )
+        if time_failure:
+            return legacy.error_response(time_failure.message, time_failure.status_code)
         market_ms = (time.perf_counter() - market_started) * 1000
         compute_started = time.perf_counter()
         if not batch.results:

@@ -1,2 +1,3 @@
 # Local Cloudflare Worker development only.
 BACKEND_ORIGIN=http://127.0.0.1:5000
+BACKTESTSTOCK_EDGE_SECRET=replace-with-a-random-local-secret-at-least-32-bytes

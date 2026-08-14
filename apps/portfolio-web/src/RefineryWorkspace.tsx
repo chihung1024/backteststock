@@ -178,7 +178,7 @@ export function RefineryWorkspace() {
         <div>
           <p className="eyebrow">Portfolio Refinery · Read-only diagnosis</p>
           <h2 id="refinery-workspace-title">持股精煉診斷</h2>
-          <p>把 Phase 1 可重現資料與 Phase 2 風險數學轉成可讀結構診斷；本階段不提供冗餘判定、選股、TRIM/REPLACE 或權重最佳化。</p>
+          <p>把 Phase 1 可重現資料與 Phase 2 風險數學轉成可讀結構診斷；本階段不提供冗餘判定、選股、TRIM/REPLACE 或權重最佳化。這是 Historical in-sample research；若 candidate 來自目前 Universe，屬 Current-universe constituents 快照而非 point-in-time 歷史成分。</p>
         </div>
         <div className="refinery-hero-actions">
           <button type="button" className="secondary-button" onClick={() => replaceModel(createExampleRefineryModel())}>載入範例</button>

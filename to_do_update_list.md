@@ -4,6 +4,22 @@
 
 ## Current Status
 
+**ROADMAP-B01 research boundaries + origin perimeter — LOCAL CHECKPOINT / NOT COMMITTED / NOT DEPLOYED.**
+
+- Work is paused on local branch `codex/roadmap-batch-0-1`, based on
+  `c99916e7668a800e12d44b010becce43f51cd0d7`, because the active AI session
+  reported only 2% weekly usage remaining.
+- Batch 0 research-use labels and most Batch 1 origin-auth, finite-work,
+  rate-limit and bounded-cache implementation are present in the dirty
+  worktree. Focused Worker integration tests passed 39/39, Wrangler types and
+  dry-run passed, but final full Python/CI/browser validation is still required.
+- No commit, push, PR, secret write or production deployment was performed.
+- **Authoritative resume instructions, rollout blocker and all remaining
+  Batches 2–4:** [`docs/ROADMAP_EXECUTION_HANDOFF_2026-08-14.md`](docs/ROADMAP_EXECUTION_HANDOFF_2026-08-14.md).
+- Re-query mutable remote/CI/deployment state before any action; do not merge
+  until the matching Vercel/Cloudflare edge secret is provisioned using the
+  documented two-phase rollout.
+
 **PF-1H Portfolio stale-request busy cleanup — CLOSED / DEPLOYED / POST-MAIN VERIFIED (R2).**
 
 - [PR #143](https://github.com/chihung1024/backteststock/pull/143) first exposed a regression-test setup error in candidate CI [#691](https://github.com/chihung1024/backteststock/actions/runs/31759482485): all non-browser gates passed, but the test changed only one weight and correctly left the model invalid at 110%. The test was corrected to keep the replacement portfolio at 60% + 20% + 20%; exact-head candidate CI [#692](https://github.com/chihung1024/backteststock/actions/runs/31759745907) then passed, received exact-head independent review [#4932950767](https://github.com/chihung1024/backteststock/pull/143#pullrequestreview-4932950767), was marked Ready, and was squash-merged to main as [`a7b28a06a5856233c6340be9a0c05de8d4be67cc`](https://github.com/chihung1024/backteststock/commit/a7b28a06a5856233c6340be9a0c05de8d4be67cc) on 2026-08-14.

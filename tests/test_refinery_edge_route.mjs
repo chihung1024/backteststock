@@ -50,7 +50,8 @@ test("Refinery v1 forwards only the approved POST route and sanitizes headers", 
     assert.deepEqual(forwardedBody, payload);
     assert.equal(forwardedHeaders.get("authorization"), null);
     assert.equal(forwardedHeaders.get("cookie"), null);
-    assert.equal(forwardedHeaders.get("x-forwarded-for"), "203.0.113.20");
+    assert.equal(forwardedHeaders.get("x-forwarded-for"), null);
+    assert.equal(forwardedHeaders.get("cf-connecting-ip"), null);
     assert.equal(response.headers.get("server"), null);
     assert.equal(response.headers.get("x-powered-by"), null);
     assert.equal(response.headers.get("set-cookie"), null);

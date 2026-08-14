@@ -49,6 +49,8 @@ jobs:
         run: npm run check
       - name: Test Worker
         run: npm run test:worker
+      - name: Verify generated Worker bindings
+        run: npm run types:check
       - name: Test score formulas
         run: npm run test:score
       - name: Type-check and build Portfolio app
