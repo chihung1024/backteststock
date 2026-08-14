@@ -254,6 +254,64 @@ test("390px mobile uses the focused portfolio editor and safe full-width actions
   await expect(page.getByText("2/2 投組可執行")).toBeVisible();
 });
 
+test("asset autocomplete ignores late responses from older queries", async ({ page }) => {
+  let releaseA;
+  let releaseAP;
+  const firstQueryGate = new Promise((resolve) => { releaseA = resolve; });
+  const secondQueryGate = new Promise((resolve) => { releaseAP = resolve; });
+  let aStarted;
+  let apStarted;
+  const firstQueryStarted = new Promise((resolve) => { aStarted = resolve; });
+  const secondQueryStarted = new Promise((resolve) => { apStarted = resolve; });
+
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const requestInit = init ? { ...init } : undefined;
+      if (requestInit) delete requestInit.signal;
+      return originalFetch(input, requestInit);
+    };
+  });
+  await page.route("**/api/v3/portfolio/health", (route) => route.fulfill({ json: { status: "ok", service: "backteststock-portfolio-v3" } }));
+  await page.route("**/api/v3/portfolio/assets/search**", async (route) => {
+    const query = new URL(route.request().url()).searchParams.get("q");
+    if (query === "A") {
+      aStarted();
+      await firstQueryGate;
+      try {
+        await route.fulfill({ json: [{ symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ", currency: "USD" }] });
+      } catch {
+        // The page may close the route after the assertion; the UI guard is the subject of this test.
+      }
+      return;
+    }
+    if (query === "AP") {
+      apStarted();
+      await secondQueryGate;
+      await route.fulfill({ json: [{ symbol: "AP ETF", name: "AP result", exchange: "TEST", currency: "USD" }] });
+      return;
+    }
+    await route.fulfill({ json: [] });
+  });
+  await page.goto("/portfolio/");
+  await page.getByRole("button", { name: "載入範例" }).click();
+
+  const ticker = page.locator(".desktop-matrix input[id^=ticker-]").first();
+  await ticker.fill("A");
+  await firstQueryStarted;
+  await ticker.fill("AP");
+  await secondQueryStarted;
+
+  releaseA();
+  const desktopSearchMenu = page.locator(".desktop-matrix .search-suggestions");
+  await expect(desktopSearchMenu.getByText("搜尋中…")).toBeVisible();
+  await expect(desktopSearchMenu.getByRole("option")).toHaveCount(0);
+
+  releaseAP();
+  await expect(desktopSearchMenu.getByRole("option", { name: /AP ETF/ })).toBeVisible();
+  await expect(desktopSearchMenu.getByText("AAPL", { exact: true })).toHaveCount(0);
+});
+
 test("model changes invalidate late Portfolio evidence and replacement clears completed evidence", async ({ page }) => {
   let releaseFirstBacktest;
   const firstBacktestGate = new Promise((resolve) => {
