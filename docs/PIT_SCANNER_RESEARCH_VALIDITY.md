@@ -25,6 +25,7 @@ The default Scanner path remains the existing **current snapshot** workflow. PIT
 - Does not call or apply the current fundamentals dataset.
 - Sector, market-cap, P/E and market-cap/valuation sorting are disabled in the UI and are rejected by the API if supplied.
 - `limit` remains available and PIT membership is ordered deterministically by ticker.
+- When the generated PIT ticker list is handed to `/api/scan`, the performance interval must end on or before `selectionAsOf`. Prices after the selection date are future information relative to that research decision and therefore fail closed in the UI.
 
 ## Source authority vs temporal causality
 
@@ -36,6 +37,8 @@ A membership snapshot can be temporally causal without being an official histori
 
 The Scanner context must keep this distinction visible after the candidate list is handed to the performance scan.
 
+Membership causality alone does not make a downstream performance calculation causal. For an ex-ante PIT research workflow, the end of the performance data window must also be no later than `selectionAsOf`.
+
 ## UI safety rules
 
 1. Current snapshot is the default mode after page load.
@@ -44,7 +47,8 @@ The Scanner context must keep this distinction visible after the candidate list 
 4. PIT funnel output displays historical fundamentals as **not applied**, never as zero observations.
 5. A PIT API error is shown directly to the user. The browser must not retry by removing `selectionAsOf` or falling back to the current screener.
 6. The research-validity context is associated with the exact generated ticker list. Manual changes to that list invalidate the stored screener context rather than attaching stale provenance.
-7. The downstream `/api/scan` performance calculation remains unchanged; this batch changes candidate provenance and disclosure, not return/risk mathematics.
+7. The downstream `/api/scan` return/risk mathematics remain unchanged; this batch changes candidate provenance, causality guards and disclosure.
+8. For an exact PIT-generated ticker list, normal scan submit and retry are blocked when the displayed performance end date is later than `selectionAsOf`; the UI explains that this would consume future price data.
 
 ## Deferred work
 
