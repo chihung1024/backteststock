@@ -9,6 +9,7 @@ Status: **Canonical documentation navigation. Not a live project-status tracker.
 | Engineering governance / AI workflow | `../AI_PROJECT_PLAYBOOK.md` |
 | Product / architecture / run / test / deploy | `../README.md` |
 | Current Phase / Batch / blocker / exact resume point | `../to_do_update_list.md` |
+| 2026-08-14 Roadmap Batch 0/1 local checkpoint | `ROADMAP_EXECUTION_HANDOFF_2026-08-14.md` |
 | Documentation authority / freshness / cleanup rules | `PROJECT_DOCUMENTATION_POLICY.md` |
 | Portfolio v3 ledger/API semantics | `PORTFOLIO_V3_CONTRACT.md` |
 | Research contract map | `research/README.md` |
