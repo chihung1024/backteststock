@@ -99,6 +99,16 @@ async function buildEdgeCacheKey(pathname, requestBody) {
   );
 }
 
+async function checksumTickers(tickers) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(tickers.join("\n")),
+  );
+  return [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function withEdgeCacheStatus(response, status, requestId) {
   const headers = new Headers(response.headers);
   headers.set("x-edge-cache", status);
@@ -449,6 +459,10 @@ async function loadUniverseSnapshotAsOf(env, universeId, requestedAsOf, requestI
       || tickers.some((ticker) => !UNIVERSE_TICKER_PATTERN.test(String(ticker || "")))
     ) {
       return jsonResponse({ error: "歷史 Universe 快照完整性檢查失敗，已停止使用此版本。" }, 503, requestId);
+    }
+    const computedChecksum = await checksumTickers(tickers);
+    if (typeof row.checksum !== "string" || computedChecksum !== row.checksum) {
+      return jsonResponse({ error: "歷史 Universe 快照 checksum 驗證失敗，已停止使用此版本。" }, 503, requestId);
     }
 
     const membershipAuthoritative = !Boolean(row.is_proxy);
