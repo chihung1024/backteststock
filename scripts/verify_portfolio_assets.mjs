@@ -5,13 +5,17 @@ import path from "node:path";
 
 const PORTFOLIO_ROOT = "public/portfolio";
 const PORTFOLIO_ASSETS = `${PORTFOLIO_ROOT}/assets`;
+const GIT_MAX_BUFFER = 32 * 1024 * 1024;
 
 function git(...args) {
-  return execFileSync("git", args, { encoding: "utf8" });
+  return execFileSync("git", args, {
+    encoding: "utf8",
+    maxBuffer: GIT_MAX_BUFFER,
+  });
 }
 
 function normalizeRepoPath(value) {
-  return value.replaceAll("\\\\", "/");
+  return value.replaceAll("\\", "/");
 }
 
 function normalizeSourcePath(source) {
@@ -81,7 +85,9 @@ function assertOnlyJavaScriptMapLayoutDiffs() {
     });
 
   if (unexpected.length > 0) {
-    console.error("Portfolio build changed committed production assets other than JavaScript source-map install-layout metadata:");
+    console.error(
+      "Portfolio build changed committed production assets other than JavaScript source-map install-layout metadata:",
+    );
     console.error(unexpected.join("\n"));
     process.exit(1);
   }
@@ -115,9 +121,7 @@ function compareJavaScriptMaps() {
     if (!isDeepStrictEqual(committedMap, builtMap)) {
       const changedKeys = Array.from(
         new Set([...Object.keys(committedMap), ...Object.keys(builtMap)]),
-      ).filter(
-        (key) => !isDeepStrictEqual(committedMap[key], builtMap[key]),
-      );
+      ).filter((key) => !isDeepStrictEqual(committedMap[key], builtMap[key]));
       console.error(`Portfolio JavaScript source map changed semantically: ${repoPath}`);
       console.error(`Changed top-level keys: ${changedKeys.join(", ") || "unknown"}`);
       process.exit(1);
