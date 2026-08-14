@@ -43,6 +43,7 @@ function scanResult(ticker) {
 
 test("exposes PIT membership mode without applying current fundamentals", async ({ page }) => {
   let screenerPayload;
+  let scanRequestCount = 0;
 
   await page.route("**/api/health", (route) => fulfillJson(route, { status: "ok" }));
   await page.route("**/api/all-tickers", (route) => fulfillJson(route, ["AAPL", "MSFT", "NVDA"]));
@@ -95,6 +96,7 @@ test("exposes PIT membership mode without applying current fundamentals", async 
     });
   });
   await page.route("**/api/scan", async (route) => {
+    scanRequestCount += 1;
     const payload = route.request().postDataJSON();
     await fulfillJson(route, payload.tickers.map(scanResult));
   });
@@ -131,15 +133,23 @@ test("exposes PIT membership mode without applying current fundamentals", async 
   await expect(page.locator("#screener-warning")).toContainText("沒有套用目前 fundamentals");
 
   await page.locator("#scan-start-period").fill("2025-01-01");
+  await page.locator("#scan-end-period").fill("2026-08-15");
+  await page.getByRole("button", { name: "開始集體回測" }).click();
+  await expect(page.locator("#scan-error")).toContainText("不得晚於選股基準日 2026-08-14");
+  await expect(page.locator("#scan-error")).toContainText("未來價格資料");
+  expect(scanRequestCount).toBe(0);
+
   await page.locator("#scan-end-period").fill("2025-12-31");
   await page.getByRole("button", { name: "開始集體回測" }).click();
 
   await expect(page.locator("#scan-results")).toBeVisible();
   await expect(page.locator("#scan-summary")).toContainText("3 / 3");
+  expect(scanRequestCount).toBe(1);
   await expect(page.locator("#scan-context")).toContainText("模式：PIT 歷史成分股");
   await expect(page.locator("#scan-context")).toContainText("選股基準日：2026-08-14");
   await expect(page.locator("#scan-context")).toContainText("基本面：未套用");
   await expect(page.locator("#scan-context")).toContainText("membership 因果性：已驗證");
+  await expect(page.locator("#scan-context")).toContainText("績效資料截止：不得晚於 2026-08-14");
 
   await page.locator("#screener-selection-mode").selectOption("current");
   await expect(page.locator("#screener-selection-as-of")).toBeDisabled();
