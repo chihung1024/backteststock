@@ -205,9 +205,9 @@ def simulate_portfolio_ledger(
     """Run one portfolio under the published daily event-order contract.
 
     Asset weights are equity-relative target exposures. Totals below 1.0 leave
-    residual cash; totals above 1.0 create financed gross exposure. Leveraged
-    gross exposure is reset at each close while preserving the current asset
-    mix unless the configured allocation rebalance independently fires.
+    residual cash; totals above 1.0 create financed gross exposure. Any
+    non-100% gross exposure is reset at each close while preserving the
+    current asset mix unless allocation rebalance independently fires.
     """
 
     symbols = portfolio.symbols
@@ -626,7 +626,7 @@ def _exposure_policy(
     daily_reset = (
         target_gross
         if leverage.type != LeverageType.FIXED_DEBT
-        and target_gross > 1.0 + WEIGHT_TOLERANCE
+        and abs(target_gross - 1.0) > WEIGHT_TOLERANCE
         else None
     )
     return ExposurePolicy(
@@ -770,6 +770,9 @@ def _reset_gross_exposure(
     def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
         target_gross = target_ratio * net_equity
         target_assets = current_mix * target_gross
+        if target_ratio < 1.0 - WEIGHT_TOLERANCE:
+            target_cash = max(net_equity - target_gross, 0.0)
+            return target_assets, 0.0, target_cash
         target_debt = target_gross + preserved_cash - net_equity
         return target_assets, max(target_debt, 0.0), preserved_cash
 
@@ -834,17 +837,6 @@ def _threshold_breached(
     gross = _gross_exposure(asset_values)
     if gross <= _EPSILON:
         return False
-
-    if policy.target_gross_ratio < 1.0 - WEIGHT_TOLERANCE:
-        equity = _state_equity(asset_values, cash, debt)
-        if equity <= _EPSILON:
-            return False
-        current_exposures = asset_values / equity
-        asset_drift = float(
-            np.max(np.abs(current_exposures - policy.target_exposures))
-        )
-        cash_drift = abs(cash / equity - policy.target_cash_ratio)
-        return max(asset_drift, cash_drift) >= threshold
 
     current_mix = asset_values / gross
     return bool(np.max(np.abs(current_mix - policy.target_asset_mix)) >= threshold)

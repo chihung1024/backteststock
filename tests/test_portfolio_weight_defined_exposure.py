@@ -94,7 +94,7 @@ def test_portfolio_validation_accepts_cash_and_leverage_targets_but_rejects_exce
         PortfolioSpec.from_weights("Too much", {"AAA": 5.0, "BBB": 0.01})
 
 
-def test_weight_below_100_percent_leaves_residual_cash_without_daily_reset() -> None:
+def test_weight_below_100_percent_resets_total_exposure_each_close() -> None:
     history = _history(
         "AAA",
         ["2024-01-02", "2024-01-03", "2024-01-04"],
@@ -112,12 +112,13 @@ def test_weight_below_100_percent_leaves_residual_cash_without_daily_reset() -> 
     assert ledger.cash.iloc[0] == pytest.approx(20.0)
     assert ledger.debt.iloc[0] == 0.0
     assert ledger.equity.iloc[1] == pytest.approx(108.0)
-    assert ledger.gross_exposure.iloc[1] == pytest.approx(88.0)
-    assert ledger.cash.iloc[1] == pytest.approx(20.0)
-    assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(88.0 / 108.0)
-    assert ledger.leverage_reset_count == 0
-    assert not any(event.type == "leverage_reset" for event in ledger.events)
-
+    assert ledger.gross_exposure.iloc[1] == pytest.approx(86.4)
+    assert ledger.cash.iloc[1] == pytest.approx(21.6)
+    assert ledger.debt.iloc[1] == pytest.approx(0.0)
+    assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(0.8)
+    assert ledger.gross_exposure_ratio.iloc[2] == pytest.approx(0.8)
+    assert ledger.leverage_reset_count == 1
+    assert any(event.type == "leverage_reset" for event in ledger.events)
 
 def test_weight_defined_leverage_resets_gross_exposure_at_each_close() -> None:
     history = _history(
@@ -218,7 +219,7 @@ def test_gross_only_drift_does_not_trigger_asset_allocation_threshold() -> None:
     assert any(event.type == "leverage_reset" for event in ledger.events)
 
 
-def test_underinvested_cash_is_part_of_threshold_allocation_semantics() -> None:
+def test_underinvested_gross_drift_does_not_trigger_asset_mix_threshold() -> None:
     history = _history(
         "AAA",
         ["2024-01-02", "2024-01-03", "2024-01-04"],
@@ -233,15 +234,54 @@ def test_underinvested_cash_is_part_of_threshold_allocation_semantics() -> None:
         ),
     )
 
-    assert ledger.rebalance_count >= 1
+    assert ledger.rebalance_count == 0
+    assert ledger.leverage_reset_count == 1
     assert ledger.equity.iloc[1] == pytest.approx(120.0)
     assert ledger.gross_exposure.iloc[1] == pytest.approx(96.0)
     assert ledger.cash.iloc[1] == pytest.approx(24.0)
-    assert any(
-        event.type == "rebalance" and event.details["trigger"] == "threshold"
-        for event in ledger.events
+    assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(0.8)
+    assert any(event.type == "leverage_reset" for event in ledger.events)
+
+
+def test_underinvested_daily_reset_preserves_asset_mix_until_rebalance() -> None:
+    dates = ["2024-01-02", "2024-01-03", "2024-01-04"]
+    histories = {
+        "AAA": _history("AAA", dates, [0.0, 0.20, 0.0]),
+        "BBB": _history("BBB", dates, [0.0, 0.0, 0.0]),
+    }
+    portfolio = PortfolioSpec.from_weights(
+        "50 percent balanced",
+        {"AAA": 0.3, "BBB": 0.2},
     )
 
+    reset_only = simulate_portfolio_ledger(
+        portfolio,
+        histories,
+        SimulationConfig(initial_amount=100.0),
+    )
+    assert reset_only.rebalance_count == 0
+    assert reset_only.leverage_reset_count >= 1
+    assert reset_only.gross_exposure_ratio.iloc[1] == pytest.approx(0.5)
+    assert reset_only.cash.iloc[1] == pytest.approx(53.0)
+    assert reset_only.allocation_history.iloc[1]["AAA"] == pytest.approx(36.0 / 56.0)
+    assert reset_only.allocation_history.iloc[1]["BBB"] == pytest.approx(20.0 / 56.0)
+
+    threshold_rebalanced = simulate_portfolio_ledger(
+        portfolio,
+        histories,
+        SimulationConfig(
+            initial_amount=100.0,
+            rebalancing=RebalanceConfig(threshold_percent=4.0),
+        ),
+    )
+    assert threshold_rebalanced.rebalance_count >= 1
+    assert threshold_rebalanced.allocation_history.iloc[1]["AAA"] == pytest.approx(0.6)
+    assert threshold_rebalanced.allocation_history.iloc[1]["BBB"] == pytest.approx(0.4)
+    assert threshold_rebalanced.gross_exposure_ratio.iloc[1] == pytest.approx(0.5)
+    assert any(
+        event.type == "rebalance" and event.details["trigger"] == "threshold"
+        for event in threshold_rebalanced.events
+    )
 
 def test_leverage_reset_transaction_cost_is_charged_inside_ledger() -> None:
     history = _history(
