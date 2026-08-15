@@ -141,11 +141,16 @@ def _dataset(
     *,
     failures: dict[str, HistoryFailure] | None = None,
 ):
+    failure_map = failures or {}
     return build_research_dataset(
         PartialTWDHistories(
             requested=requested,
-            histories={symbol: histories[symbol] for symbol in requested if symbol in histories},
-            failures=failures or {},
+            histories={
+                symbol: histories[symbol]
+                for symbol in requested
+                if symbol in histories and symbol not in failure_map
+            },
+            failures=failure_map,
         ),
         start=TRAINING_START,
         end=TRAINING_END,
@@ -246,9 +251,9 @@ def test_exhaustive_adapter_rejects_candidate_history_drift_between_training_art
         )
 
 
-def test_exhaustive_adapter_reuses_existing_strict_full_period_coverage_policy():
+def test_exhaustive_adapter_reuses_existing_full_period_admission_policy():
     training, authority = _candidate_and_authority(late_ddd=True)
-    with pytest.raises(ValueError, match="不會靜默|覆蓋不足|DDD"):
+    with pytest.raises(ValueError, match="60 observations|不會靜默|覆蓋不足|DDD"):
         run_selection(
             period=_period(),
             pit_universe=_universe(),
