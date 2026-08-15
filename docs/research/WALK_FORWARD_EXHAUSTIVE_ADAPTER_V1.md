@@ -65,6 +65,8 @@ tie-break = smaller combination rank
 
 The tie-break matches the existing Exhaustive sort/retention behavior. No ticker-symbol alphabetical tie-break is introduced.
 
+The adapter also preserves the current production risk-free-rate authority. `ExhaustiveSelectionEngine` does not expose a new `risk_free_rate` strategy parameter; it reads the same server-configured `legacy.RISK_FREE_RATE` used by `/api/optimizer/exhaustive/prepare`, freezes that exact value into selector parameters, and passes it unchanged to the JavaScript authority. The Node bridge can consume a snapshot risk-free value because that is already part of the existing numerical authority contract, but the Walk-Forward adapter does not add a new user/configuration degree of freedom.
+
 ## Candidate Training evidence vs benchmark evidence
 
 Batch 4A-2 remains unchanged: `SelectionContext.training_dataset` requests exactly the PIT member sequence, and those resolved members are the only eligible constituents.
@@ -89,7 +91,8 @@ Before execution the adapter requires:
 6. the existing Exhaustive 2–100 source-ticker and 50,000,000-combination ceilings hold;
 7. the existing minimum-observation and `_strict_full_period_coverage()` policy holds;
 8. every candidate and benchmark has `verified_standard_actions` corporate-action status;
-9. TWD authority levels are finite and positive.
+9. TWD authority levels are finite and positive;
+10. the risk-free rate is the existing server-configured production Exhaustive value, not a new adapter-level strategy input.
 
 The authority dataset hash is snapshotted in selector parameters and revalidated after JavaScript execution. A result that reports another dataset hash, authority version, bridge version, ranking contract, combination count or invalid constituent/weight set is rejected.
 
@@ -110,9 +113,10 @@ Batch 4A-3 requires all of the following:
 1. existing `test_quant_authority_exhaustive.mjs` continues to prove `simulateExactPortfolio()` against the canonical shared quant fixture;
 2. `test_exhaustive_selection_authority.mjs` compares the new bridge winner against direct calls to the same current Exhaustive core for every combination in a deterministic fixture;
 3. the bridge regression freezes non-finite-score handling and smaller-rank tie-break;
-4. Python adapter tests prove runtime JS authority identity and authority dataset identity are included in the frozen decision;
-5. an end-to-end Python → Node → existing JS authority → `SelectionResult` → `DecisionSnapshot` regression runs in CI;
-6. existing repository Exhaustive, ResearchDataset and Walk-Forward tests remain green.
+4. Python adapter tests prove runtime JS authority identity, authority dataset identity and the existing server-configured risk-free rate are included in the frozen decision;
+5. a regression proves the Python adapter rejects an attempted new `risk_free_rate` constructor override;
+6. an end-to-end Python → Node → existing JS authority → `SelectionResult` → `DecisionSnapshot` regression runs in CI;
+7. existing repository Exhaustive, ResearchDataset and Walk-Forward tests remain green.
 
 A future change to the existing Exhaustive core is allowed to change results only through its own reviewed/versioned authority change. The adapter must not normalize such a change back to an older Python result.
 
@@ -137,7 +141,8 @@ The adapter fails closed rather than silently changing the experiment:
 - JS authority/bridge version drift during execution → reject;
 - result bound to another dataset → reject;
 - wrong ranking contract or combination count → reject;
-- invalid winner symbols/weights → reject.
+- invalid winner symbols/weights → reject;
+- attempted adapter-level risk-free-rate override → constructor rejection.
 
 No fallback ranking methodology is permitted.
 
@@ -147,6 +152,7 @@ Batch 4A-3 does not implement:
 
 - a new optimization objective;
 - a Python copy of Exhaustive mathematics;
+- a new risk-free-rate tuning surface;
 - retention/storage redesign for 50M production jobs;
 - continuous OOS Portfolio ledger;
 - inter-period turnover/cost accounting;
