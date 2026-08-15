@@ -10,11 +10,12 @@ This index identifies which document owns which semantic boundary. Current execu
 2. `../../to_do_update_list.md`
 3. `../PROJECT_DOCUMENTATION_POLICY.md`
 4. `RESEARCH_DATASET_V1.md`
-5. `../quant/RISK_MATHEMATICS_V1.md`
-6. `REFINERY_API_V1.md`
-7. `REFINERY_UI_V1.md`
-8. `REFINERY_CLUSTERING_V1.md`
-9. corresponding implementation and tests
+5. `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md`
+6. `../quant/RISK_MATHEMATICS_V1.md`
+7. `REFINERY_API_V1.md`
+8. `REFINERY_UI_V1.md`
+9. `REFINERY_CLUSTERING_V1.md`
+10. corresponding implementation and tests
 
 Closed implementation/convergence/production-acceptance narratives are reconstructed from Git/PR/Issue/Actions history when needed; they are not parallel contract authorities.
 
@@ -23,6 +24,7 @@ Closed implementation/convergence/production-acceptance narratives are reconstru
 | Document | Authority |
 | --- | --- |
 | `RESEARCH_DATASET_V1.md` | reproducible research-data boundary: requested/resolved/failure membership, calendars, TWD/native/FX matrices, audits, fingerprints, dataset identity |
+| `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md` | additive Batch 4A-1 temporal causality firewall and immutable decision identity; not yet a public Walk-Forward API/UI |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
 | `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, Phase 3–5 response schema `.3`, plus opt-in Phase 6 marginal contract `.1` |
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary, including the non-persisted Phase 6 explicit-plan UI |
@@ -35,6 +37,10 @@ Phase 5 clustering/redundancy implementation is merged to production `main` and 
 ### Dataset identity vs downstream analytical identity
 
 `ResearchDataset.dataset_hash` represents the full reproducible dataset under its contract. A downstream primitive may require a narrower canonical identity for its exact effective sample; it must not silently repurpose the ResearchDataset hash.
+
+### Walk-forward decision identity vs evaluation identity
+
+A Walk-Forward `DecisionSnapshot` freezes the exact PIT evidence, training dataset identity, selector configuration, selected constituents and weights before OOS evaluation. Evaluation data may score that decision but must not mutate the same decision hash or retroactively become selection evidence.
 
 ### TWD risk vs native-currency diagnostics
 
