@@ -85,7 +85,7 @@ No `daily return × leverage` shortcut is permitted.
 
 ### L1 — Ledger Authority
 
-Status: **IMPLEMENTED / targeted + full Python regression verified / final exact-head full repository CI still required**.
+Status: **DONE / exact-head CI + Vercel preview verified at `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`**.
 
 In scope:
 
@@ -106,7 +106,7 @@ Out of scope:
 
 ### L2 — API Contract
 
-Status: **NEXT after L1 exact-head gates close**.
+Status: **ACTIVE — public admission + serialized ledger truth; L3 UX remains out of scope**.
 
 Objective:
 
@@ -210,16 +210,16 @@ Verified so far:
 - initial-margin repair: targeted + full Python regression SUCCESS before commit;
 - current branch contains no intended temporary verification workflow in the final product diff after each verified repair commit.
 
-Still required before L1 may be marked DONE:
+Final L1 closure evidence:
 
-1. durable `docs/PORTFOLIO_V3_CONTRACT.md` update;
-2. user-authored final exact head;
-3. formal full repository CI SUCCESS on that exact head;
+1. canonical `docs/PORTFOLIO_V3_CONTRACT.md` updated;
+2. user-authored exact head `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`;
+3. formal CI #834 SUCCESS on that exact head, including Python/JS/Worker/score/Portfolio build/source/browser/Vercel-config/D1/Cloudflare-bundle gates;
 4. Vercel preview SUCCESS on that exact head;
-5. final diff/self-review with no L1 BLOCKER;
-6. confirm main/base has not moved incompatibly.
+5. final L1 diff/self-review found no remaining BLOCKER;
+6. production main remained `e93e3ba51...`.
 
-L1 completion does **not** authorize merge of PR #162. The PR remains Draft while L2/L3 are unfinished.
+L1 is **DONE**. This does **not** authorize merge of PR #162; L2/L3 and final R3 gates remain required.
 
 ## 8. Current Public Product Boundary
 
@@ -236,18 +236,20 @@ This staged boundary is intentional so each batch remains usable and independent
 
 ### NOW
 
-Close L1 only:
+Execute L2 API Contract only:
 
 ```text
-durable Portfolio contract + handoff
-→ final exact-head full CI + Vercel preview
-→ final L1 self-review
-→ mark L1 DONE
+public weight admission <100 / =100 / >100
+→ serialize L1 cash/debt/gross/net/reset truth
+→ preserve 100% request compatibility
+→ fail closed on ambiguous legacy leverage overlays
+→ targeted API regressions
+→ broad exact-head verification
 ```
 
 ### NEXT
 
-L2 API Contract, then L3 UX.
+L3 UX only after L2 is verified.
 
 ### AFTER L3
 
@@ -291,8 +293,8 @@ On resume:
 1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PORTFOLIO_V3_CONTRACT.md`;
 2. re-query main, PR #162, exact branch head, CI/Vercel and open review state;
 3. verify production main is still the last known good `e93e3ba51...` or analyze any divergence before rebasing;
-4. finish L1 exact-head gates only;
-5. after L1 is explicitly DONE, start L2 API Contract;
+4. treat L1 as CLOSED unless new correctness evidence reopens it;
+5. continue only L2 API Contract;
 6. do not start L3 UX until L2 is verified;
 7. preserve the historical appendix below when updating this file.
 
