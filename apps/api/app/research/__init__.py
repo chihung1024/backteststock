@@ -14,6 +14,18 @@ from .factor_data import (
     FrenchFactorProvider,
     parse_monthly_factor_text,
 )
+from .selection import (
+    CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION,
+    WALK_FORWARD_SELECTION_CONTRACT_VERSION,
+    ConfiguredEqualWeightSelectionEngine,
+    SelectionContext,
+    SelectionEngine,
+    SelectionResult,
+    UnavailableCandidate,
+    build_selection_context,
+    run_selection,
+    validate_evaluation_dataset,
+)
 
 __all__ = [
     "RESEARCH_DAILY_RETURN_POLICY",
@@ -26,4 +38,14 @@ __all__ = [
     "FrenchFactorProvider",
     "build_research_dataset",
     "parse_monthly_factor_text",
+    "CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION",
+    "WALK_FORWARD_SELECTION_CONTRACT_VERSION",
+    "ConfiguredEqualWeightSelectionEngine",
+    "SelectionContext",
+    "SelectionEngine",
+    "SelectionResult",
+    "UnavailableCandidate",
+    "build_selection_context",
+    "run_selection",
+    "validate_evaluation_dataset",
 ]
