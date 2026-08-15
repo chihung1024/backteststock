@@ -167,7 +167,7 @@ Failure isolation is mandatory:
 - one asset failure only invalidates dependent portfolios;
 - one portfolio failure does not erase independent successful siblings;
 - benchmark failure does not erase valid core portfolio results;
-- optional analytics/provider failure degrades to structured warning/unavailable evidence rather than destroying the core ledger result when the core result remains valid;
+- optional analytics/provider failure degrades to structured warning/unavailable evidence rather than destroying the core Portfolio result when the core result remains valid;
 - failure/retryability information remains explicit instead of silently deleting a symbol or shortening a period.
 
 ## 7. Analytics semantics
@@ -227,7 +227,14 @@ The weight-defined exposure feature is organized as three authority-preserving b
 2. **L2 API Contract** — public admission and serialized ledger truth.
 3. **L3 UX** — direct weight-defined exposure editing/display, financing settings, legacy-control demotion and browser regression coverage.
 
-L3 must consume L1/L2 rather than reproduce leverage calculations or domain admission limits in the browser. Until the final R3 PR is merged and production-verified, the feature remains a branch/preview candidate rather than production truth.
+Verification evidence before final R3 merge review:
+
+- L1 original exact-head CI #834 passed; the later underinvested daily-reset correction and generic `exposure_reset` naming each passed focused + full Python regression.
+- L2 exact-head CI #856 passed the complete repository gate; its Git Integration preview was blocked by Vercel `build-rate-limit`, while the underlying corrected product implementation had successful preview evidence.
+- L3 exact-head CI #863 at `7edb503fa8d75fd1aee1896440611a14134c24af` passed Python, JavaScript, Worker, Portfolio type/build/source contracts, committed production assets, browser E2E, Vercel configuration validation, local D1 migration and Cloudflare bundle.
+- The two preceding L3 browser failures were isolated to Playwright locator scope against hidden/visible responsive DOM; diagnostics showed the expected mobile exposure UI was already rendered, and no production source change was required to resolve them.
+
+L3 consumes L1/L2 rather than reproducing leverage calculations or domain admission limits in the browser. Until the final R3 PR is merged and production-verified, the feature remains a branch candidate rather than production truth.
 
 ## 11. Historical migration boundary
 
