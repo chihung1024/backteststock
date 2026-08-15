@@ -118,11 +118,16 @@ Python calls this function instead of assuming a `node` executable exists inside
 Admission protections:
 
 - POST only;
-- request body <= 3 MiB;
+- wire request body <= 3 MiB;
+- decoded JSON <= 16 MiB;
+- Python uses deterministic gzip transport automatically for larger authority payloads while preserving the same JSON/numerical contract;
+- Node accepts `identity` or `gzip` only and rejects unsupported encodings;
 - exact deployment-SHA binding when Vercel provides `VERCEL_GIT_COMMIT_SHA`;
 - selection combination budget <= 500,000 per authority request;
 - optional `WALK_FORWARD_INTERNAL_SECRET` or `VERCEL_AUTOMATION_BYPASS_SECRET` upgrades selection admission to secret + deployment binding;
 - if no internal secret is configured, the endpoint remains in an explicitly reported `deployment-bound-bounded-fallback` mode rather than pretending cryptographic caller authentication exists.
+
+The gzip boundary is transport-only: it must not alter the authority payload semantics, dataset hash, ranking, winning combination or DecisionSnapshot identity. The independent decoded-size ceiling prevents compressed payloads from bypassing memory safety limits.
 
 The version probe is deliberately cheap and remains callable for deployment readiness verification. The expensive selection path is always bounded even in fallback mode.
 
@@ -138,6 +143,7 @@ V1 is intentionally request-scoped and bounded:
 - Exhaustive combinations <= 500,000 per period;
 - Exhaustive combinations <= 2,000,000 per job;
 - public request body <= 128 KiB;
+- authority wire body <= 3 MiB and decoded JSON <= 16 MiB;
 - edge/backend research rate limiting applies;
 - Node authority has an explicit bounded runtime configuration.
 
@@ -217,6 +223,8 @@ The service fails closed on at least:
 - excessive Exhaustive combinations;
 - missing candidate/benchmark Training history;
 - corporate-action evidence that existing Exhaustive policy rejects;
+- authority payload exceeding decoded/wire safety ceilings;
+- unsupported authority content encoding;
 - authority version/dataset/result mismatch;
 - Evaluation fetched/validated outside the frozen decision contract;
 - unsupported OOS cashflow/leverage/distribution state;
@@ -250,8 +258,10 @@ The implementation must keep regression evidence for:
 - no silent >100 candidate truncation;
 - strict public API schema excluding unversioned strategy knobs;
 - health not consuming research quota;
-- Node pre-parsed/raw body compatibility;
+- Node pre-parsed/raw/gzip body compatibility;
 - server Exhaustive combination cap;
+- independent wire/decoded payload ceilings and unsupported-encoding rejection;
+- Python deterministic gzip transport and non-finite JSON rejection;
 - optional internal-secret admission;
 - same-origin Worker path/body/header behavior;
 - request/body limits;
