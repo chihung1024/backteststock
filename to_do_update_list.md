@@ -183,7 +183,9 @@ holdingCount <= 20
 Exhaustive combinations <= 500,000 per period
 Exhaustive combinations <= 2,000,000 per job
 public request body <= 128 KiB
-Node authority body <= 3 MiB
+Exhaustive authority wire body <= 3 MiB
+Exhaustive authority decoded JSON <= 16 MiB
+large authority payloads use deterministic gzip transport
 ```
 
 If PIT membership exceeds 100 symbols, fail closed.
@@ -212,6 +214,7 @@ scripts/smoke_test_walk_forward_v1.mjs
 tests/test_walk_forward_pit_client.py
 tests/test_walk_forward_job.py
 tests/test_walk_forward_api.py
+tests/test_exhaustive_authority_http_client.py
 tests/test_exhaustive_authority_http.mjs
 tests/test_walk_forward_edge_route.mjs
 vercel.json
@@ -247,6 +250,7 @@ Hardening currently includes:
 - edge/backend research rate limits;
 - exact deployment-SHA binding for Python→Node authority calls;
 - bounded Node combination count;
+- deterministic gzip transport for large Training matrices with independent wire/decoded ceilings;
 - optional `WALK_FORWARD_INTERNAL_SECRET` or existing Vercel Automation Bypass secret upgrades selection admission to secret + deployment binding;
 - honest bounded fallback if no secret is configured;
 - production smoke waits for Node authority and Worker-routed API health to report the expected deployment SHA.
@@ -266,12 +270,13 @@ Current tests lock at least:
 7. >100-member PIT fail-closed behavior without market-data work;
 8. strict public API schema rejecting unversioned strategy knobs;
 9. health bypassing research-work quota;
-10. Vercel Node raw/pre-parsed body compatibility;
+10. Vercel Node raw/pre-parsed/gzip body compatibility;
 11. optional internal-secret admission;
 12. Node Exhaustive combination budget;
-13. same-origin edge route body/header sanitation and limits;
-14. deployment-SHA readiness smoke syntax;
-15. full repository CI/regression gates.
+13. independent authority wire/decoded payload ceilings and non-finite JSON rejection;
+14. same-origin edge route body/header sanitation and limits;
+15. deployment-SHA readiness smoke syntax;
+16. full repository CI/regression gates.
 
 ## 11. Self-Review / Root-Cause Record
 
@@ -301,13 +306,17 @@ Root-cause fix: keep the existing legacy `builds` topology unchanged and configu
 
 Cloudflare and Vercel can converge at different times after one main merge. Production acceptance waits until the new Walk-Forward health and Node authority report the exact expected merge SHA.
 
+### G. Large Training matrix HTTP payload — FIXED SYSTEMICALLY
+
+4A-3 authority payload contains daily TWD price matrices, so a long Training window with many PIT candidates can exceed a small raw JSON request limit even when candidate/combination admission is otherwise valid.
+
+Root-cause fix: retain the exact same authority JSON semantics but gzip large Python→Node payloads. Keep an independent 3 MiB compressed-wire ceiling and 16 MiB decoded-JSON ceiling; reject unsupported encodings and non-finite JSON before numerical work. Do not shorten historical windows merely to fit transport.
+
 ## 12. Current Verification State
 
-A pre-handoff implementation candidate already achieved full repository CI and a successful Vercel preview before the final self-review hardening.
+Earlier implementation candidates achieved full repository CI and successful Vercel preview. Self-review subsequently added deployment-config, internal-admission and large-payload transport hardening.
 
-A later preview exposed the Vercel `functions + builds` configuration incompatibility; that configuration has been removed and the narrow root-cause fix applied.
-
-Because this live handoff write changes the exact branch head, **all previous CI/preview runs are supporting evidence only**. The final handoff-updated head must receive fresh:
+Because the current hardening/docs writes change the exact branch head, **all earlier CI/preview runs are supporting evidence only**. The final head must receive fresh:
 
 1. full exact-head CI;
 2. Vercel preview success;
@@ -329,7 +338,48 @@ Because this live handoff write changes the exact branch head, **all previous CI
 12. Vercel production deployment SUCCESS;
 13. Cloudflare Worker deploy + remote D1 + Russell / Portfolio / Walk-Forward / Refinery production smokes SUCCESS.
 
-## 14. Roadmap
+## 14. Immediate Post-4A-5 Correctness Incident
+
+### Pre-inception / synthetic-history leakage in Backtest charts
+
+Status: **NEXT — P0 correctness investigation immediately after 4A-5 closes. This supersedes 4A-6 UX.**
+
+User-visible reproduction supplied on 2026-08-15: a recently launched ETF such as `VFLO` displays price/performance history before the instrument existed.
+
+This is not a cosmetic chart issue. Treat it as a full data-integrity incident because pre-inception synthetic history can contaminate:
+
+- single-asset charts;
+- portfolio NAV/returns;
+- CAGR/MDD/Sortino/beta/alpha;
+- optimizer rankings;
+- comparison windows;
+- future Walk-Forward Training/OOS evidence if the same source path is reused.
+
+Required investigation path:
+
+```text
+raw market-data response
+→ ticker/symbol resolution
+→ TWDHistoryService / legacy history loaders
+→ alignment / fill / fallback logic
+→ ResearchDataset
+→ backtest/portfolio engines
+→ frontend chart serialization/rendering
+```
+
+Root-cause policy:
+
+1. determine the instrument's actual first tradable observation from authoritative raw history; do not hard-code VFLO dates as the fix;
+2. no forward-fill/backfill/benchmark/substitute/synthetic series may create an instrument observation before its first genuine market observation;
+3. alignment may create `NaN`/unavailable state before inception, never a fabricated price;
+4. portfolio math must define explicit pre-inception availability semantics instead of silently treating synthetic prices as investable history;
+5. requested-period UX must disclose effective common start / unavailable assets when history begins later than the requested date;
+6. add systemic regression fixtures for multiple recent-listing instruments plus ordinary long-history controls;
+7. audit all download/cache/fallback paths for the same defect class, not only VFLO.
+
+Expected output: root-cause report + regression tests + narrow fix across the authoritative data boundary. Do not proceed to 4A-6 until this P0 correctness incident is closed and production-verified.
+
+## 15. Roadmap
 
 | Batch | Objective | Status |
 | --- | --- | --- |
@@ -338,17 +388,18 @@ Because this live handoff write changes the exact branch head, **all previous CI
 | 4A-3 | Existing Exhaustive adapter + golden parity | DONE |
 | 4A-4 | Continuous OOS Portfolio ledger | DONE |
 | 4A-5 | PIT Resolver / API / Job Orchestration | **ACTIVE / PR #158** |
-| 4A-6 | User-facing Walk-Forward UX | NEXT after 4A-5 closes |
+| Correctness P0 | Pre-inception / synthetic-history leakage | **NEXT immediately after 4A-5** |
+| 4A-6 | User-facing Walk-Forward UX | DEFERRED until P0 correctness closes |
 | 4B+ | Research memory / PIT fundamentals / AI automation | BACKLOG until 4A foundation is stable |
 
-## 15. NOW / NEXT / BACKLOG / REJECT
+## 16. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
 Close Batch 4A-5 / PR #158:
 
 ```text
-handoff-updated exact head
+final hardening/docs exact head
 → full CI + Vercel preview
 → final self-review
 → independent review
@@ -359,9 +410,19 @@ handoff-updated exact head
 → post-main CI / Vercel / Cloudflare production smokes
 ```
 
-### NEXT
+### NEXT — P0
 
-Batch 4A-6 — user-facing Walk-Forward UX over the now-versioned server workflow. UX must surface provenance/failure truth rather than hide it.
+Investigate and close pre-inception / synthetic-history leakage before any 4A-6 feature work.
+
+Primary acceptance invariant:
+
+```text
+An instrument must never have investable price/performance observations before its first genuine market observation.
+```
+
+### NEXT AFTER P0
+
+Batch 4A-6 — user-facing Walk-Forward UX over the versioned server workflow. UX must surface provenance/failure truth rather than hide it.
 
 ### BACKLOG
 
@@ -381,14 +442,15 @@ Batch 4A-6 — user-facing Walk-Forward UX over the now-versioned server workflo
 - unrelated refactors/process expansion;
 - reactivating frozen PR #147.
 
-## 16. Exact Resume Point
+## 17. Exact Resume Point
 
 On resume:
 
 1. read `AI_PROJECT_PLAYBOOK.md` and this file;
 2. read `docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md` plus 4A-1…4A-4 contracts;
 3. re-query current `main`, PR #158, exact-head CI, Vercel status, reviews/threads and release state;
-4. continue only Batch 4A-5 until R2 production gates close.
+4. continue only Batch 4A-5 until R2 production gates close;
+5. immediately after 4A-5 production closeout, start the P0 pre-inception/synthetic-history integrity investigation before 4A-6.
 
 Expected state immediately after this handoff commit:
 
@@ -397,6 +459,7 @@ main = f993bac1877532e1dd16ae4dde6022601ac1b6ca
 PR #158 = Draft / Batch 4A-5
 branch = feat/batch4a5-walk-forward-api-orchestration
 next gate = fresh exact-head CI + Vercel preview
+post-4A-5 priority = P0 pre-inception/synthetic-history leakage
 ```
 
 If remote truth differs, remote truth wins and the discrepancy must be analyzed before merge/rebase/reset.
