@@ -1,6 +1,6 @@
 """HTTP placement for the existing JavaScript Exhaustive selection authority.
 
-The numerical implementation remains JavaScript.  Batch 4A-5 places that
+The numerical implementation remains JavaScript. Batch 4A-5 places that
 implementation in a bounded Vercel Node function and lets the Python
 orchestrator call it over a deployment-bound HTTP contract instead of assuming
 that a ``node`` executable exists inside the Python serverless runtime.
@@ -8,6 +8,8 @@ that a ``node`` executable exists inside the Python serverless runtime.
 
 from __future__ import annotations
 
+import gzip
+import json
 import os
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -19,6 +21,9 @@ EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION = (
     "exhaustive-authority-http-2026-08-15.1"
 )
 EXHAUSTIVE_AUTHORITY_PATH = "/api/internal/research/exhaustive-selection"
+MAX_AUTHORITY_WIRE_BYTES = 3 * 1024 * 1024
+MAX_AUTHORITY_JSON_BYTES = 16 * 1024 * 1024
+GZIP_THRESHOLD_BYTES = 512 * 1024
 
 
 @dataclass(slots=True)
@@ -63,19 +68,19 @@ class HttpExhaustiveAuthorityRunner:
         return self._post(dict(payload))
 
     def _post(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        body, content_encoding = _encode_payload(payload)
         headers = {
             "accept": "application/json",
             "content-type": "application/json",
             "cache-control": "no-store",
             "user-agent": "backteststock-walk-forward/1",
         }
+        if content_encoding:
+            headers["content-encoding"] = content_encoding
         if self.deployment_sha:
             headers["x-backteststock-internal-deployment"] = self.deployment_sha
         if self.internal_secret:
             headers["x-backteststock-internal-secret"] = self.internal_secret
-            # If the same value is a Vercel Automation Bypass secret, this also
-            # keeps protected deployment URLs callable without weakening the
-            # selection endpoint's own secret check.
             if self.internal_secret == os.getenv(
                 "VERCEL_AUTOMATION_BYPASS_SECRET", ""
             ).strip():
@@ -83,7 +88,7 @@ class HttpExhaustiveAuthorityRunner:
         try:
             response = self.session.post(
                 f"{self.origin}{EXHAUSTIVE_AUTHORITY_PATH}",
-                json=dict(payload),
+                data=body,
                 timeout=self.timeout_seconds,
                 headers=headers,
             )
@@ -105,6 +110,34 @@ class HttpExhaustiveAuthorityRunner:
         if not isinstance(decoded, dict):
             raise RuntimeError("Exhaustive authority service must return a JSON object")
         return decoded
+
+
+def _encode_payload(payload: Mapping[str, Any]) -> tuple[bytes, str | None]:
+    try:
+        raw = json.dumps(
+            dict(payload),
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Exhaustive authority payload must be finite JSON") from exc
+    if len(raw) > MAX_AUTHORITY_JSON_BYTES:
+        raise RuntimeError(
+            "Exhaustive authority JSON exceeds the 16 MiB decoded safety ceiling; "
+            "shorten the Training window or reduce PIT candidates"
+        )
+    if len(raw) < GZIP_THRESHOLD_BYTES:
+        if len(raw) > MAX_AUTHORITY_WIRE_BYTES:
+            raise RuntimeError("Exhaustive authority request exceeds the wire safety ceiling")
+        return raw, None
+    compressed = gzip.compress(raw, compresslevel=6, mtime=0)
+    if len(compressed) > MAX_AUTHORITY_WIRE_BYTES:
+        raise RuntimeError(
+            "Exhaustive authority compressed request exceeds the 3 MiB wire safety ceiling; "
+            "shorten the Training window or reduce PIT candidates"
+        )
+    return compressed, "gzip"
 
 
 def _configured_origin() -> str:
