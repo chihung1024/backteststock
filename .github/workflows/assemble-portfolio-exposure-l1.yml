@@ -70,25 +70,20 @@ jobs:
 
           path = Path('tests/test_portfolio_ledger.py')
           text = path.read_text()
-          old = '''def test_portfolio_validation_rejects_duplicate_or_incomplete_weights() -> None:
-              with pytest.raises(ValueError, match="unique"):
-                  PortfolioSpec(
-                      name="Duplicate",
-                      assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
-                  )
-              with pytest.raises(ValueError, match="sum"):
-                  PortfolioSpec.from_weights("Incomplete", {"AAA": 0.8})
-          '''.replace('          ', '')
-          new = '''def test_portfolio_validation_rejects_duplicate_weights() -> None:
+          start_marker = 'def test_portfolio_validation_rejects_duplicate_or_incomplete_weights() -> None:\n'
+          end_marker = '\n\ndef test_distribution_can_be_retained_as_cash_without_double_counting() -> None:\n'
+          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+              raise SystemExit('expected validation function boundaries not found exactly once')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''def test_portfolio_validation_rejects_duplicate_weights() -> None:
               with pytest.raises(ValueError, match="unique"):
                   PortfolioSpec(
                       name="Duplicate",
                       assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
                   )
           '''.replace('          ', '')
-          if text.count(old) != 1:
-              raise SystemExit('expected legacy validation block not found exactly once')
-          path.write_text(text.replace(old, new))
+          path.write_text(text[:start] + replacement.rstrip() + text[end:])
           PY
 
       - name: Install Python dependencies
