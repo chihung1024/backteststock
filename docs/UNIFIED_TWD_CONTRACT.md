@@ -29,20 +29,30 @@ The shared Yahoo market-data boundary uses the versioned contract:
 ```text
 INSTRUMENT_IDENTITY_CONTRACT_VERSION = yahoo-first-trade-date-2026-08-15.1
 source = yahoo_history_metadata.firstTradeDate
+calendar = yahoo_history_metadata.exchangeTimezoneName
 ```
+
+Yahoo supplies `firstTradeDate` as timestamp metadata. Its lifecycle boundary is
+the **exchange-local trading date**, not the UTC calendar date. The resolver must
+therefore convert timestamp metadata using Yahoo's `exchangeTimezoneName` before
+any date clipping. Missing or invalid lifecycle/timezone metadata fails closed;
+it must not silently fall back to a date interpretation that can move inception
+across a local-calendar boundary.
 
 Before TWD valuation, return decomposition, Scanner metrics, Portfolio ledger,
 ResearchDataset construction, or Exhaustive preparation may consume a series:
 
-- the current Yahoo instrument's `firstTradeDate` must be verified;
-- every adjusted-close row before that date is removed;
+- the current Yahoo instrument's `firstTradeDate` and `exchangeTimezoneName`
+  must be verified;
+- the first-trade timestamp is interpreted on the exchange-local calendar;
+- every adjusted-close row before that local first-trade date is removed;
 - every time-indexed Raw Close, dividend, capital-gain, stock-split, and repair
   component is clipped to the same boundary;
 - the corporate-action audit is rebuilt after clipping, so its event counts and
   warning dates refer only to the current instrument lifetime;
-- the instrument-identity audit records the source, verified first-trade date,
-  original/effective first dates, removed pre-inception row count, and whether
-  clipping was required;
+- the instrument-identity audit records the source, exchange timezone, verified
+  first-trade date, original/effective first dates, removed pre-inception row
+  count, and whether clipping was required;
 - if current-instrument metadata cannot be verified, the series fails closed as
   unresolved/retryable instead of producing research results from ticker-only
   history;
