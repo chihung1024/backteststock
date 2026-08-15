@@ -6,14 +6,6 @@
       "internal-*": false
     }
   },
-  "functions": {
-    "api/exhaustive_selection_authority.mjs": {
-      "maxDuration": 240
-    },
-    "api/walk_forward_v1.py": {
-      "maxDuration": 240
-    }
-  },
   "builds": [
     { "src": "api/index_v2.py", "use": "@vercel/python" },
     { "src": "api/scan_v2.py", "use": "@vercel/python" },
