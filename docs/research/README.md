@@ -14,11 +14,12 @@ This index identifies which document owns which semantic boundary. Current execu
 6. `WALK_FORWARD_SELECTION_CORE_V1.md`
 7. `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md`
 8. `WALK_FORWARD_OOS_LEDGER_V1.md`
-9. `../quant/RISK_MATHEMATICS_V1.md`
-10. `REFINERY_API_V1.md`
-11. `REFINERY_UI_V1.md`
-12. `REFINERY_CLUSTERING_V1.md`
-13. corresponding implementation and tests
+9. `WALK_FORWARD_API_ORCHESTRATION_V1.md`
+10. `../quant/RISK_MATHEMATICS_V1.md`
+11. `REFINERY_API_V1.md`
+12. `REFINERY_UI_V1.md`
+13. `REFINERY_CLUSTERING_V1.md`
+14. corresponding implementation and tests
 
 Closed implementation/convergence/production-acceptance narratives are reconstructed from Git/PR/Issue/Actions history when needed; they are not parallel contract authorities.
 
@@ -31,6 +32,7 @@ Closed implementation/convergence/production-acceptance narratives are reconstru
 | `WALK_FORWARD_SELECTION_CORE_V1.md` | Batch 4A-2 internal selector boundary: exact Training dataset, explicit PIT-member outcomes, SelectionEngine isolation from OOS data, post-decision Evaluation validation |
 | `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md` | Batch 4A-3 internal adapter binding the existing JavaScript Exhaustive numerical/ranking authority to SelectionEngine with candidates+benchmark Training provenance and golden parity |
 | `WALK_FORWARD_OOS_LEDGER_V1.md` | Batch 4A-4 internal continuous Evaluation/OOS ledger: state carry across frozen decisions, Portfolio v3 transition-cost authority, no period-local NAV reset, explicit gap/execution policies |
+| `WALK_FORWARD_API_ORCHESTRATION_V1.md` | Batch 4A-5 request-scoped public server workflow: Worker/D1 PIT authority consumption, causal Training→Decision→Evaluation ordering, bounded JS Exhaustive production placement, same-origin edge route, job identity and production readiness semantics |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
 | `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, Phase 3–5 response schema `.3`, plus opt-in Phase 6 marginal contract `.1` |
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary, including the non-persisted Phase 6 explicit-plan UI |
@@ -59,6 +61,14 @@ The Walk-Forward Exhaustive adapter does not own portfolio simulation or score m
 ### Evaluation segments vs one investable OOS ledger
 
 Walk-Forward Evaluation periods are evidence partitions, not independent portfolios. Batch 4A-4 carries actual ending OOS equity/allocation into the next frozen target, delegates inter-decision turnover/cost to Portfolio v3, and computes metrics once from one continuous ledger. Period-local NAV reset/average/stitch semantics are not a valid substitute. Evaluation-window gaps do not authorize hidden market observations: V1 carries the last audited state flat until the next validated OOS baseline.
+
+### Request-scoped orchestration vs persistent research memory
+
+Batch 4A-5 may compose PIT evidence, Training datasets, immutable decisions and continuous OOS results into one deterministic `jobHash`, but that hash is not a persisted ResearchRun id. The API remains synchronous and request-scoped. Durable named runs, result storage, reruns, comparison history and AI research memory require a separately governed persistence contract later in the roadmap.
+
+### PIT membership authority vs API orchestration
+
+The Python Walk-Forward API does not own historical membership. Worker/D1 remains the PIT authority and Python consumes the versioned causal Universe response for exactly each Decision date. Large PIT universes must fail closed when synchronous Exhaustive bounds are exceeded; current fundamentals, current constituents and arbitrary truncation are not authorized substitutes.
 
 ### TWD risk vs native-currency diagnostics
 
