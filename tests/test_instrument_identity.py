@@ -128,7 +128,7 @@ def test_market_data_never_exposes_pre_inception_ticker_reuse(monkeypatch) -> No
     )
 
 
-def test_unverified_metadata_is_explicit_and_does_not_invent_a_boundary(
+def test_unverified_metadata_fails_closed_instead_of_using_ticker_only_history(
     monkeypatch,
 ) -> None:
     market_data.clear_price_cache()
@@ -158,12 +158,8 @@ def test_unverified_metadata_is_explicit_and_does_not_invent_a_boundary(
         backoff_seconds=(0.0,),
     )
 
-    assert unresolved == []
-    assert resolved["VFLO"].index[0] == pd.Timestamp("2016-01-04")
-    audit = resolved["VFLO"].attrs["instrument_identity_audit"]
-    assert audit["status"] == "unverified_metadata"
-    assert audit["first_trade_date"] is None
-    assert audit["clipping_applied"] is False
+    assert resolved == {}
+    assert unresolved == ["VFLO"]
 
 
 def test_entirely_pre_inception_window_returns_no_usable_current_instrument(
