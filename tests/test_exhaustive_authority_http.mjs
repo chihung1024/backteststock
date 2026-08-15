@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import handler, {
   EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION,
@@ -14,6 +15,19 @@ function request(payload, { method = "POST", headers = {} } = {}) {
   stream.headers = {
     "content-type": "application/json",
     "content-length": String(Buffer.byteLength(body)),
+    ...headers,
+  };
+  return stream;
+}
+
+function gzipRequest(payload, { method = "POST", headers = {} } = {}) {
+  const body = gzipSync(Buffer.from(JSON.stringify(payload)));
+  const stream = Readable.from([body]);
+  stream.method = method;
+  stream.headers = {
+    "content-type": "application/json",
+    "content-encoding": "gzip",
+    "content-length": String(body.length),
     ...headers,
   };
   return stream;
@@ -73,6 +87,16 @@ test("HTTP authority version endpoint exposes the existing JS authority identity
   assert.match(payload.internalAuthMode, /^(secret-plus-deployment|deployment-bound-bounded-fallback)$/u);
 });
 
+test("HTTP authority accepts gzip JSON without changing authority identity", async () => {
+  const res = response();
+  await handler(gzipRequest({ type: "version" }), res);
+
+  assert.equal(res.statusCode, 200);
+  const payload = JSON.parse(res.body);
+  assert.match(payload.authorityVersion, /^exhaustive-/u);
+  assert.match(payload.bridgeVersion, /^exhaustive-selection-authority-/u);
+});
+
 test("HTTP authority accepts a Vercel-style pre-parsed request body", async () => {
   const res = response();
   await handler(parsedRequest({ type: "version" }), res);
@@ -81,6 +105,15 @@ test("HTTP authority accepts a Vercel-style pre-parsed request body", async () =
   const payload = JSON.parse(res.body);
   assert.match(payload.authorityVersion, /^exhaustive-/u);
   assert.match(payload.bridgeVersion, /^exhaustive-selection-authority-/u);
+});
+
+test("HTTP authority rejects unsupported content encodings", async () => {
+  const res = response();
+  await handler(
+    request({ type: "version" }, { headers: { "content-encoding": "br" } }),
+    res,
+  );
+  assert.equal(res.statusCode, 415);
 });
 
 test("HTTP authority fails before numerical work when server combination budget is exceeded", async () => {
