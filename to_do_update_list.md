@@ -113,7 +113,7 @@ Locked:
 
 ### L2 — API Contract
 
-Status: **FINAL CANDIDATE / implementation + targeted/full Python regression verified; final user-authored exact-head CI/Vercel pending**.
+Status: **DONE / API + ledger contract verified; exact-head CI #856 SUCCESS. Vercel preview on the final L2 docs head was externally rate-limited, while the underlying product implementation had successful preview evidence.**
 
 Implemented:
 
@@ -135,11 +135,11 @@ Verification record:
 - the underinvested repair now resets every non-100% target at each close, preserves current internal asset mix, recomputes cash from post-cost equity, and leaves periodic/threshold rules as the only authority that restores target internal mix; focused + full Python regression passed before publish;
 - the unreleased event/result contract was generalized to `exposure_reset` / `exposure_reset_count` so 50% cash and 150% leverage share one truthful name; focused + full Python regression passed before publish;
 - canonical `docs/PORTFOLIO_V3_CONTRACT.md` has been updated with the opened API contract and the user-confirmed gross-reset/internal-mix semantics;
-- the final user-authored L2 candidate must still pass formal exact-head full-repository CI and Vercel preview before L2 is marked DONE.
+- final L2 exact head `f0c5dec66c66de7dd6fabf204ca89a6e01ff556f` passed CI #856 across Python, JS, Worker, quant formulas, Portfolio type/build/source contracts, browser E2E, Vercel configuration validation, local D1 migration and Cloudflare bundle; Git Integration preview was blocked only by `build-rate-limit`, not by a build/test failure.
 
 ### L3 — UX
 
-Status: **PLANNING ONLY / do not write until user confirms final UI details and L2 closes**.
+Status: **DONE / implementation + generated production assets + exact-head CI #863 VERIFIED at `7edb503fa8d75fd1aee1896440611a14134c24af`.**
 
 Required UX direction already established:
 
@@ -152,7 +152,15 @@ Required UX direction already established:
 - show that daily gross reset is automatic for non-100% totals, while internal allocation rebalance follows the user's periodic/threshold settings;
 - preserve responsive desktop/mobile Portfolio editing and existing 100% flows.
 
-Do not start L3 source writes until L2 exact-head verification is complete and the final UI change list has been presented to the user for confirmation.
+L3 verification record:
+
+- `model.ts` now treats non-100% totals as valid weight-defined exposure and preserves API/domain as the sole gross-limit authority;
+- `AllocationEditor` removes the 100% cell cap, shows cash / fully invested / financed-gross summaries, and makes `100% 等權` / `縮放至 100%` explicit actions instead of silent normalization;
+- `SettingsPanels` separates borrowing-rate/maintenance-margin assumptions from the collapsed legacy leverage compatibility controls and explains daily gross reset vs internal allocation rebalance;
+- generated `public/portfolio` assets were rebuilt from the same source and passed the committed-asset drift gate;
+- dedicated browser regressions cover 50%, 150%, 300%, request payload preservation, legacy-control demotion and 390px mobile semantics;
+- two initial E2E failures were test-locator scope errors against duplicated hidden/visible responsive DOM, not product behavior failures; Playwright diagnostics confirmed the mobile UI rendered the expected exposure text;
+- final L3 exact head `7edb503fa8d75fd1aee1896440611a14134c24af` passed CI #863 end-to-end, including browser E2E, Vercel config validation, D1 migration and Cloudflare bundle.
 
 ## 5. L1 Locked Ledger Semantics
 
@@ -189,36 +197,38 @@ Because the same reset now applies to both cash and leveraged Portfolios, the un
 
 ## 7. Current Public Product Boundary
 
-At the L2 final candidate:
+At the verified L3 branch candidate:
 
 - Portfolio API admission supports below/equal/above 100% weight-defined exposure within the domain bound;
-- API serializer exposes ledger exposure truth directly;
-- browser Allocation Editor still has the old 100%-only UX validation and per-cell 100% cap;
-- browser Settings still exposes the old global leverage selector;
-- therefore the new behavior is **not yet a complete user-facing feature** until L3 is implemented and verified;
-- production main remains unchanged at `e93e3ba51...` until PR #162 completes R3 review/merge gates.
+- browser percentage cells are direct per-Portfolio equity-relative exposure controls and no longer impose a 100% cap;
+- below 100% is shown as residual cash, 100% as fully invested, and above 100% as gross multiple plus financed exposure;
+- non-100% summaries disclose daily total-exposure reset while internal asset mix remains governed by periodic/threshold allocation rebalance;
+- borrowing interest and maintenance margin remain configurable for weight-defined financed exposure;
+- legacy fixed-ratio/fixed-debt controls remain collapsed compatibility behavior and cannot combine with non-100% weight-defined exposure;
+- desktop/mobile source and committed production assets are synchronized and covered by browser regression;
+- production main remains unchanged at `e93e3ba51...` until PR #162 completes final R3 recovery/review/merge and production verification.
 
 ## 8. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-Close L2 only:
+Final R3 closure only:
 
 ```text
-user-authored final candidate
-→ full repository CI
-→ Vercel preview
-→ self-review exact diff
-→ L2 DONE only if all gates pass
+handoff/contract closeout
+→ final user-authored exact head + full CI
+→ pre-merge recovery for exact main
+→ independent exact-head review
+→ Ready / squash merge only with all gates green
 ```
 
 ### NEXT
 
-Present the final L3 UI change list for user confirmation, then implement only the leverage/cash UX if authorized.
+After merge: post-main recovery, main CI, Vercel production, and live Portfolio regressions for representative 50% / 100% / 150% / 300% cases.
 
-### AFTER L3
+### AFTER PR #162
 
-Perform R3 final review, pre-merge recovery, exact-head independent review, squash merge, post-main recovery, main CI, Vercel production and live Portfolio production regression for representative 50% / 100% / 150%+ cases.
+Resume product roadmap at Batch 4A-6 Walk-Forward user-facing UX unless a new production correctness issue outranks it.
 
 ### BACKLOG
 
@@ -259,9 +269,9 @@ On resume:
 1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PORTFOLIO_V3_CONTRACT.md`;
 2. re-query main, PR #162, exact branch head, CI/Vercel and review state;
 3. verify production main is still `e93e3ba51...` or analyze divergence before important writes;
-4. treat the corrected L1 ledger semantics as locked unless new correctness evidence reopens them;
-5. finish L2 exact-head formal verification;
-6. do not write L3 UX until its final change list has been presented to the user and authorized;
+4. treat L1/L2/L3 feature semantics as verified and locked unless new correctness evidence reopens them;
+5. complete final R3 exact-head CI, recovery and independent review before merge;
+6. after merge, verify production with 50% / 100% / 150% / 300% representative Portfolios before closing PR #162;
 7. preserve the historical appendix below when updating this file.
 
 ---
