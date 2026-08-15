@@ -15,7 +15,14 @@ from cachetools import TTLCache
 from api.corporate_actions import (
     CORPORATE_ACTION_POLICY_VERSION,
     audit_from_series,
+    build_corporate_action_audit,
     extract_adjusted_close_prices,
+)
+from api.instrument_identity import (
+    INSTRUMENT_IDENTITY_CONTRACT_VERSION,
+    apply_instrument_lifecycle_guard,
+    clear_instrument_identity_cache,
+    resolve_instrument_identities,
 )
 from api.metrics import DATA_SOURCE_SETTINGS
 
@@ -24,7 +31,7 @@ logger = logging.getLogger(__name__)
 RETURN_COMPONENT_SOURCE_VERSION = "yahoo-close-events-2026-08-04.1"
 MARKET_DATA_CONTRACT_VERSION = (
     f"adjusted-close-actions-components-{CORPORATE_ACTION_POLICY_VERSION}-"
-    f"{RETURN_COMPONENT_SOURCE_VERSION}"
+    f"{RETURN_COMPONENT_SOURCE_VERSION}-{INSTRUMENT_IDENTITY_CONTRACT_VERSION}"
 )
 DEFAULT_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = (0.0, 1.5, 5.0)
@@ -188,6 +195,42 @@ def _attach_return_component_attrs(
         adjusted.attrs = attrs
 
 
+def _apply_instrument_identity_guards(
+    extracted: dict[str, pd.Series],
+) -> dict[str, pd.Series]:
+    """Keep only histories whose current Yahoo instrument identity is verified."""
+
+    identities = resolve_instrument_identities(extracted)
+    guarded: dict[str, pd.Series] = {}
+    for ticker, adjusted in extracted.items():
+        identity = identities.get(ticker)
+        if identity is None or identity.first_trade_date is None:
+            # A ticker-keyed price row is not sufficient identity evidence. Do
+            # not calculate research results from an instrument we cannot tie
+            # to the current Yahoo first-trade boundary.
+            continue
+        current = apply_instrument_lifecycle_guard(adjusted, identity)
+        if current.empty:
+            continue
+        attrs = dict(current.attrs)
+        corporate_audit = build_corporate_action_audit(
+            ticker=ticker,
+            adjusted_close=current,
+            raw_close=attrs.get("raw_close"),
+            dividends=attrs.get("dividends"),
+            stock_splits=attrs.get("stock_splits"),
+            capital_gains=attrs.get("capital_gains"),
+            repaired=attrs.get("repaired"),
+        )
+        corporate_audit["instrument_identity"] = dict(
+            attrs.get("instrument_identity_audit") or {}
+        )
+        attrs["corporate_action_audit"] = corporate_audit
+        current.attrs = attrs
+        guarded[ticker] = current
+    return guarded
+
+
 def download_prices_finitely(
     tickers,
     start_date,
@@ -234,6 +277,7 @@ def download_prices_finitely(
                 )
                 extracted = extract_adjusted_close_prices(downloaded, batch)
                 _attach_return_component_attrs(downloaded, batch, extracted)
+                extracted = _apply_instrument_identity_guards(extracted)
             except Exception as exc:  # noqa: BLE001 - upstream boundary
                 logger.warning(
                     "Corporate-action market-data request failed",
@@ -291,7 +335,7 @@ def download_data_reliably(
         batch_size=batch_size,
     )
     failures = {
-        ticker: RuntimeError("upstream returned no usable explicit Adj Close prices")
+        ticker: RuntimeError("upstream returned no usable identity-verified Adj Close prices")
         for ticker in unresolved
     }
     if not resolved:
@@ -303,6 +347,13 @@ def download_data_reliably(
     frame.attrs["market_data_contract_version"] = MARKET_DATA_CONTRACT_VERSION
     frame.attrs["corporate_action_audits"] = {
         ticker: audit_from_series(series) for ticker, series in resolved.items()
+    }
+    frame.attrs["instrument_identity_contract_version"] = (
+        INSTRUMENT_IDENTITY_CONTRACT_VERSION
+    )
+    frame.attrs["instrument_identity_audits"] = {
+        ticker: dict(series.attrs.get("instrument_identity_audit") or {})
+        for ticker, series in resolved.items()
     }
     frame.attrs["return_component_source_version"] = RETURN_COMPONENT_SOURCE_VERSION
     frame.attrs["return_component_inputs"] = {
@@ -328,3 +379,4 @@ def download_data_silently(tickers, start_date, end_date, **kwargs):
 def clear_price_cache():
     with _price_cache_lock:
         _price_cache.clear()
+    clear_instrument_identity_cache()

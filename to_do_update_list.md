@@ -1,6 +1,6 @@
 # BacktestStock — Live Project Status & Handoff
 
-> Repository-internal live handoff. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must be re-queried before important writes. Durable semantics live in versioned contracts under `docs/`; closed execution history remains reconstructable from Git, PRs and Actions.
+> Repository-internal live handoff. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must be re-queried before important writes. Durable methodology belongs in versioned contracts under `docs/`. Closed execution history must remain in this handoff or an explicit archived section; Git/PR/Actions are supporting evidence, not a substitute for preserving project decisions.
 
 Last updated: **2026-08-15**
 
@@ -24,14 +24,14 @@ Functionality, quantitative correctness, data integrity and user experience outr
 
 ## 2. Verified Main Baseline
 
-Current production main before Batch 4A-5:
+Current remote baseline before the active P0 fix:
 
 ```text
-f993bac1877532e1dd16ae4dde6022601ac1b6ca
-feat: add continuous Walk-Forward OOS ledger (#157)
+main@b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
+ci: verify Walk-Forward production after Vercel changes (#160)
 ```
 
-Walk-Forward foundation already closed and post-main verified:
+Walk-Forward foundation is closed through 4A-5:
 
 | Batch | Result |
 | --- | --- |
@@ -39,44 +39,242 @@ Walk-Forward foundation already closed and post-main verified:
 | 4A-2 | SelectionEngine + physical Training/OOS separation — DONE / PR #155 |
 | 4A-3 | Existing JavaScript Exhaustive adapter + golden parity — DONE / PR #156 |
 | 4A-4 | Continuous OOS Portfolio ledger — DONE / PR #157 |
+| 4A-5 | PIT Resolver / API / Job Orchestration — DONE / PR #158 plus runtime closure PR #159 and production-verification PR #160 |
 
-Batch 4A-4 post-main evidence includes recovery release, main CI #778 SUCCESS and Vercel deployment SUCCESS. Closed detail belongs to Git/PR/Actions rather than being duplicated here.
+4A-5 final production evidence on `main@b260a50f...`:
 
-## 3. Primary Active Batch
+- post-main recovery release exists;
+- main CI #810 SUCCESS;
+- Vercel production points to the exact main SHA;
+- `Verify Walk-Forward Production` executed the existing real production smoke against the exact deployment and returned `status=ok`;
+- existing production Worker routed successfully to the deployment-bound Exhaustive authority;
+- no Cloudflare runtime code change was required merely to verify a Vercel-only authority change.
 
-### Batch 4A-5 — PIT Resolver / API / Job Orchestration
+Do not reopen 4A-5 unless new evidence shows a regression.
 
-Status: **ACTIVE / Draft PR #158 / R2 Significant**
+## 3. Primary Active Work — P0 Correctness
+
+### Pre-inception / ticker-reuse history leakage
+
+Status: **ACTIVE / Draft PR #161 / R2 P0 correctness**
 
 Branch:
 
 ```text
-feat/batch4a5-walk-forward-api-orchestration
+fix/p0-listing-date-causality
 ```
 
 Base:
 
 ```text
-main@f993bac1877532e1dd16ae4dde6022601ac1b6ca
+main@b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
 ```
 
 PR:
 
 ```text
-#158 — feat: add causal Walk-Forward API orchestration
+#161 — fix: enforce current-instrument listing-date causality
 ```
 
-Do not trust a hard-coded candidate head in this file. Re-query PR #158 before review, Ready or merge because this handoff update itself changes the branch head.
+Do not trust a hard-coded candidate head in this file. Re-query PR #161 before review, Ready or merge because tests/docs may advance the branch head.
 
-Durable semantics:
+Durable contract update:
 
 ```text
-docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md
+docs/UNIFIED_TWD_CONTRACT.md
 ```
 
-## 4. 4A-5 Objective / Architecture Lock
+## 4. User-visible Reproduction / External Truth
 
-4A-5 makes the already-versioned 4A-1…4A-4 research pipeline callable as one bounded server workflow without creating a new quant/data authority.
+The incident was reproduced conceptually with `VFLO`:
+
+- the current VictoryShares Free Cash Flow ETF is a June 2023 product;
+- the current Yahoo instrument lifecycle boundary used by this regression is **2023-06-22**;
+- a backtest request starting in 2016 could nevertheless show VFLO performance before the current ETF existed.
+
+The fix must never hard-code VFLO. VFLO is a regression example for the general ticker-reuse/history-stitching defect class.
+
+## 5. Root Cause — LOCKED
+
+The frontend is not fabricating history:
+
+- `ResultsDashboard` renders backend `result.series[{date,value}]` directly;
+- Portfolio API serialization uses the ledger index directly;
+- TWD valuation never backward-fills a later native price into an earlier date;
+- FX union-calendar logic begins only after an actual native observation exists.
+
+Therefore the false pre-inception history already existed in the native Yahoo adjusted-close series before TWD valuation.
+
+Root cause:
+
+> **The authoritative market-data boundary verified that a ticker had real prices and corporate-action evidence, but did not verify that those rows belonged to the instrument currently represented by that ticker.**
+
+Ticker text is not instrument identity. A ticker can be reused or Yahoo can stitch history across an instrument change. Existing code even documented `ticker_or_exchange_change_history_stitching` as a corporate-action limitation, but no lifecycle guard prevented those rows from entering Scanner / Portfolio / Research / Exhaustive calculations.
+
+## 6. P0 Fix Contract
+
+New versioned identity authority:
+
+```text
+INSTRUMENT_IDENTITY_CONTRACT_VERSION = yahoo-first-trade-date-2026-08-15.1
+source = yahoo_history_metadata.firstTradeDate
+```
+
+Required invariants:
+
+1. current Yahoo `firstTradeDate` must be verified before ticker-keyed history is usable;
+2. all adjusted-close rows before that date are removed;
+3. Raw Close, dividends, capital gains, stock splits and repair flags are clipped to the same boundary;
+4. corporate-action audit is rebuilt after clipping;
+5. identity audit records first-trade date, original/effective first dates, removed row count and clipping status;
+6. metadata failure is **fail closed / retryable** — never `audit=unverified` while still calculating a performance result;
+7. an entirely pre-inception requested window returns no usable current-instrument series;
+8. market-data cache identity includes the new contract version, so pre-fix cached histories are not reused;
+9. no UI patch, benchmark substitution, synthetic proxy or hard-coded instrument date may satisfy this contract.
+
+Implementation surface is intentionally narrow:
+
+```text
+api/instrument_identity.py
+api/market_data.py
+tests/test_instrument_identity.py
+docs/UNIFIED_TWD_CONTRACT.md
+to_do_update_list.md
+```
+
+No quant formulas, Portfolio ledger math, PIT resolver, Walk-Forward selector/OOS semantics, Worker routing or leverage behavior are changed.
+
+## 7. Why Shared `api.market_data` Is the Correct Boundary
+
+Production compatibility backtest in `api/index_v2.py`, `TWDHistoryService`, Scanner/Portfolio services, ResearchDataset and Exhaustive preparation already converge on the shared audited market-data path.
+
+Fixing only Portfolio v3 or only the chart would leave the same defect available to other research consumers. The guard therefore runs before TWD valuation and before return/portfolio metrics.
+
+The historical legacy downloader retained in `api/index.py` is not the production backtest authority; `api/index_v2.py` replaces the production backtest handler and delegates market data to `api.market_data`. Do not expand this P0 into an unrelated legacy refactor unless remote runtime truth shows an active affected path.
+
+Existing downstream regression also locks the alignment rule: a later-starting asset is never backward-filled into an earlier common portfolio date. Portfolio v3 starts from the common genuinely available interval; it does not need a second lifecycle authority.
+
+## 8. Regression Locks Added
+
+Targeted tests cover:
+
+1. Yahoo `firstTradeDate` parsing from epoch seconds, milliseconds and ISO dates;
+2. simultaneous clipping of adjusted price and time-indexed component attrs;
+3. VFLO-class ticker-reuse rows removed before downstream use;
+4. corporate-action event counts rebuilt after pre-inception event removal;
+5. market-data frame audit preserves the verified identity boundary;
+6. unverifiable identity metadata fails closed instead of producing results;
+7. an entirely pre-inception window returns no usable current-instrument history;
+8. a batched multi-instrument fixture enforces distinct lifecycle boundaries while an ordinary long-history control remains unchanged;
+9. existing TWD backtest regression confirms a later-starting asset cannot be backward-filled before its first observation.
+
+Full repository CI remains authoritative for cross-system regression.
+
+## 9. Current Verification State
+
+Current candidate work has passed targeted compile/lint/Python tests during exact-head CI after the systemic regression expansion. The final exact head still requires all R2 gates to finish before merge.
+
+Required gates:
+
+1. full repository CI SUCCESS;
+2. Vercel preview SUCCESS;
+3. final diff self-review / no BLOCKER;
+4. independent review on the exact final head;
+5. zero unresolved BLOCKER threads;
+6. pre-merge recovery against exact current main;
+7. squash merge with exact expected head;
+8. post-main backup + main CI + Vercel production;
+9. production regression proving a 2016-requested VFLO path/effective history cannot begin before the current instrument's verified first-trade boundary.
+
+Recovery status:
+
+```text
+backup-pre-pr161-b260a50fcbdf
+→ target_commitish = b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
+→ verified by Release Backup Gates
+```
+
+## 10. Performance / Reliability Constraints
+
+The identity resolver must not turn a 100-symbol scan into unbounded serial metadata work.
+
+Current design:
+
+- bounded concurrent resolver workers;
+- two metadata attempts per uncached symbol;
+- successful identity evidence cached for six hours;
+- metadata failures cached only briefly (30 seconds) to suppress duplicate lookups inside a finite retry cycle without creating a multi-hour outage;
+- market-data download retry remains finite.
+
+Do not trade correctness for speed by silently accepting unverified ticker-only history. If later profiling shows unacceptable latency, optimize the metadata acquisition mechanism while preserving the exact identity invariant.
+
+Known provider caveat: Yahoo/yfinance metadata retrieval is an upstream availability dependency. A metadata outage must fail closed rather than revive ticker-only history. Availability/performance optimization is NEXT/BACKLOG unless production evidence shows it is a release-blocking regression.
+
+## 11. NOW / NEXT / BACKLOG / REJECT
+
+### NOW
+
+Close PR #161 as an R2 P0 correctness batch:
+
+```text
+final exact-head CI + Vercel preview
+→ final self-review
+→ independent review
+→ Ready
+→ release-backup pre-merge recovery
+→ final TOCTOU
+→ squash merge
+→ post-main CI / Vercel production
+→ live VFLO pre-inception production regression
+```
+
+### NEXT AFTER P0
+
+Batch 4A-6 — user-facing Walk-Forward UX over the already-versioned server workflow. UX must surface provenance/failure truth rather than hide it.
+
+### BACKLOG
+
+- ResearchRun / research memory;
+- PIT fundamentals / large-universe causal narrowing;
+- AI research automation/autopilot;
+- distributed scale/performance after correctness contracts stabilize;
+- profile/optimize Yahoo lifecycle metadata acquisition only if real runtime evidence shows unacceptable latency or availability impact.
+
+### REJECT FOR CURRENT P0
+
+- hard-coded VFLO listing date;
+- chart-only truncation;
+- synthetic/proxy history before inception;
+- current-fundamental historical evidence;
+- new alpha/ranking formulas;
+- Portfolio/Exhaustive/PIT math duplication;
+- leverage changes;
+- 4A-6 UI implementation;
+- unrelated legacy refactors/process expansion;
+- reactivating frozen PR #147.
+
+## 12. Exact Resume Point
+
+On resume:
+
+1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/UNIFIED_TWD_CONTRACT.md`;
+2. re-query GitHub `main`, PR #161, exact head/base, CI, Vercel, reviews/threads and releases;
+3. inspect the exact PR diff rather than trusting this handoff;
+4. confirm `firstTradeDate` verification remains upstream of all TWD/return/portfolio calculations;
+5. confirm metadata failure remains fail closed;
+6. confirm the historical appendix below remains preserved when updating this file;
+7. finish the R2 gates above;
+8. only after production VFLO regression is clean, mark this P0 CLOSED and activate 4A-6.
+
+---
+
+# Historical Execution Record — Batch 4A-5
+
+> The following record is intentionally retained from the pre-P0 handoff so a new session does not lose the architecture, rejected alternatives, resource bounds, regression locks, or runtime decisions that produced the current Walk-Forward baseline. Status text in this appendix is historical; Section 2 above is the current truth.
+
+## H1. 4A-5 Objective / Architecture Lock
+
+4A-5 made the already-versioned 4A-1…4A-4 research pipeline callable as one bounded server workflow without creating a new quant/data authority.
 
 Causal path:
 
@@ -102,13 +300,13 @@ Batch 4A-4 continuous OOS Portfolio ledger
 existing Portfolio v3 metrics
 ```
 
-Primary invariant remains:
+Primary invariant:
 
 ```text
 Training data <= Decision point < Evaluation/OOS data
 ```
 
-## 5. Authority Boundaries
+## H2. 4A-5 Authority Boundaries
 
 ### PIT membership
 
@@ -130,7 +328,7 @@ Production placement is a bounded Vercel Node function; Python calls it over a d
 
 Batch 4A-4 remains the continuous OOS orchestration authority; Portfolio v3 remains the transaction-cost/portfolio/metric authority.
 
-## 6. Public V1 Methodology Lock
+## H3. Public V1 Methodology Lock
 
 The public request deliberately exposes only methodology that current Training and OOS engines can interpret consistently.
 
@@ -172,9 +370,9 @@ transition cost only at later frozen Decision target changes
 
 Unversioned public strategy knobs are rejected rather than approximately mapped between different engines.
 
-## 7. Resource / Large-Universe Admission
+## H4. Resource / Large-Universe Admission
 
-Current synchronous v1 bounds:
+Synchronous v1 bounds established in 4A-5:
 
 ```text
 periods <= 24
@@ -199,9 +397,7 @@ Explicitly rejected shortcuts:
 
 Large-universe historical narrowing belongs to future PIT-fundamentals work after it has causal evidence.
 
-## 8. Current Implementation Surface
-
-New/changed 4A-5 areas include:
+## H5. 4A-5 Implementation Surface
 
 ```text
 apps/api/app/research/pit_client.py
@@ -226,9 +422,7 @@ docs/research/README.md
 to_do_update_list.md
 ```
 
-This batch changes production routing/deployment behavior and therefore remains R2 until post-main runtime verification closes.
-
-## 9. Production Topology / Hardening
+## H6. Production Topology / Hardening
 
 Production path:
 
@@ -243,7 +437,7 @@ Vercel Python Walk-Forward API
     └─→ Vercel Node JavaScript Exhaustive authority
 ```
 
-Hardening currently includes:
+Hardening decisions retained from 4A-5:
 
 - no-store/security headers;
 - strict request schemas/body limits;
@@ -257,9 +451,9 @@ Hardening currently includes:
 
 A secret is hardening, not a PIT/quant authority and is not required to preserve research causality.
 
-## 10. Regression Locks
+## H7. 4A-5 Regression Locks
 
-Current tests lock at least:
+Tests established during 4A-5 lock at least:
 
 1. exact Worker PIT response/provenance parsing;
 2. noncausal/date-mismatched PIT rejection;
@@ -278,7 +472,7 @@ Current tests lock at least:
 15. deployment-SHA readiness smoke syntax;
 16. full repository CI/regression gates.
 
-## 11. Self-Review / Root-Cause Record
+## H8. 4A-5 Self-Review / Root-Cause Record
 
 ### A. Python-side reimplementation of PIT or Exhaustive — REJECTED
 
@@ -312,50 +506,9 @@ Cloudflare and Vercel can converge at different times after one main merge. Prod
 
 Root-cause fix: retain the exact same authority JSON semantics but gzip large Python→Node payloads. Keep an independent 3 MiB compressed-wire ceiling and 16 MiB decoded-JSON ceiling; reject unsupported encodings and non-finite JSON before numerical work. Do not shorten historical windows merely to fit transport.
 
-## 12. Current Verification State
+## H9. Historical P0 Incident Definition Preserved from 4A-5 Handoff
 
-Earlier implementation candidates achieved full repository CI and successful Vercel preview. Self-review subsequently added deployment-config, internal-admission and large-payload transport hardening.
-
-Because the current hardening/docs writes change the exact branch head, **all earlier CI/preview runs are supporting evidence only**. The final head must receive fresh:
-
-1. full exact-head CI;
-2. Vercel preview success;
-3. independent review on that exact head.
-
-## 13. Remaining R2 Gates for PR #158
-
-1. final exact-head full CI;
-2. final exact-head Vercel preview success;
-3. final diff self-review / no BLOCKER;
-4. independent `cchung911` review on exact head;
-5. zero unresolved BLOCKER review threads;
-6. Ready transition;
-7. `release-backup` pre-merge recovery against exact current main;
-8. final head/base/review/CI/recovery TOCTOU;
-9. squash merge with expected exact head;
-10. post-main recovery;
-11. main CI SUCCESS;
-12. Vercel production deployment SUCCESS;
-13. Cloudflare Worker deploy + remote D1 + Russell / Portfolio / Walk-Forward / Refinery production smokes SUCCESS.
-
-## 14. Immediate Post-4A-5 Correctness Incident
-
-### Pre-inception / synthetic-history leakage in Backtest charts
-
-Status: **NEXT — P0 correctness investigation immediately after 4A-5 closes. This supersedes 4A-6 UX.**
-
-User-visible reproduction supplied on 2026-08-15: a recently launched ETF such as `VFLO` displays price/performance history before the instrument existed.
-
-This is not a cosmetic chart issue. Treat it as a full data-integrity incident because pre-inception synthetic history can contaminate:
-
-- single-asset charts;
-- portfolio NAV/returns;
-- CAGR/MDD/Sortino/beta/alpha;
-- optimizer rankings;
-- comparison windows;
-- future Walk-Forward Training/OOS evidence if the same source path is reused.
-
-Required investigation path:
+The pre-P0 handoff explicitly required investigation across:
 
 ```text
 raw market-data response
@@ -367,7 +520,7 @@ raw market-data response
 → frontend chart serialization/rendering
 ```
 
-Root-cause policy:
+It also locked these acceptance rules before implementation began:
 
 1. determine the instrument's actual first tradable observation from authoritative raw history; do not hard-code VFLO dates as the fix;
 2. no forward-fill/backfill/benchmark/substitute/synthetic series may create an instrument observation before its first genuine market observation;
@@ -377,89 +530,4 @@ Root-cause policy:
 6. add systemic regression fixtures for multiple recent-listing instruments plus ordinary long-history controls;
 7. audit all download/cache/fallback paths for the same defect class, not only VFLO.
 
-Expected output: root-cause report + regression tests + narrow fix across the authoritative data boundary. Do not proceed to 4A-6 until this P0 correctness incident is closed and production-verified.
-
-## 15. Roadmap
-
-| Batch | Objective | Status |
-| --- | --- | --- |
-| 4A-1 | Temporal causality firewall + immutable DecisionSnapshot | DONE |
-| 4A-2 | SelectionEngine + physical Training/OOS separation | DONE |
-| 4A-3 | Existing Exhaustive adapter + golden parity | DONE |
-| 4A-4 | Continuous OOS Portfolio ledger | DONE |
-| 4A-5 | PIT Resolver / API / Job Orchestration | **ACTIVE / PR #158** |
-| Correctness P0 | Pre-inception / synthetic-history leakage | **NEXT immediately after 4A-5** |
-| 4A-6 | User-facing Walk-Forward UX | DEFERRED until P0 correctness closes |
-| 4B+ | Research memory / PIT fundamentals / AI automation | BACKLOG until 4A foundation is stable |
-
-## 16. NOW / NEXT / BACKLOG / REJECT
-
-### NOW
-
-Close Batch 4A-5 / PR #158:
-
-```text
-final hardening/docs exact head
-→ full CI + Vercel preview
-→ final self-review
-→ independent review
-→ Ready
-→ recovery backup
-→ final TOCTOU
-→ squash merge
-→ post-main CI / Vercel / Cloudflare production smokes
-```
-
-### NEXT — P0
-
-Investigate and close pre-inception / synthetic-history leakage before any 4A-6 feature work.
-
-Primary acceptance invariant:
-
-```text
-An instrument must never have investable price/performance observations before its first genuine market observation.
-```
-
-### NEXT AFTER P0
-
-Batch 4A-6 — user-facing Walk-Forward UX over the versioned server workflow. UX must surface provenance/failure truth rather than hide it.
-
-### BACKLOG
-
-- persistent ResearchRun / research memory;
-- PIT fundamentals / large-universe causal narrowing;
-- AI research automation/autopilot;
-- distributed scale/performance after correctness contracts stabilize.
-
-### REJECT FOR CURRENT 4A-5
-
-- new alpha/ranking formulas;
-- Python copies of PIT, Exhaustive or Portfolio mathematics;
-- current fundamentals as historical evidence;
-- arbitrary large-universe truncation;
-- persistent job database/queue merely for convenience;
-- 4A-6 UI work;
-- unrelated refactors/process expansion;
-- reactivating frozen PR #147.
-
-## 17. Exact Resume Point
-
-On resume:
-
-1. read `AI_PROJECT_PLAYBOOK.md` and this file;
-2. read `docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md` plus 4A-1…4A-4 contracts;
-3. re-query current `main`, PR #158, exact-head CI, Vercel status, reviews/threads and release state;
-4. continue only Batch 4A-5 until R2 production gates close;
-5. immediately after 4A-5 production closeout, start the P0 pre-inception/synthetic-history integrity investigation before 4A-6.
-
-Expected state immediately after this handoff commit:
-
-```text
-main = f993bac1877532e1dd16ae4dde6022601ac1b6ca
-PR #158 = Draft / Batch 4A-5
-branch = feat/batch4a5-walk-forward-api-orchestration
-next gate = fresh exact-head CI + Vercel preview
-post-4A-5 priority = P0 pre-inception/synthetic-history leakage
-```
-
-If remote truth differs, remote truth wins and the discrepancy must be analyzed before merge/rebase/reset.
+Those constraints remain the reason PR #161 is treated as P0 / R2 and are not superseded by the shorter current-status sections above.
