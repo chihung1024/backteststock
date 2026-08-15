@@ -17,6 +17,7 @@ jobs:
     env:
       MODEL_TEST_APPEND_BLOB: 091fd8865b8567b8fd137b34fe7f758280aa8019
       SERVICE_TEST_APPEND_BLOB: dd0b9ed68c7948e6e3f62c0f2f3de0a5dc1c8bc7
+      ROUTE_TEST_APPEND_BLOB: c3dbc451e3ce61fbc36a5780db36bec8e4e92c0e
     steps:
       - uses: actions/checkout@v7
         with:
@@ -188,8 +189,37 @@ jobs:
           old = ''.join(f'    {line}\n' if line else '\n' for line in old.splitlines())
           new = ''.join(f'    {line}\n' if line else '\n' for line in new.splitlines())
           if text.count(old) != 1:
-              raise SystemExit('expected legacy invalid-total test exactly once')
+              raise SystemExit('expected legacy invalid-total model test exactly once')
           path.write_text(text.replace(old, new, 1))
+
+          route_path = Path('tests/test_portfolio_v3_api.py')
+          route_text = route_path.read_text()
+          old_route = dedent('''\
+              weight_payload = _payload()
+              weight_payload["portfolios"][0]["assets"][0]["weight"] = 90
+              weight_response = client.post(
+                  "/api/v3/portfolio/preflight",
+                  json=weight_payload,
+                  headers={"x-forwarded-for": "203.0.113.6"},
+              )
+          ''')
+          new_route = dedent('''\
+              weight_payload = _payload()
+              weight_payload["portfolios"][0]["assets"] = [
+                  {"symbol": "SPY", "weight": 450},
+                  {"symbol": "QQQ", "weight": 60},
+              ]
+              weight_response = client.post(
+                  "/api/v3/portfolio/preflight",
+                  json=weight_payload,
+                  headers={"x-forwarded-for": "203.0.113.6"},
+              )
+          ''')
+          old_route = ''.join(f'    {line}\n' if line else '\n' for line in old_route.splitlines())
+          new_route = ''.join(f'    {line}\n' if line else '\n' for line in new_route.splitlines())
+          if route_text.count(old_route) != 1:
+              raise SystemExit('expected legacy route invalid-weight block exactly once')
+          route_path.write_text(route_text.replace(old_route, new_route, 1))
           PY
 
           fetch_blob_text() {
@@ -204,6 +234,7 @@ jobs:
 
           fetch_blob_text "${MODEL_TEST_APPEND_BLOB}" >> tests/test_portfolio_api_models.py
           fetch_blob_text "${SERVICE_TEST_APPEND_BLOB}" >> tests/test_portfolio_api_service.py
+          fetch_blob_text "${ROUTE_TEST_APPEND_BLOB}" >> tests/test_portfolio_v3_api.py
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -228,6 +259,7 @@ jobs:
             apps/api/app/portfolio/api_service.py \
             tests/test_portfolio_api_models.py \
             tests/test_portfolio_api_service.py \
+            tests/test_portfolio_v3_api.py \
             .github/workflows/implement-portfolio-l2-api.yml
           git diff --cached --check
           git commit -m "feat: expose weight-defined Portfolio API semantics"
