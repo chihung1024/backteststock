@@ -45,6 +45,7 @@ class InstrumentIdentity:
     first_trade_date: date | None
     detail: str | None = None
     source: str = INSTRUMENT_IDENTITY_SOURCE
+    exchange_timezone: str | None = None
 
     def audit(self) -> dict[str, Any]:
         return {
@@ -55,6 +56,7 @@ class InstrumentIdentity:
             "first_trade_date": (
                 self.first_trade_date.isoformat() if self.first_trade_date else None
             ),
+            "exchange_timezone": self.exchange_timezone,
             "detail": self.detail,
         }
 
@@ -85,13 +87,21 @@ def resolve_instrument_identity(symbol: str) -> InstrumentIdentity:
             metadata = yf.Ticker(normalized).get_history_metadata()
             if not isinstance(metadata, dict):
                 raise TypeError("Yahoo history metadata was not an object")
-            first_trade_date = parse_first_trade_date(metadata.get("firstTradeDate"))
+            exchange_timezone = str(metadata.get("exchangeTimezoneName") or "").strip()
+            if not exchange_timezone:
+                raise ValueError(
+                    "Yahoo history metadata did not include exchangeTimezoneName"
+                )
+            first_trade_date = parse_first_trade_date(
+                metadata.get("firstTradeDate"), exchange_timezone
+            )
             if first_trade_date is None:
-                raise ValueError("Yahoo history metadata did not include firstTradeDate")
+                raise ValueError("Yahoo history metadata did not include valid firstTradeDate")
             identity = InstrumentIdentity(
                 symbol=normalized,
                 status="verified",
                 first_trade_date=first_trade_date,
+                exchange_timezone=exchange_timezone,
             )
             with _identity_cache_lock:
                 _identity_cache[normalized] = identity
@@ -189,8 +199,11 @@ def apply_instrument_lifecycle_guard(
     return guarded
 
 
-def parse_first_trade_date(value: object) -> date | None:
-    """Parse Yahoo epoch/date metadata without accepting non-finite ambiguity."""
+def parse_first_trade_date(
+    value: object,
+    exchange_timezone: str | None = None,
+) -> date | None:
+    """Parse Yahoo first-trade metadata into the exchange-local trading date."""
 
     if value is None or value == "":
         return None
@@ -202,21 +215,18 @@ def parse_first_trade_date(value: object) -> date | None:
             if stripped.replace(".", "", 1).isdigit():
                 value = float(stripped)
             else:
-                parsed = pd.Timestamp(stripped)
-                if parsed.tzinfo is not None:
-                    parsed = parsed.tz_convert("UTC").tz_localize(None)
-                return parsed.date()
+                return _timestamp_to_local_date(
+                    pd.Timestamp(stripped), exchange_timezone
+                )
         if isinstance(value, (int, float)):
             number = float(value)
             if not pd.notna(number):
                 return None
             unit = "ms" if abs(number) >= 100_000_000_000 else "s"
-            return pd.to_datetime(number, unit=unit, utc=True).date()
-        parsed = pd.Timestamp(value)
-        if parsed.tzinfo is not None:
-            parsed = parsed.tz_convert("UTC").tz_localize(None)
-        return parsed.date()
-    except (TypeError, ValueError, OverflowError):
+            parsed = pd.to_datetime(number, unit=unit, utc=True)
+            return _timestamp_to_local_date(parsed, exchange_timezone)
+        return _timestamp_to_local_date(pd.Timestamp(value), exchange_timezone)
+    except (TypeError, ValueError, OverflowError, KeyError):
         return None
 
 
@@ -224,6 +234,19 @@ def clear_instrument_identity_cache() -> None:
     with _identity_cache_lock:
         _identity_cache.clear()
         _identity_failure_cache.clear()
+
+
+def _timestamp_to_local_date(
+    timestamp: pd.Timestamp,
+    exchange_timezone: str | None,
+) -> date | None:
+    if timestamp.tzinfo is None:
+        return timestamp.date()
+    target_timezone = str(exchange_timezone or "UTC").strip() or "UTC"
+    try:
+        return timestamp.tz_convert(target_timezone).date()
+    except (TypeError, ValueError, KeyError):
+        return None
 
 
 def _clip_time_series_attrs(attrs: dict[str, Any], boundary: pd.Timestamp) -> dict[str, Any]:
