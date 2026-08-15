@@ -198,13 +198,16 @@ def _attach_return_component_attrs(
 def _apply_instrument_identity_guards(
     extracted: dict[str, pd.Series],
 ) -> dict[str, pd.Series]:
-    """Keep only rows belonging to each ticker's current Yahoo instrument."""
+    """Keep only histories whose current Yahoo instrument identity is verified."""
 
     identities = resolve_instrument_identities(extracted)
     guarded: dict[str, pd.Series] = {}
     for ticker, adjusted in extracted.items():
         identity = identities.get(ticker)
-        if identity is None:
+        if identity is None or identity.first_trade_date is None:
+            # A ticker-keyed price row is not sufficient identity evidence. Do
+            # not calculate research results from an instrument we cannot tie
+            # to the current Yahoo first-trade boundary.
             continue
         current = apply_instrument_lifecycle_guard(adjusted, identity)
         if current.empty:
@@ -332,7 +335,7 @@ def download_data_reliably(
         batch_size=batch_size,
     )
     failures = {
-        ticker: RuntimeError("upstream returned no usable explicit Adj Close prices")
+        ticker: RuntimeError("upstream returned no usable identity-verified Adj Close prices")
         for ticker in unresolved
     }
     if not resolved:
