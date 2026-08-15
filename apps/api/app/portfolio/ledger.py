@@ -56,12 +56,12 @@ class ExposurePolicy:
 
 @dataclass(slots=True)
 class PortfolioLedger:
+    # Keep the established constructor prefix stable. Quant fixtures and
+    # Walk-Forward OOS construct this shared ledger directly; new exposure
+    # diagnostics therefore remain optional and derive from existing truth.
     name: str
     symbols: tuple[str, ...]
     target_allocation: dict[str, float]
-    target_asset_mix: dict[str, float]
-    target_gross_exposure_ratio: float
-    target_cash_allocation: float
     equity: pd.Series
     return_index: pd.Series
     daily_returns: pd.Series
@@ -71,18 +71,56 @@ class PortfolioLedger:
     cash: pd.Series
     debt: pd.Series
     gross_exposure: pd.Series
-    net_exposure: pd.Series
-    gross_exposure_ratio: pd.Series
-    net_exposure_ratio: pd.Series
     allocation_history: pd.DataFrame
     transaction_costs: float
     borrowing_costs: float
     rebalance_count: int
-    leverage_reset_count: int
     events: list[LedgerEvent]
     warnings: list[str]
     liquidated: bool
     contract_version: str = PORTFOLIO_LEDGER_CONTRACT_VERSION
+    target_asset_mix: dict[str, float] | None = None
+    target_gross_exposure_ratio: float | None = None
+    target_cash_allocation: float | None = None
+    net_exposure: pd.Series | None = None
+    gross_exposure_ratio: pd.Series | None = None
+    net_exposure_ratio: pd.Series | None = None
+    leverage_reset_count: int = 0
+
+    def __post_init__(self) -> None:
+        target_gross = (
+            float(sum(self.target_allocation.values()))
+            if self.target_gross_exposure_ratio is None
+            else float(self.target_gross_exposure_ratio)
+        )
+        self.target_gross_exposure_ratio = target_gross
+        if self.target_asset_mix is None:
+            if target_gross > _EPSILON:
+                self.target_asset_mix = {
+                    symbol: float(self.target_allocation.get(symbol, 0.0)) / target_gross
+                    for symbol in self.symbols
+                }
+            else:
+                self.target_asset_mix = {symbol: 0.0 for symbol in self.symbols}
+        if self.target_cash_allocation is None:
+            self.target_cash_allocation = max(1.0 - target_gross, 0.0)
+
+        if self.net_exposure is None:
+            self.net_exposure = self.gross_exposure.astype(float).copy().rename(
+                "net_exposure"
+            )
+        if self.gross_exposure_ratio is None:
+            self.gross_exposure_ratio = _derive_exposure_ratio(
+                self.gross_exposure,
+                self.equity,
+                "gross_exposure_ratio",
+            )
+        if self.net_exposure_ratio is None:
+            self.net_exposure_ratio = _derive_exposure_ratio(
+                self.net_exposure,
+                self.equity,
+                "net_exposure_ratio",
+            )
 
     @property
     def final_allocation(self) -> dict[str, float]:
@@ -91,6 +129,18 @@ class PortfolioLedger:
         row = self.allocation_history.iloc[-1]
         return {symbol: float(row.get(symbol, 0.0)) for symbol in self.symbols}
 
+
+def _derive_exposure_ratio(
+    exposure: pd.Series,
+    equity: pd.Series,
+    name: str,
+) -> pd.Series:
+    aligned_exposure = exposure.reindex(equity.index).astype(float)
+    aligned_equity = equity.astype(float)
+    result = pd.Series(0.0, index=equity.index, dtype=float, name=name)
+    valid = aligned_equity > _EPSILON
+    result.loc[valid] = aligned_exposure.loc[valid] / aligned_equity.loc[valid]
+    return result
 
 def align_portfolio_components(
     histories: Mapping[str, TWDAssetHistory],
@@ -645,10 +695,15 @@ def _rebalance(
     asset_values: np.ndarray,
     debt: float,
     cash: float,
-    policy: ExposurePolicy,
+    policy: ExposurePolicy | np.ndarray,
     leverage: LeverageConfig,
     transaction_cost_bps: float,
 ) -> tuple[np.ndarray, float, float, float, float]:
+    # Walk-Forward OOS already consumes this shared helper with a target
+    # weight vector. Adapt that existing call immediately into the same
+    # ExposurePolicy rather than creating a second rebalance authority.
+    if not isinstance(policy, ExposurePolicy):
+        policy = _exposure_policy(np.asarray(policy, dtype=float), leverage)
     equity = _state_equity(asset_values, cash, debt)
     if equity <= _EPSILON:
         return np.zeros_like(asset_values), 0.0, 0.0, 0.0, 0.0
