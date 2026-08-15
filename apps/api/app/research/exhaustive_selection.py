@@ -118,7 +118,6 @@ class ExhaustiveSelectionEngine:
     band_ratio: float = 0.20
     transaction_cost_bps: float = 0.0
     execution_delay_trading_days: int = 1
-    risk_free_rate: float = 0.0
     runner: ExhaustiveAuthorityRunner = field(
         default_factory=NodeExhaustiveAuthorityRunner,
         repr=False,
@@ -126,6 +125,7 @@ class ExhaustiveSelectionEngine:
     )
     authority_version: str = field(init=False)
     bridge_version: str = field(init=False)
+    risk_free_rate: float = field(init=False)
 
     contract_version: ClassVar[str] = WALK_FORWARD_EXHAUSTIVE_ADAPTER_VERSION
     rule: ClassVar[str] = EXHAUSTIVE_SELECTION_RULE
@@ -155,9 +155,17 @@ class ExhaustiveSelectionEngine:
             or self.execution_delay_trading_days < 0
         ):
             raise ValueError("execution_delay_trading_days must be a non-negative integer")
-        if not math.isfinite(float(self.risk_free_rate)) or float(self.risk_free_rate) <= -1.0:
-            raise ValueError("risk_free_rate must be finite and greater than -1")
+
+        configured_risk_free_rate = float(exhaustive_optimizer.legacy.RISK_FREE_RATE)
+        if (
+            not math.isfinite(configured_risk_free_rate)
+            or configured_risk_free_rate <= -1.0
+        ):
+            raise ValueError(
+                "configured production Exhaustive risk-free rate must be finite and greater than -1"
+            )
         object.__setattr__(self, "benchmark_symbol", benchmark)
+        object.__setattr__(self, "risk_free_rate", configured_risk_free_rate)
 
         identity = self.runner.identity()
         authority_version = _required_text(
@@ -343,9 +351,15 @@ class ExhaustiveSelectionEngine:
         return {
             "candidateTickers": list(candidates),
             "benchmark": self.benchmark_symbol,
-            "dates": [timestamp.strftime("%Y-%m-%d") for timestamp in dataset.daily_levels_twd.index],
+            "dates": [
+                timestamp.strftime("%Y-%m-%d")
+                for timestamp in dataset.daily_levels_twd.index
+            ],
             "prices": {
-                symbol: [float(value) for value in dataset.daily_levels_twd[symbol].to_numpy()]
+                symbol: [
+                    float(value)
+                    for value in dataset.daily_levels_twd[symbol].to_numpy()
+                ]
                 for symbol in required
             },
             "datasetHash": dataset.dataset_hash,
