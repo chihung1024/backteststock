@@ -99,7 +99,7 @@ Daily close reset restores total gross to 150%, but VT/QQQ may drift relative to
 
 ### L1 — Ledger Authority
 
-Status: **DONE / exact-head CI + Vercel preview verified at `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`**.
+Status: **DONE foundation / original exact-head CI + Vercel preview verified at `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`; narrowly reopened and corrected during L2 after the user clarified underinvested daily-reset semantics.**
 
 Locked:
 
@@ -131,8 +131,11 @@ Verification record:
 - L2 self-review found hard-coded `500%` duplicated the domain authority; the repair now imports/derives from `MAX_TARGET_GROSS_EXPOSURE`;
 - the final domain-authority repair workflow passed source patch, compile, ruff, targeted API tests and full Python regression and atomically removed both temporary L2 verifier workflows;
 - bot-authored product head after that repair was `349dcd81d6a1202e8a4d3a1bcb0c4aa4d0423680`; standard CI on that bot-authored head reported `action_required` because no job was allowed to start under the actor policy, not because of a test failure;
+- user clarification exposed a real underinvested correctness blocker: the initial L1 policy reset only >100% targets daily; <100% targets merely started with residual cash and then drifted;
+- the underinvested repair now resets every non-100% target at each close, preserves current internal asset mix, recomputes cash from post-cost equity, and leaves periodic/threshold rules as the only authority that restores target internal mix; focused + full Python regression passed before publish;
+- the unreleased event/result contract was generalized to `exposure_reset` / `exposure_reset_count` so 50% cash and 150% leverage share one truthful name; focused + full Python regression passed before publish;
 - canonical `docs/PORTFOLIO_V3_CONTRACT.md` has been updated with the opened API contract and the user-confirmed gross-reset/internal-mix semantics;
-- this handoff update is part of the final user-authored L2 candidate used to obtain formal exact-head CI/Vercel evidence.
+- the final user-authored L2 candidate must still pass formal exact-head full-repository CI and Vercel preview before L2 is marked DONE.
 
 ### L3 — UX
 
@@ -161,8 +164,8 @@ Do not start L3 source writes until L2 exact-head verification is complete and t
 6. Non-100% gross exposure resets at every close after returns/distributions/interest/flows and before final state recording.
 7. A pure gross reset preserves current asset mix unless an independently configured allocation rebalance fires on that close.
 8. Periodic/threshold allocation rebalance restores target asset mix and target gross in one ledger trade; no redundant gross-reset trade follows.
-9. Leveraged allocation-threshold checks normalized asset mix, so gross-exposure drift alone cannot masquerade as allocation drift.
-10. Underinvested allocation-threshold semantics include intentional residual cash.
+9. Allocation-threshold checks normalized internal asset mix for non-100% Portfolios; gross/cash drift is handled by the independent daily exposure reset and cannot by itself trigger internal rebalancing.
+10. Underinvested daily reset recomputes target asset gross and residual cash from post-cost equity and does not create debt merely to preserve a stale cash amount.
 11. Reset/rebalance transaction costs are solved against post-cost equity through the ledger; no leveraged-return multiplication approximation is allowed.
 12. Borrowing interest remains explicit ledger cost.
 13. Existing fixed-ratio leverage routes through the same daily-reset authority.
@@ -179,6 +182,10 @@ The initial published L1 candidate passed **20/20 targeted ledger tests**. Broad
 Self-review also found that 5x exposure with the default 25% maintenance margin is invalid at inception. Initial states now pass the same margin/non-positive-equity guard before day zero is recorded. 3x with 25% remains admissible; 5x with 25% fails honestly.
 
 Final L1 exact-head CI #834 and Vercel preview both succeeded.
+
+During L2 product review, the user clarified that a 50% Portfolio must also reset total exposure to 50% at every close, not merely start with 50% cash. This reopened one narrow L1 policy edge. Evidence showed `_exposure_policy()` only assigned `daily_reset_ratio` above 100%, so underinvested Portfolios drifted after inception. Root-cause repair now assigns the daily reset to every non-100% weight-defined exposure (excluding legacy fixed-debt), solves underinvested target cash from post-cost equity with zero debt, and lets allocation thresholds inspect normalized internal asset mix only. The correction passed focused plus full Python regression before atomic publish at product head `6849140495ed4eef8dfaafec0fa265f1659bbff9`.
+
+Because the same reset now applies to both cash and leveraged Portfolios, the unreleased public/ledger naming was generalized from `leverage_reset` / `leverage_reset_count` to `exposure_reset` / `exposure_reset_count`. That contract-only rename also passed focused plus full Python regression before atomic publish at `16855490bfef000e76ea7cc2d39e0e638d6cf579`.
 
 ## 7. Current Public Product Boundary
 
@@ -252,7 +259,7 @@ On resume:
 1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PORTFOLIO_V3_CONTRACT.md`;
 2. re-query main, PR #162, exact branch head, CI/Vercel and review state;
 3. verify production main is still `e93e3ba51...` or analyze divergence before important writes;
-4. treat L1 as CLOSED unless new correctness evidence reopens it;
+4. treat the corrected L1 ledger semantics as locked unless new correctness evidence reopens them;
 5. finish L2 exact-head formal verification;
 6. do not write L3 UX until its final change list has been presented to the user and authorized;
 7. preserve the historical appendix below when updating this file.
