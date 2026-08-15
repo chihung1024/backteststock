@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any, Iterable, Mapping
 
 WALK_FORWARD_TEMPORAL_CONTRACT_VERSION = "walk-forward-temporal-2026-08-15.1"
@@ -72,12 +72,14 @@ class ResolvedPITUniverse:
     requested_as_of: date
     source_as_of: date
     evidence_available_as_of: date
+    fetched_at: str
     version: str
     checksum: str
     members: tuple[str, ...]
     membership_policy: str
     membership_authoritative: bool
     source_label: str
+    source_url: str
     source_is_proxy: bool
 
     def __post_init__(self) -> None:
@@ -86,8 +88,17 @@ class ResolvedPITUniverse:
         checksum = self.checksum.strip().lower()
         policy = self.membership_policy.strip()
         source_label = self.source_label.strip()
+        source_url = self.source_url.strip()
+        fetched_at = _canonical_utc_timestamp(self.fetched_at)
         members = tuple(str(member) for member in self.members)
-        if not universe_id or not version or not checksum or not policy or not source_label:
+        if (
+            not universe_id
+            or not version
+            or not checksum
+            or not policy
+            or not source_label
+            or not source_url
+        ):
             raise ValueError("PIT universe provenance fields must be non-empty")
         if not members or any(not member for member in members):
             raise ValueError("PIT universe must contain at least one non-empty member")
@@ -99,6 +110,11 @@ class ResolvedPITUniverse:
             raise ValueError("PIT source_as_of must not be after requested_as_of")
         if self.evidence_available_as_of < self.source_as_of:
             raise ValueError("PIT evidence cannot predate its source observation")
+        fetched_date = datetime.fromisoformat(
+            fetched_at.replace("Z", "+00:00")
+        ).date()
+        if fetched_date != self.evidence_available_as_of:
+            raise ValueError("PIT fetched_at UTC date must equal evidence_available_as_of")
         if self.evidence_available_as_of > self.requested_as_of:
             raise ValueError(
                 "PIT evidence must have been available on or before requested_as_of"
@@ -110,6 +126,8 @@ class ResolvedPITUniverse:
         object.__setattr__(self, "checksum", checksum)
         object.__setattr__(self, "membership_policy", policy)
         object.__setattr__(self, "source_label", source_label)
+        object.__setattr__(self, "source_url", source_url)
+        object.__setattr__(self, "fetched_at", fetched_at)
         object.__setattr__(self, "members", members)
 
 
@@ -245,6 +263,25 @@ def validate_period_schedule(
     return ordered
 
 
+def _canonical_utc_timestamp(value: str) -> str:
+    raw = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("PIT fetched_at must be a valid ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("PIT fetched_at must include a timezone")
+    canonical = (
+        parsed.astimezone(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    if raw != canonical:
+        raise ValueError("PIT fetched_at must use canonical UTC seconds with Z")
+    return raw
+
+
 def _normalized_symbols(values: Iterable[str], *, label: str) -> tuple[str, ...]:
     symbols = tuple(str(value) for value in values)
     if any(not symbol for symbol in symbols):
@@ -309,12 +346,14 @@ def _decision_payload(snapshot: DecisionSnapshot, *, include_hash: bool) -> dict
             "requestedAsOf": universe.requested_as_of.isoformat(),
             "sourceAsOf": universe.source_as_of.isoformat(),
             "evidenceAvailableAsOf": universe.evidence_available_as_of.isoformat(),
+            "fetchedAt": universe.fetched_at,
             "version": universe.version,
             "checksum": universe.checksum,
             "members": list(universe.members),
             "membershipPolicy": universe.membership_policy,
             "membershipAuthoritative": universe.membership_authoritative,
             "sourceLabel": universe.source_label,
+            "sourceUrl": universe.source_url,
             "sourceIsProxy": universe.source_is_proxy,
         },
         "trainingDataset": {

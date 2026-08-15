@@ -55,6 +55,8 @@ The strict `evaluation_start > decision_date` rule prevents a decision made usin
 A `ResolvedPITUniverse` may be attached to a decision only when:
 
 - `source_as_of <= evidence_available_as_of <= requested_as_of`;
+- exact canonical UTC `fetched_at` is preserved, and its UTC date equals `evidence_available_as_of`;
+- source label and source URL are preserved with the snapshot provenance;
 - exact members are non-empty and unique;
 - exact members are already canonical symbols and are not silently rewritten after the upstream checksum/provenance boundary;
 - proxy membership is never labelled authoritative.
@@ -82,7 +84,7 @@ Batch 4A-1 intentionally has no field for an Evaluation/OOS dataset in `create_d
 A decision freezes:
 
 - period identity and temporal boundaries;
-- exact PIT Universe provenance and membership;
+- exact PIT Universe provenance (`source_as_of`, `evidence_available_as_of`, `fetched_at`, source label/URL, proxy/authority state, checksum/policy) and membership;
 - training dataset hash/effective interval;
 - selector contract/rule/parameters;
 - eligible candidates;
@@ -141,6 +143,7 @@ Tests must prove at minimum:
 - training cannot extend past decision;
 - OOS cannot begin on/before decision;
 - PIT source/evidence cannot come from after decision or form impossible source/evidence ordering;
+- exact `fetched_at`/source URL provenance is retained, and fetched timestamp/date evidence cannot drift;
 - PIT requested date must match the exact decision date;
 - PIT/candidate symbols are not silently rewritten across the provenance boundary;
 - selected/eligible membership fails closed;

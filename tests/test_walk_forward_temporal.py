@@ -31,12 +31,14 @@ def _universe(**overrides):
         "requested_as_of": date(2024, 12, 31),
         "source_as_of": date(2024, 12, 30),
         "evidence_available_as_of": date(2024, 12, 30),
+        "fetched_at": "2024-12-30T12:34:56Z",
         "version": "sp500-2024-12-30",
         "checksum": "abc123",
         "members": ("AAPL", "MSFT", "NVDA"),
         "membership_policy": "latest-causal-v1",
         "membership_authoritative": True,
         "source_label": "official",
+        "source_url": "https://example.test/universe",
         "source_is_proxy": False,
     }
     values.update(overrides)
@@ -77,8 +79,15 @@ def test_pit_evidence_must_be_causally_available_by_decision():
         _universe(source_as_of=date(2025, 1, 1))
     with pytest.raises(ValueError, match="predate"):
         _universe(evidence_available_as_of=date(2024, 12, 29))
+    with pytest.raises(ValueError, match="UTC date"):
+        _universe(fetched_at="2024-12-31T00:00:00Z")
+    with pytest.raises(ValueError, match="canonical UTC"):
+        _universe(fetched_at="2024-12-30T12:34:56+00:00")
     with pytest.raises(ValueError, match="evidence"):
-        _universe(evidence_available_as_of=date(2025, 1, 1))
+        _universe(
+            evidence_available_as_of=date(2025, 1, 1),
+            fetched_at="2025-01-01T00:00:00Z",
+        )
     with pytest.raises(ValueError, match="proxy"):
         _universe(membership_authoritative=True, source_is_proxy=True)
 
@@ -148,11 +157,15 @@ def test_selector_parameter_rejects_nonfinite_or_nondeterministic_values():
 def test_decision_hash_changes_for_material_training_or_selection_changes():
     baseline = _snapshot()
     changed_dataset = _snapshot(training_dataset_hash="dataset-456")
+    changed_fetched_at = _snapshot(
+        pit_universe=_universe(fetched_at="2024-12-30T13:34:56Z")
+    )
     changed_selection = _snapshot(
         selected_constituents=("AAPL", "NVDA"),
         weights=(0.5, 0.5),
     )
     assert baseline.decision_hash != changed_dataset.decision_hash
+    assert baseline.decision_hash != changed_fetched_at.decision_hash
     assert baseline.decision_hash != changed_selection.decision_hash
 
 
