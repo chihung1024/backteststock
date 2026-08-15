@@ -17,6 +17,44 @@ in the FX audit metadata.
 `FX(native → TWD, t)` is TWD per one unit of the source quote currency. A TWD
 quote uses an FX rate of exactly `1.0`.
 
+## Current-instrument lifecycle boundary
+
+A ticker string is not sufficient proof of instrument identity. Tickers can be
+reused and an upstream vendor can stitch historical rows across an instrument
+change. A real historical price for the same ticker text must therefore not be
+assumed to belong to the instrument represented by that ticker today.
+
+The shared Yahoo market-data boundary uses the versioned contract:
+
+```text
+INSTRUMENT_IDENTITY_CONTRACT_VERSION = yahoo-first-trade-date-2026-08-15.1
+source = yahoo_history_metadata.firstTradeDate
+```
+
+Before TWD valuation, return decomposition, Scanner metrics, Portfolio ledger,
+ResearchDataset construction, or Exhaustive preparation may consume a series:
+
+- the current Yahoo instrument's `firstTradeDate` must be verified;
+- every adjusted-close row before that date is removed;
+- every time-indexed Raw Close, dividend, capital-gain, stock-split, and repair
+  component is clipped to the same boundary;
+- the corporate-action audit is rebuilt after clipping, so its event counts and
+  warning dates refer only to the current instrument lifetime;
+- the instrument-identity audit records the source, verified first-trade date,
+  original/effective first dates, removed pre-inception row count, and whether
+  clipping was required;
+- if current-instrument metadata cannot be verified, the series fails closed as
+  unresolved/retryable instead of producing research results from ticker-only
+  history;
+- if the requested window lies entirely before the current instrument's first
+  trade date, no usable current-instrument history is returned.
+
+This prevents the VFLO-class defect where a newly listed ETF can otherwise
+appear to have years of pre-inception performance because an upstream ticker
+history contains older rows. The market-data contract version includes the
+instrument-identity contract, so caches created under the prior semantics are
+not reused.
+
 ## Daily calendar rule
 
 Each asset is valued on the union of its native-price dates and FX dates:
