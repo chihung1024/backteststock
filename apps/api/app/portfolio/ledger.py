@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Callable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -18,10 +18,13 @@ from apps.api.app.portfolio.models import (
     PortfolioSpec,
     RebalanceFrequency,
     SimulationConfig,
+    WEIGHT_TOLERANCE,
 )
 
-PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-14.1"
+PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-15.1"
 _EPSILON = 1e-12
+_TRADE_SOLVER_TOLERANCE = 1e-10
+_TRADE_SOLVER_MAX_ITERATIONS = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,11 +42,26 @@ class AlignedPortfolioComponents:
         return self.total_returns.index[-1]
 
 
+@dataclass(frozen=True, slots=True)
+class ExposurePolicy:
+    """One ledger exposure policy derived from portfolio weights + legacy config."""
+
+    target_exposures: np.ndarray
+    target_asset_mix: np.ndarray
+    target_gross_ratio: float
+    target_cash_ratio: float
+    daily_reset_ratio: float | None
+    fixed_debt: bool
+
+
 @dataclass(slots=True)
 class PortfolioLedger:
     name: str
     symbols: tuple[str, ...]
     target_allocation: dict[str, float]
+    target_asset_mix: dict[str, float]
+    target_gross_exposure_ratio: float
+    target_cash_allocation: float
     equity: pd.Series
     return_index: pd.Series
     daily_returns: pd.Series
@@ -53,10 +71,14 @@ class PortfolioLedger:
     cash: pd.Series
     debt: pd.Series
     gross_exposure: pd.Series
+    net_exposure: pd.Series
+    gross_exposure_ratio: pd.Series
+    net_exposure_ratio: pd.Series
     allocation_history: pd.DataFrame
     transaction_costs: float
     borrowing_costs: float
     rebalance_count: int
+    leverage_reset_count: int
     events: list[LedgerEvent]
     warnings: list[str]
     liquidated: bool
@@ -132,24 +154,28 @@ def simulate_portfolio_ledger(
 ) -> PortfolioLedger:
     """Run one portfolio under the published daily event-order contract.
 
-    For every valuation interval the engine applies: beginning cashflow, market
-    and distribution returns, debt interest for the actual elapsed calendar
-    days, end cashflow, close-of-period or drift-triggered rebalancing, then
-    maintenance-margin liquidation. External flows are removed from the
-    time-weighted daily return at their actual timing.
+    Asset weights are equity-relative target exposures. Totals below 1.0 leave
+    residual cash; totals above 1.0 create financed gross exposure. Leveraged
+    gross exposure is reset at each close while preserving the current asset
+    mix unless the configured allocation rebalance independently fires.
     """
 
     symbols = portfolio.symbols
     weights = np.asarray(portfolio.weights, dtype=float)
+    policy = _exposure_policy(weights, config.leverage)
     aligned = align_portfolio_components(histories, symbols)
     index = aligned.total_returns.index
 
-    asset_values, debt = _target_exposure(config.initial_amount, weights, config.leverage)
-    cash = 0.0
+    asset_values, debt, cash = _target_state(
+        config.initial_amount,
+        policy,
+        config.leverage,
+    )
     cumulative_income_value = 0.0
     transaction_costs = 0.0
     borrowing_costs = 0.0
     rebalance_count = 0
+    leverage_reset_count = 0
     liquidated = False
     events: list[LedgerEvent] = []
     warnings: list[str] = []
@@ -159,15 +185,42 @@ def simulate_portfolio_ledger(
     daily_returns = pd.Series(0.0, index=index, dtype=float, name="daily_return")
     external_flows = pd.Series(0.0, index=index, dtype=float, name="external_flow")
     income = pd.Series(0.0, index=index, dtype=float, name="income")
-    cumulative_income = pd.Series(0.0, index=index, dtype=float, name="cumulative_income")
+    cumulative_income = pd.Series(
+        0.0,
+        index=index,
+        dtype=float,
+        name="cumulative_income",
+    )
     cash_series = pd.Series(0.0, index=index, dtype=float, name="cash")
     debt_series = pd.Series(0.0, index=index, dtype=float, name="debt")
     gross_series = pd.Series(0.0, index=index, dtype=float, name="gross_exposure")
+    net_series = pd.Series(0.0, index=index, dtype=float, name="net_exposure")
+    gross_ratio_series = pd.Series(
+        0.0,
+        index=index,
+        dtype=float,
+        name="gross_exposure_ratio",
+    )
+    net_ratio_series = pd.Series(
+        0.0,
+        index=index,
+        dtype=float,
+        name="net_exposure_ratio",
+    )
     allocations = pd.DataFrame(0.0, index=index, columns=list(symbols), dtype=float)
 
     equity_series.iloc[0] = config.initial_amount
+    cash_series.iloc[0] = cash
     debt_series.iloc[0] = debt
-    gross_series.iloc[0] = float(asset_values.sum())
+    _record_exposure_state(
+        0,
+        asset_values,
+        config.initial_amount,
+        gross_series,
+        net_series,
+        gross_ratio_series,
+        net_ratio_series,
+    )
     _record_allocations(allocations, 0, asset_values)
 
     beginning_flow_mask = _period_event_mask(
@@ -198,6 +251,9 @@ def simulate_portfolio_ledger(
                 cash_series,
                 debt_series,
                 gross_series,
+                net_series,
+                gross_ratio_series,
+                net_ratio_series,
                 allocations,
             )
             continue
@@ -221,7 +277,7 @@ def simulate_portfolio_ledger(
                 debt,
                 cash,
                 beginning_flow,
-                weights,
+                policy,
                 config.leverage,
             )
             external_flows.iloc[position] += beginning_flow
@@ -275,7 +331,7 @@ def simulate_portfolio_ledger(
             )
 
         end_flow = 0.0
-        pre_end_equity = float(asset_values.sum() + cash - debt)
+        pre_end_equity = _state_equity(asset_values, cash, debt)
         if (
             config.cashflow.type != CashflowType.NONE
             and config.cashflow.timing == CashflowTiming.END
@@ -292,83 +348,139 @@ def simulate_portfolio_ledger(
                 debt,
                 cash,
                 end_flow,
-                weights,
+                policy,
                 config.leverage,
             )
             external_flows.iloc[position] += end_flow
             events.append(_flow_event(timestamp, end_flow, "end", requested, capped))
 
-        periodic = bool(rebalance_mask[position]) and (
-            config.rebalancing.frequency != RebalanceFrequency.NONE
+        liquidation_reason = _liquidation_reason(
+            asset_values,
+            cash,
+            debt,
+            config.leverage.maintenance_margin_percent,
         )
-        threshold = False
-        if config.rebalancing.threshold_percent is not None:
-            threshold = _threshold_breached(
-                asset_values,
-                weights,
-                config.rebalancing.threshold_percent / 100.0,
-            )
-        if periodic or threshold:
-            trigger = "periodic_and_threshold" if periodic and threshold else (
-                "periodic" if periodic else "threshold"
-            )
-            asset_values, debt, cash, cost, traded_notional = _rebalance(
+        if liquidation_reason is not None:
+            asset_values, debt, cash = _liquidate(
+                timestamp,
                 asset_values,
                 debt,
                 cash,
-                weights,
-                config.leverage,
-                config.transaction_cost_bps,
+                config.leverage.maintenance_margin_percent,
+                liquidation_reason,
+                events,
+                warnings,
             )
-            transaction_costs += cost
-            rebalance_count += 1
-            events.append(
-                LedgerEvent(
-                    date=timestamp.date().isoformat(),
-                    type="rebalance",
-                    details={
-                        "trigger": trigger,
-                        "traded_notional": traded_notional,
-                        "transaction_cost": cost,
-                        "target_debt": debt,
-                    },
-                )
-            )
-
-        final_equity = float(asset_values.sum() + cash - debt)
-        gross = float(asset_values.sum())
-        margin_ratio = final_equity / gross * 100.0 if gross > _EPSILON else 100.0
-        if (
-            config.leverage.type != LeverageType.NONE
-            and margin_ratio < config.leverage.maintenance_margin_percent
-        ):
-            events.append(
-                LedgerEvent(
-                    date=timestamp.date().isoformat(),
-                    type="margin_liquidation",
-                    details={
-                        "equity": final_equity,
-                        "gross_exposure": gross,
-                        "debt": debt,
-                        "margin_percent": margin_ratio,
-                        "maintenance_margin_percent": (
-                            config.leverage.maintenance_margin_percent
-                        ),
-                    },
-                )
-            )
-            warnings.append(
-                f"maintenance-margin liquidation on {timestamp.date().isoformat()}"
-            )
-            final_equity = max(final_equity, 0.0)
-            asset_values = np.zeros_like(asset_values)
-            debt = 0.0
-            cash = final_equity
-            gross = 0.0
             liquidated = True
+        else:
+            periodic = bool(rebalance_mask[position]) and (
+                config.rebalancing.frequency != RebalanceFrequency.NONE
+            )
+            threshold = False
+            if config.rebalancing.threshold_percent is not None:
+                threshold = _threshold_breached(
+                    asset_values,
+                    debt,
+                    cash,
+                    policy,
+                    config.rebalancing.threshold_percent / 100.0,
+                )
 
+            if periodic or threshold:
+                trigger = (
+                    "periodic_and_threshold"
+                    if periodic and threshold
+                    else ("periodic" if periodic else "threshold")
+                )
+                gross_before = _gross_exposure(asset_values)
+                debt_before = debt
+                asset_values, debt, cash, cost, traded_notional = _rebalance(
+                    asset_values,
+                    debt,
+                    cash,
+                    policy,
+                    config.leverage,
+                    config.transaction_cost_bps,
+                )
+                transaction_costs += cost
+                rebalance_count += 1
+                events.append(
+                    LedgerEvent(
+                        date=timestamp.date().isoformat(),
+                        type="rebalance",
+                        details={
+                            "trigger": trigger,
+                            "traded_notional": traded_notional,
+                            "transaction_cost": cost,
+                            "gross_exposure_before": gross_before,
+                            "gross_exposure_after": _gross_exposure(asset_values),
+                            "target_gross_ratio": policy.target_gross_ratio,
+                            "target_cash_ratio": policy.target_cash_ratio,
+                            "debt_before": debt_before,
+                            "target_debt": debt,
+                        },
+                    )
+                )
+            elif policy.daily_reset_ratio is not None:
+                gross_before = _gross_exposure(asset_values)
+                debt_before = debt
+                (
+                    asset_values,
+                    debt,
+                    cash,
+                    cost,
+                    traded_notional,
+                ) = _reset_gross_exposure(
+                    asset_values,
+                    debt,
+                    cash,
+                    policy,
+                    config.transaction_cost_bps,
+                )
+                transaction_costs += cost
+                if traded_notional > _EPSILON:
+                    leverage_reset_count += 1
+                    events.append(
+                        LedgerEvent(
+                            date=timestamp.date().isoformat(),
+                            type="leverage_reset",
+                            details={
+                                "target_gross_ratio": policy.daily_reset_ratio,
+                                "gross_exposure_before": gross_before,
+                                "gross_exposure_after": _gross_exposure(asset_values),
+                                "debt_before": debt_before,
+                                "debt_after": debt,
+                                "traded_notional": traded_notional,
+                                "transaction_cost": cost,
+                                "asset_allocation_preserved": True,
+                            },
+                        )
+                    )
+
+            liquidation_reason = _liquidation_reason(
+                asset_values,
+                cash,
+                debt,
+                config.leverage.maintenance_margin_percent,
+            )
+            if liquidation_reason is not None:
+                asset_values, debt, cash = _liquidate(
+                    timestamp,
+                    asset_values,
+                    debt,
+                    cash,
+                    config.leverage.maintenance_margin_percent,
+                    liquidation_reason,
+                    events,
+                    warnings,
+                )
+                liquidated = True
+
+        final_equity = _state_equity(asset_values, cash, debt)
         numerator = final_equity - end_flow
-        strategy_return = numerator / denominator - 1.0 if denominator > _EPSILON else 0.0
+        strategy_return = (
+            numerator / denominator - 1.0 if denominator > _EPSILON else 0.0
+        )
         if not np.isfinite(strategy_return):
             strategy_return = 0.0
         strategy_return = max(float(strategy_return), -1.0)
@@ -382,7 +494,15 @@ def simulate_portfolio_ledger(
         cumulative_income.iloc[position] = cumulative_income_value
         cash_series.iloc[position] = cash
         debt_series.iloc[position] = debt
-        gross_series.iloc[position] = gross
+        _record_exposure_state(
+            position,
+            asset_values,
+            final_equity,
+            gross_series,
+            net_series,
+            gross_ratio_series,
+            net_ratio_series,
+        )
         _record_allocations(allocations, position, asset_values)
 
     warnings = list(dict.fromkeys(warnings))
@@ -390,6 +510,9 @@ def simulate_portfolio_ledger(
         name=portfolio.name,
         symbols=symbols,
         target_allocation=portfolio.target_allocation,
+        target_asset_mix=portfolio.target_asset_mix,
+        target_gross_exposure_ratio=policy.target_gross_ratio,
+        target_cash_allocation=policy.target_cash_ratio,
         equity=equity_series,
         return_index=return_index,
         daily_returns=daily_returns,
@@ -399,29 +522,78 @@ def simulate_portfolio_ledger(
         cash=cash_series,
         debt=debt_series,
         gross_exposure=gross_series,
+        net_exposure=net_series,
+        gross_exposure_ratio=gross_ratio_series,
+        net_exposure_ratio=net_ratio_series,
         allocation_history=allocations,
         transaction_costs=transaction_costs,
         borrowing_costs=borrowing_costs,
         rebalance_count=rebalance_count,
+        leverage_reset_count=leverage_reset_count,
         events=events,
         warnings=warnings,
         liquidated=liquidated,
     )
 
 
-def _target_exposure(
-    equity: float,
+def _exposure_policy(
     weights: np.ndarray,
     leverage: LeverageConfig,
-) -> tuple[np.ndarray, float]:
+) -> ExposurePolicy:
+    input_gross = float(weights.sum())
+    if (
+        abs(input_gross - 1.0) > WEIGHT_TOLERANCE
+        and leverage.type != LeverageType.NONE
+    ):
+        raise ValueError(
+            "weight-defined cash/leverage exposure cannot be combined with "
+            "explicit fixed-ratio or fixed-debt leverage"
+        )
+
     if leverage.type == LeverageType.FIXED_RATIO:
-        debt = equity * (leverage.ratio - 1.0)
-    elif leverage.type == LeverageType.FIXED_DEBT:
-        debt = leverage.debt_amount
+        target_exposures = weights * leverage.ratio
     else:
-        debt = 0.0
-    gross = max(equity + debt, 0.0)
-    return weights * gross, debt
+        target_exposures = weights.copy()
+
+    target_gross = float(target_exposures.sum())
+    target_mix = target_exposures / target_gross
+    target_cash = (
+        max(1.0 - target_gross, 0.0)
+        if leverage.type != LeverageType.FIXED_DEBT
+        else 0.0
+    )
+    daily_reset = (
+        target_gross
+        if leverage.type != LeverageType.FIXED_DEBT
+        and target_gross > 1.0 + WEIGHT_TOLERANCE
+        else None
+    )
+    return ExposurePolicy(
+        target_exposures=target_exposures,
+        target_asset_mix=target_mix,
+        target_gross_ratio=target_gross,
+        target_cash_ratio=target_cash,
+        daily_reset_ratio=daily_reset,
+        fixed_debt=leverage.type == LeverageType.FIXED_DEBT,
+    )
+
+
+def _target_state(
+    equity: float,
+    policy: ExposurePolicy,
+    leverage: LeverageConfig,
+) -> tuple[np.ndarray, float, float]:
+    equity = max(float(equity), 0.0)
+    if policy.fixed_debt:
+        debt = leverage.debt_amount
+        gross = max(equity + debt, 0.0)
+        return policy.target_asset_mix * gross, debt, 0.0
+
+    assets = policy.target_exposures * equity
+    if policy.target_gross_ratio <= 1.0 + WEIGHT_TOLERANCE:
+        return assets, 0.0, policy.target_cash_ratio * equity
+    debt = max((policy.target_gross_ratio - 1.0) * equity, 0.0)
+    return assets, debt, 0.0
 
 
 def _apply_external_flow(
@@ -429,17 +601,21 @@ def _apply_external_flow(
     debt: float,
     cash: float,
     flow: float,
-    weights: np.ndarray,
+    policy: ExposurePolicy,
     leverage: LeverageConfig,
 ) -> tuple[np.ndarray, float, float]:
     if abs(flow) <= _EPSILON:
         return asset_values, debt, cash
+
     if flow > 0.0:
-        if leverage.type == LeverageType.FIXED_RATIO:
-            asset_values += weights * flow * leverage.ratio
-            debt += flow * (leverage.ratio - 1.0)
+        if policy.fixed_debt:
+            asset_values += policy.target_asset_mix * flow
         else:
-            asset_values += weights * flow
+            asset_values += policy.target_exposures * flow
+            if policy.target_gross_ratio <= 1.0 + WEIGHT_TOLERANCE:
+                cash += policy.target_cash_ratio * flow
+            else:
+                debt += (policy.target_gross_ratio - 1.0) * flow
         return asset_values, debt, cash
 
     withdrawal = -flow
@@ -449,17 +625,19 @@ def _apply_external_flow(
     if remaining <= _EPSILON:
         return asset_values, debt, cash
 
-    equity = float(asset_values.sum() + cash - debt)
+    equity = _state_equity(asset_values, cash, debt)
     if equity <= _EPSILON:
         return np.zeros_like(asset_values), 0.0, 0.0
-    if leverage.type == LeverageType.FIXED_RATIO:
+
+    if policy.daily_reset_ratio is not None:
         fraction = min(remaining / equity, 1.0)
         asset_values *= 1.0 - fraction
         debt *= 1.0 - fraction
-    else:
-        gross = float(asset_values.sum())
-        if gross > _EPSILON:
-            asset_values *= max(1.0 - remaining / gross, 0.0)
+        return asset_values, debt, cash
+
+    gross = _gross_exposure(asset_values)
+    if gross > _EPSILON:
+        asset_values *= max(1.0 - remaining / gross, 0.0)
     return asset_values, debt, cash
 
 
@@ -467,31 +645,235 @@ def _rebalance(
     asset_values: np.ndarray,
     debt: float,
     cash: float,
-    weights: np.ndarray,
+    policy: ExposurePolicy,
     leverage: LeverageConfig,
     transaction_cost_bps: float,
 ) -> tuple[np.ndarray, float, float, float, float]:
-    equity = float(asset_values.sum() + cash - debt)
+    equity = _state_equity(asset_values, cash, debt)
     if equity <= _EPSILON:
         return np.zeros_like(asset_values), 0.0, 0.0, 0.0, 0.0
-    preliminary, _ = _target_exposure(equity, weights, leverage)
-    traded_notional = float(np.abs(preliminary - asset_values).sum())
-    cost = traded_notional * transaction_cost_bps / 10_000.0
-    net_equity = max(equity - cost, 0.0)
-    target, target_debt = _target_exposure(net_equity, weights, leverage)
-    return target, target_debt, 0.0, cost, traded_notional
+
+    # Preserve the established 100%-invested / no-leverage transaction-cost
+    # contract byte-for-byte in economic ordering.  The exact fixed-point solver
+    # below is required only when target cash/debt itself depends on post-trade
+    # equity (new weight-defined cash/leverage semantics and legacy leverage).
+    if (
+        leverage.type == LeverageType.NONE
+        and abs(policy.target_gross_ratio - 1.0) <= WEIGHT_TOLERANCE
+    ):
+        preliminary = policy.target_exposures * equity
+        traded_notional = float(np.abs(preliminary - asset_values).sum())
+        cost = traded_notional * transaction_cost_bps / 10_000.0
+        net_equity = max(equity - cost, 0.0)
+        target = policy.target_exposures * net_equity
+        return target, 0.0, 0.0, cost, traded_notional
+
+    def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
+        return _target_state(net_equity, policy, leverage)
+
+    return _solve_trade_target(
+        asset_values,
+        equity,
+        transaction_cost_bps,
+        target_builder,
+    )
+
+
+def _reset_gross_exposure(
+    asset_values: np.ndarray,
+    debt: float,
+    cash: float,
+    policy: ExposurePolicy,
+    transaction_cost_bps: float,
+) -> tuple[np.ndarray, float, float, float, float]:
+    target_ratio = policy.daily_reset_ratio
+    if target_ratio is None:
+        return asset_values, debt, cash, 0.0, 0.0
+
+    equity = _state_equity(asset_values, cash, debt)
+    if equity <= _EPSILON:
+        return np.zeros_like(asset_values), 0.0, max(equity, 0.0), 0.0, 0.0
+
+    current_gross = _gross_exposure(asset_values)
+    if current_gross > _EPSILON:
+        current_mix = asset_values / current_gross
+    else:
+        current_mix = policy.target_asset_mix
+    preserved_cash = max(cash, 0.0)
+
+    def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
+        target_gross = target_ratio * net_equity
+        target_assets = current_mix * target_gross
+        target_debt = target_gross + preserved_cash - net_equity
+        return target_assets, max(target_debt, 0.0), preserved_cash
+
+    return _solve_trade_target(
+        asset_values,
+        equity,
+        transaction_cost_bps,
+        target_builder,
+    )
+
+
+def _solve_trade_target(
+    current_assets: np.ndarray,
+    pre_trade_equity: float,
+    transaction_cost_bps: float,
+    target_builder: Callable[[float], tuple[np.ndarray, float, float]],
+) -> tuple[np.ndarray, float, float, float, float]:
+    rate = transaction_cost_bps / 10_000.0
+    cost = 0.0
+
+    for _ in range(_TRADE_SOLVER_MAX_ITERATIONS):
+        net_equity = pre_trade_equity - cost
+        if net_equity <= _EPSILON:
+            raise ValueError("transaction costs would exhaust portfolio equity")
+        target_assets, target_debt, target_cash = target_builder(net_equity)
+        traded_notional = float(np.abs(target_assets - current_assets).sum())
+        next_cost = traded_notional * rate
+        if abs(next_cost - cost) <= _TRADE_SOLVER_TOLERANCE * max(
+            pre_trade_equity,
+            1.0,
+        ):
+            cost = next_cost
+            net_equity = pre_trade_equity - cost
+            target_assets, target_debt, target_cash = target_builder(net_equity)
+            traded_notional = float(np.abs(target_assets - current_assets).sum())
+            final_cost = traded_notional * rate
+            if abs(final_cost - cost) > 10 * _TRADE_SOLVER_TOLERANCE * max(
+                pre_trade_equity,
+                1.0,
+            ):
+                cost = final_cost
+                continue
+            return (
+                target_assets,
+                float(target_debt),
+                float(target_cash),
+                float(final_cost),
+                traded_notional,
+            )
+        cost = next_cost
+
+    raise ValueError("portfolio trade-cost solver did not converge")
 
 
 def _threshold_breached(
     asset_values: np.ndarray,
-    target_weights: np.ndarray,
+    debt: float,
+    cash: float,
+    policy: ExposurePolicy,
     threshold: float,
 ) -> bool:
-    gross = float(asset_values.sum())
+    gross = _gross_exposure(asset_values)
     if gross <= _EPSILON:
         return False
-    current = asset_values / gross
-    return bool(np.max(np.abs(current - target_weights)) >= threshold)
+
+    if policy.target_gross_ratio < 1.0 - WEIGHT_TOLERANCE:
+        equity = _state_equity(asset_values, cash, debt)
+        if equity <= _EPSILON:
+            return False
+        current_exposures = asset_values / equity
+        asset_drift = float(
+            np.max(np.abs(current_exposures - policy.target_exposures))
+        )
+        cash_drift = abs(cash / equity - policy.target_cash_ratio)
+        return max(asset_drift, cash_drift) >= threshold
+
+    current_mix = asset_values / gross
+    return bool(np.max(np.abs(current_mix - policy.target_asset_mix)) >= threshold)
+
+
+def _liquidation_reason(
+    asset_values: np.ndarray,
+    cash: float,
+    debt: float,
+    maintenance_margin_percent: float,
+) -> str | None:
+    gross = _gross_exposure(asset_values)
+    equity = _state_equity(asset_values, cash, debt)
+    if equity <= _EPSILON:
+        if gross > _EPSILON or debt > _EPSILON:
+            return "non_positive_equity"
+        return None
+    if debt <= _EPSILON or gross <= _EPSILON:
+        return None
+    margin_ratio = equity / gross * 100.0
+    if margin_ratio < maintenance_margin_percent:
+        return "maintenance_margin"
+    return None
+
+
+def _liquidate(
+    timestamp: pd.Timestamp,
+    asset_values: np.ndarray,
+    debt: float,
+    cash: float,
+    maintenance_margin_percent: float,
+    reason: str,
+    events: list[LedgerEvent],
+    warnings: list[str],
+) -> tuple[np.ndarray, float, float]:
+    equity = _state_equity(asset_values, cash, debt)
+    gross = _gross_exposure(asset_values)
+    margin_ratio = equity / gross * 100.0 if gross > _EPSILON else 100.0
+    events.append(
+        LedgerEvent(
+            date=timestamp.date().isoformat(),
+            type="margin_liquidation",
+            details={
+                "reason": reason,
+                "equity": equity,
+                "gross_exposure": gross,
+                "debt": debt,
+                "margin_percent": margin_ratio,
+                "maintenance_margin_percent": maintenance_margin_percent,
+            },
+        )
+    )
+    warnings.append(
+        f"maintenance-margin liquidation on {timestamp.date().isoformat()} "
+        f"({reason})"
+    )
+    final_equity = max(equity, 0.0)
+    return np.zeros_like(asset_values), 0.0, final_equity
+
+
+def _state_equity(
+    asset_values: np.ndarray,
+    cash: float,
+    debt: float,
+) -> float:
+    return float(asset_values.sum() + cash - debt)
+
+
+def _gross_exposure(asset_values: np.ndarray) -> float:
+    return float(np.abs(asset_values).sum())
+
+
+def _net_exposure(asset_values: np.ndarray) -> float:
+    return float(asset_values.sum())
+
+
+def _record_exposure_state(
+    position: int,
+    asset_values: np.ndarray,
+    equity: float,
+    gross: pd.Series,
+    net: pd.Series,
+    gross_ratio: pd.Series,
+    net_ratio: pd.Series,
+) -> None:
+    gross_value = _gross_exposure(asset_values)
+    net_value = _net_exposure(asset_values)
+    gross.iloc[position] = gross_value
+    net.iloc[position] = net_value
+    if equity > _EPSILON:
+        gross_ratio.iloc[position] = gross_value / equity
+        net_ratio.iloc[position] = net_value / equity
+    else:
+        gross_ratio.iloc[position] = 0.0
+        net_ratio.iloc[position] = 0.0
 
 
 def _calendar_days_between(previous: pd.Timestamp, current: pd.Timestamp) -> int:
@@ -556,7 +938,7 @@ def _record_allocations(
     position: int,
     asset_values: np.ndarray,
 ) -> None:
-    gross = float(asset_values.sum())
+    gross = _gross_exposure(asset_values)
     if gross > _EPSILON:
         frame.iloc[position] = asset_values / gross
     else:
@@ -591,6 +973,9 @@ def _carry_liquidated_state(
     cash: pd.Series,
     debt: pd.Series,
     gross: pd.Series,
+    net: pd.Series,
+    gross_ratio: pd.Series,
+    net_ratio: pd.Series,
     allocations: pd.DataFrame,
 ) -> None:
     equity.iloc[position] = max(float(equity.iloc[position - 1]), 0.0)
@@ -599,4 +984,7 @@ def _carry_liquidated_state(
     cash.iloc[position] = equity.iloc[position]
     debt.iloc[position] = 0.0
     gross.iloc[position] = 0.0
+    net.iloc[position] = 0.0
+    gross_ratio.iloc[position] = 0.0
+    net_ratio.iloc[position] = 0.0
     allocations.iloc[position] = 0.0
