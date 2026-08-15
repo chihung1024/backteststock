@@ -1,0 +1,40 @@
+name: Verify Walk-Forward Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-walk-forward-production.yml"
+      - "api/exhaustive_selection_authority.mjs"
+      - "api/walk_forward_v1.py"
+      - "apps/api/app/research/**"
+      - "scripts/exhaustive_selection_authority.mjs"
+      - "scripts/smoke_test_walk_forward_v1.mjs"
+      - "public/exhaustive-optimizer-core.js"
+      - "public/exhaustive-retention.js"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: walk-forward-production-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Verify production Walk-Forward exact deployment
+        env:
+          BACKEND_ORIGIN: https://stockbacktest.vercel.app
+          EXPECTED_DEPLOYMENT_SHA: ${{ github.sha }}
+        run: >
+          node scripts/smoke_test_walk_forward_v1.mjs
+          https://backteststock.chired.workers.dev
