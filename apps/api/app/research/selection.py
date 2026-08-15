@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol
+from typing import Any, ClassVar, Mapping, Protocol
 
 from apps.api.app.research.dataset import ResearchDataset
 from apps.api.app.research.walk_forward import (
@@ -47,7 +47,7 @@ class SelectionContext:
     training_dataset: ResearchDataset
     eligible_candidates: tuple[str, ...]
     unavailable_candidates: tuple[UnavailableCandidate, ...]
-    contract_version: str = WALK_FORWARD_SELECTION_CONTRACT_VERSION
+    contract_version: ClassVar[str] = WALK_FORWARD_SELECTION_CONTRACT_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +81,8 @@ class ConfiguredEqualWeightSelectionEngine:
     """
 
     selected_symbols: tuple[str, ...]
-    contract_version: str = CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION
-    rule: str = "configured-equal-weight-reference"
+    contract_version: ClassVar[str] = CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION
+    rule: ClassVar[str] = "configured-equal-weight-reference"
 
     def __post_init__(self) -> None:
         selected = tuple(str(symbol) for symbol in self.selected_symbols)
@@ -202,9 +202,12 @@ def run_selection(
     )
     training_hash = training_dataset.dataset_hash
 
-    selector_contract_version = _required_text(
+    engine_contract_version = _required_text(
         getattr(engine, "contract_version", None),
         label="selector contract_version",
+    )
+    selector_contract_version = (
+        f"{WALK_FORWARD_SELECTION_CONTRACT_VERSION}+{engine_contract_version}"
     )
     selector_rule = _required_text(
         getattr(engine, "rule", None),
