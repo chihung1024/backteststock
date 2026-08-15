@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import {
   authorityIdentity,
   selectBestExhaustivePortfolio,
@@ -78,6 +80,20 @@ async function readJsonBody(request) {
   return parseRawJson(Buffer.concat(chunks).toString("utf8"));
 }
 
+function configuredInternalSecret() {
+  return String(
+    process.env.WALK_FORWARD_INTERNAL_SECRET
+      || process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      || "",
+  ).trim();
+}
+
+function equalSecret(provided, expected) {
+  const left = Buffer.from(String(provided || ""));
+  const right = Buffer.from(String(expected || ""));
+  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
+}
+
 function requireMatchingDeployment(request) {
   const expected = String(process.env.VERCEL_GIT_COMMIT_SHA || "").trim();
   if (!expected) return;
@@ -85,6 +101,18 @@ function requireMatchingDeployment(request) {
   if (provided !== expected) {
     const error = new Error("Exhaustive authority caller deployment does not match");
     error.statusCode = 409;
+    throw error;
+  }
+}
+
+function requireSelectionSecret(request, payload) {
+  if (payload?.type === "version") return;
+  const expected = configuredInternalSecret();
+  if (!expected) return;
+  const provided = request.headers?.["x-backteststock-internal-secret"];
+  if (!equalSecret(provided, expected)) {
+    const error = new Error("Exhaustive authority selection requires internal authentication");
+    error.statusCode = 401;
     throw error;
   }
 }
@@ -113,9 +141,15 @@ export default async function handler(request, response) {
   try {
     requireMatchingDeployment(request);
     const payload = await readJsonBody(request);
+    requireSelectionSecret(request, payload);
     enforceServerBudget(payload);
     const result = payload?.type === "version"
-      ? authorityIdentity()
+      ? {
+          ...authorityIdentity(),
+          internalAuthMode: configuredInternalSecret()
+            ? "secret-plus-deployment"
+            : "deployment-bound-bounded-fallback",
+        }
       : selectBestExhaustivePortfolio(payload);
     sendJson(response, 200, result);
   } catch (error) {
