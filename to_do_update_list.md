@@ -24,370 +24,379 @@ Functionality, quantitative correctness, data integrity and user experience outr
 
 ## 2. Verified Main Baseline
 
-Current verified main before Batch 4A-4:
+Current production main before Batch 4A-5:
 
 ```text
-61513aeb0544494416064e66316d5b2a8caf94a2
-feat: adapt Exhaustive authority to Walk-Forward selection (#156)
+f993bac1877532e1dd16ae4dde6022601ac1b6ca
+feat: add continuous Walk-Forward OOS ledger (#157)
 ```
 
-Batch 4A-3 / PR #156 is **CLOSED / MERGED / POST-MAIN VERIFIED / PRODUCTION VERIFIED (R2)**.
+Walk-Forward foundation already closed and post-main verified:
 
-Verified closure evidence:
+| Batch | Result |
+| --- | --- |
+| 4A-1 | Temporal causality firewall + immutable DecisionSnapshot — DONE / PR #154 |
+| 4A-2 | SelectionEngine + physical Training/OOS separation — DONE / PR #155 |
+| 4A-3 | Existing JavaScript Exhaustive adapter + golden parity — DONE / PR #156 |
+| 4A-4 | Continuous OOS Portfolio ledger — DONE / PR #157 |
 
-- exact-head independent approval before merge;
-- protected pre/post merge recovery releases;
-- squash merge to `61513aeb0544494416064e66316d5b2a8caf94a2`;
-- post-main CI #771 SUCCESS;
-- Vercel deployment SUCCESS;
-- Cloudflare Worker deployment + remote D1 migration + Russell 2000 / Portfolio v3 / Refinery production smokes SUCCESS.
-
-Batch 4A-1 / PR #154 and Batch 4A-2 / PR #155 are also closed and post-main verified. Closed implementation history belongs to Git/PR/Actions rather than being duplicated here.
+Batch 4A-4 post-main evidence includes recovery release, main CI #778 SUCCESS and Vercel deployment SUCCESS. Closed detail belongs to Git/PR/Actions rather than being duplicated here.
 
 ## 3. Primary Active Batch
 
-### Batch 4A-4 — Continuous OOS Portfolio Ledger
+### Batch 4A-5 — PIT Resolver / API / Job Orchestration
 
-Status: **ACTIVE / Draft PR #157 / R2 Significant**
+Status: **ACTIVE / Draft PR #158 / R2 Significant**
 
 Branch:
 
 ```text
-feat/batch4a4-continuous-oos-ledger
+feat/batch4a5-walk-forward-api-orchestration
 ```
 
 Base:
 
 ```text
-main@61513aeb0544494416064e66316d5b2a8caf94a2
+main@f993bac1877532e1dd16ae4dde6022601ac1b6ca
 ```
 
 PR:
 
 ```text
-#157 — feat: add continuous Walk-Forward OOS ledger
+#158 — feat: add causal Walk-Forward API orchestration
 ```
 
-Do not trust a hard-coded candidate head in this file. Re-query PR #157 before review, Ready or merge because this handoff update itself changes the branch head.
+Do not trust a hard-coded candidate head in this file. Re-query PR #158 before review, Ready or merge because this handoff update itself changes the branch head.
 
-## 4. 4A-4 Objective / Architecture Lock
+Durable semantics:
 
-4A-4 converts frozen Walk-Forward decisions plus validated Evaluation datasets into **one continuous investable TWD OOS ledger**.
+```text
+docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md
+```
 
-It must not:
+## 4. 4A-5 Objective / Architecture Lock
 
-- reset NAV to 1 or initial capital at each Evaluation period;
-- average/stitch period-local metrics as though they were one portfolio history;
-- create a second portfolio simulator or transaction-cost formula;
-- widen Evaluation windows to obtain hidden observations;
-- modify PIT, selection, Exhaustive numerical authority, public API, Worker route or UI.
+4A-5 makes the already-versioned 4A-1…4A-4 research pipeline callable as one bounded server workflow without creating a new quant/data authority.
 
 Causal path:
 
 ```text
-PIT + Training
+explicit period schedule
     ↓
-SelectionEngine / existing Exhaustive authority
+Worker/D1 PIT resolver at exact Decision date
+    ↓
+one audited Training fetch: exact PIT members + benchmark
+    ↓
+ResearchDataset candidate view + Exhaustive authority view
+    ↓
+existing JavaScript Exhaustive numerical authority
     ↓
 immutable DecisionSnapshot
     ↓
+only now fetch selected-constituent Evaluation data
+    ↓
 validated Evaluation ResearchDataset
     ↓
-existing Portfolio v3 segment ledger authority
+Batch 4A-4 continuous OOS Portfolio ledger
     ↓
-existing Portfolio v3 rebalance authority at Decision transitions
-    ↓
-one continuous OOS PortfolioLedger
-    ↓
-existing Portfolio metric authority
+existing Portfolio v3 metrics
 ```
 
-Durable semantics: `docs/research/WALK_FORWARD_OOS_LEDGER_V1.md`.
-
-## 5. Quant / Data Authority Invariants
-
-### Decision identity
-
-Every `DecisionSnapshot` hash is revalidated before execution. OOS evidence never mutates the decision or becomes selection evidence.
-
-### Evaluation identity
-
-Every Evaluation dataset must pass `validate_evaluation_dataset()` against its frozen decision. Exact Evaluation dataset hashes are recorded in period audit.
-
-### One Portfolio execution authority
-
-Within each OOS segment, execution delegates to:
+Primary invariant remains:
 
 ```text
-apps/api/app/portfolio/ledger.py::simulate_portfolio_ledger()
+Training data <= Decision point < Evaluation/OOS data
 ```
 
-Inter-decision turnover/cost delegates to the same module's existing `_rebalance()` implementation using the prior segment's **actual ending equity/allocation**, not prior target weights.
+## 5. Authority Boundaries
 
-No research-specific copy of transaction-cost or portfolio-return mathematics is permitted.
+### PIT membership
 
-### One metric authority
+Worker/D1 remains the sole historical-membership authority. Python only consumes `/api/v2/universes/{id}?asOf=...` and preserves exact provenance.
 
-Final metrics are computed once from the combined continuous `PortfolioLedger` through existing `compute_metric_report()`. Period-local metric reports are not aggregated.
+Public 4A-5 v1 requires authoritative, non-proxy PIT membership. Current membership or current fundamentals must never substitute for missing historical evidence.
 
-### V1 return-component boundary
+### Training / market data
 
-`ResearchDataset` exposes adjusted/total-return TWD levels, not separate cash distribution components. Therefore 4A-4 v1 requires:
+`TWDHistoryService` + `ResearchDatasetV1` remain the data authority. Candidate symbols and benchmark are fetched once per period, then deterministic dataset views are built from the same audited batch.
+
+### Exhaustive numerical authority
+
+`public/exhaustive-optimizer-core.js` remains the numerical/ranking authority. Python does not reimplement score, Sortino, CAGR, MDD, beta, rebalance or tie-break mathematics.
+
+Production placement is a bounded Vercel Node function; Python calls it over a deployment-bound HTTP contract instead of assuming a Node binary exists inside the Python runtime.
+
+### OOS execution / metrics
+
+Batch 4A-4 remains the continuous OOS orchestration authority; Portfolio v3 remains the transaction-cost/portfolio/metric authority.
+
+## 6. Public V1 Methodology Lock
+
+The public request deliberately exposes only methodology that current Training and OOS engines can interpret consistently.
+
+Selector:
 
 ```text
-reinvest_distributions = True
-cashflow.type = none
-leverage.type = none
+universe
+benchmark
+holdingCount
 ```
 
-Unsupported state fails closed instead of being reconstructed from incomplete evidence.
-
-Periodic/threshold rebalancing inside an Evaluation segment remains Portfolio v3 authority behavior.
-
-### Initial deployment cost semantics
-
-V1 deliberately preserves existing Portfolio v3 semantics: the **first OOS initial capital allocation is not counted as a rebalance/transition transaction cost**. `transaction_cost_bps` applies to later Decision target transitions and any existing Portfolio v3 in-segment rebalance triggers. A different initial-deployment-cost convention would require a separately versioned contract change.
-
-## 6. Temporal / Gap / Transition Policies
-
-Execution policy:
+Fixed selection semantics:
 
 ```text
-target-at-first-effective-oos-close-v1
+Exhaustive authority = existing JavaScript core
+weighting = equal
+rebalanceMode = never
+Training transaction cost = 0
+execution delay provenance = 1 trading day
 ```
 
-The first effective OOS level is the segment execution/baseline close. The first attributed market return is the next effective valuation interval.
-
-Gap policy:
+OOS request:
 
 ```text
-carry-last-audited-state-flat-no-invented-return-v1
+initialAmountTwd
+transitionCostBps
 ```
 
-Evaluation-window gaps do not authorize synthetic market returns. The last audited equity/allocation state is carried flat until the next validated OOS baseline; no hidden row is created.
-
-At a later Decision boundary, target transition cost is represented as a real negative strategy return on the next segment baseline. Example for 100% AAA → 100% BBB, prior equity 110, cost 100 bps:
+Fixed OOS semantics:
 
 ```text
-sell AAA = 110
-buy BBB  = 110
-traded notional = 220
-cost = 2.2
-next OOS starting equity = 107.8
+one continuous TWD ledger
+no in-segment rebalance
+no external cashflow
+no leverage
+reinvest distributions
+transition cost only at later frozen Decision target changes
 ```
 
-## 7. Current Implementation Surface
+Unversioned public strategy knobs are rejected rather than approximately mapped between different engines.
+
+## 7. Resource / Large-Universe Admission
+
+Current synchronous v1 bounds:
 
 ```text
-apps/api/app/research/oos_ledger.py
-apps/api/app/research/__init__.py
-tests/test_walk_forward_oos_ledger.py
-tests/test_walk_forward_oos_ledger_parity.py
-docs/research/WALK_FORWARD_OOS_LEDGER_V1.md
+periods <= 24
+PIT candidates <= 100
+holdingCount <= 20
+Exhaustive combinations <= 500,000 per period
+Exhaustive combinations <= 2,000,000 per job
+public request body <= 128 KiB
+Node authority body <= 3 MiB
+```
+
+If PIT membership exceeds 100 symbols, fail closed.
+
+Explicitly rejected shortcuts:
+
+- first-100 truncation;
+- current-fundamental historical prefilter;
+- current-constituent ranking used as PIT evidence;
+- silent history-failure candidate drop.
+
+Large-universe historical narrowing belongs to future PIT-fundamentals work after it has causal evidence.
+
+## 8. Current Implementation Surface
+
+New/changed 4A-5 areas include:
+
+```text
+apps/api/app/research/pit_client.py
+apps/api/app/research/exhaustive_authority_http.py
+apps/api/app/research/walk_forward_job.py
+api/exhaustive_selection_authority.mjs
+api/walk_forward_v1.py
+worker/walk_forward_router.js
+scripts/smoke_test_walk_forward_v1.mjs
+tests/test_walk_forward_pit_client.py
+tests/test_walk_forward_job.py
+tests/test_walk_forward_api.py
+tests/test_exhaustive_authority_http.mjs
+tests/test_walk_forward_edge_route.mjs
+vercel.json
+wrangler.jsonc
+package.json
+.github/workflows/deploy-cloudflare.yml
+docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md
 docs/research/README.md
 to_do_update_list.md
 ```
 
-No Worker/public/migration/package/deployment workflow file is changed by 4A-4.
+This batch changes production routing/deployment behavior and therefore remains R2 until post-main runtime verification closes.
 
-## 8. Required Regression Locks
+## 9. Production Topology / Hardening
 
-Targeted tests currently lock:
-
-1. full sell+buy traded notional and transaction cost for a disjoint target transition;
-2. continuous equity and return index across Decision boundaries;
-3. no fabricated rows/returns in Evaluation gaps;
-4. zero transition turnover when an unchanged 100% target already matches actual ending allocation;
-5. exact decision/Evaluation dataset identity in period audit;
-6. fail-closed non-reinvested distribution, external-cashflow and leverage requests;
-7. at least two effective valuation dates per OOS segment;
-8. golden parity: unchanged-target split Walk-Forward ledger equals one ordinary Portfolio v3 ledger over the equivalent TWD level path.
-
-The implementation also enforces:
+Production path:
 
 ```text
-equity[t] == initial_amount * continuous_return_index[t]
+future UI / caller
+    ↓
+Cloudflare same-origin Worker
+    ↓
+Vercel Python Walk-Forward API
+    ├─→ Worker/D1 PIT Universe authority
+    ├─→ existing market-data services
+    └─→ Vercel Node JavaScript Exhaustive authority
 ```
 
-within numerical tolerance for supported v1 state.
+Hardening currently includes:
 
-## 9. Verification Evidence
+- no-store/security headers;
+- strict request schemas/body limits;
+- edge/backend research rate limits;
+- exact deployment-SHA binding for Python→Node authority calls;
+- bounded Node combination count;
+- optional `WALK_FORWARD_INTERNAL_SECRET` or existing Vercel Automation Bypass secret upgrades selection admission to secret + deployment binding;
+- honest bounded fallback if no secret is configured;
+- production smoke waits for Node authority and Worker-routed API health to report the expected deployment SHA.
 
-Pre-handoff candidate:
+A secret is hardening, not a PIT/quant authority and is not required to preserve research causality.
 
-```text
-head = cd93102f4a96455eabeeb835241e915bcac55875
-CI #776 = in progress when this handoff commit was prepared
-```
+## 10. Regression Locks
 
-Observed before the handoff write:
+Current tests lock at least:
 
-- dependency install/consistency SUCCESS;
-- compile SUCCESS;
-- Ruff SUCCESS;
-- full Python suite SUCCESS, including 4A-4 targeted and golden-parity tests;
-- JavaScript SUCCESS;
-- Worker SUCCESS;
-- score-formula SUCCESS;
-- Portfolio type-check/build SUCCESS;
-- Portfolio/Refinery source contracts SUCCESS;
-- committed Portfolio production assets SUCCESS;
-- browser stages were still completing.
+1. exact Worker PIT response/provenance parsing;
+2. noncausal/date-mismatched PIT rejection;
+3. proxy truth preservation and public rejection;
+4. exact operation order PIT → Training → selection → Evaluation;
+5. one shared Training fetch for candidates + benchmark;
+6. Evaluation fetch only after DecisionSnapshot;
+7. >100-member PIT fail-closed behavior without market-data work;
+8. strict public API schema rejecting unversioned strategy knobs;
+9. health bypassing research-work quota;
+10. Vercel Node raw/pre-parsed body compatibility;
+11. optional internal-secret admission;
+12. Node Exhaustive combination budget;
+13. same-origin edge route body/header sanitation and limits;
+14. deployment-SHA readiness smoke syntax;
+15. full repository CI/regression gates.
 
-Because this file changes the branch head, **CI #776 is not the final merge gate**. The handoff-updated exact head must receive a fresh complete CI run.
+## 11. Self-Review / Root-Cause Record
 
-## 10. Self-Review / Convergence Log
+### A. Python-side reimplementation of PIT or Exhaustive — REJECTED
 
-### A. Naive period-NAV stitching — REJECTED
+Would create duplicate authorities and drift. 4A-5 consumes Worker/D1 PIT and existing JavaScript Exhaustive authority directly.
 
-Rejected because it loses real prior allocation drift and inter-period turnover cost.
+### B. Large-universe arbitrary truncation — REJECTED
 
-General fix: carry actual ending OOS equity/allocation and apply the next target through existing Portfolio v3 rebalance authority.
+Would create a hidden selection rule with no historical evidence. V1 fails closed above 100 PIT members.
 
-### B. Hidden gap-market-return inference — REJECTED
+### C. Exposing all existing Exhaustive rebalance knobs — REJECTED
 
-Rejected because Evaluation datasets do not prove market returns outside their requested windows.
+Training JavaScript execution semantics are not guaranteed identical to current Portfolio v3 OOS semantics. V1 exposes only gross buy-and-hold selection and decision-transition OOS cost.
 
-General fix: explicit flat audited-state carry policy; no synthetic OOS observations.
+### D. Running local `node` subprocess in production Python — REJECTED
 
-### C. Reconstructing non-reinvested distributions from total-return levels — REJECTED
+Serverless Python cannot be assumed to provide the Node executable used by local tests. The JavaScript authority is placed in its own Vercel Node function.
 
-Rejected because ResearchDataset does not preserve the required separate cash-distribution components.
+### E. Mixing Vercel legacy `builds` and `functions` config — FIXED
 
-General fix: v1 requires reinvested distributions and fails closed otherwise.
+A preview deployment failed when function-duration configuration was added through a top-level `functions` block alongside the repository's existing `builds` configuration.
 
-### D. Carrying external cashflow/leverage state by approximation — REJECTED
+Root-cause fix: keep the existing legacy `builds` topology unchanged and configure the Node authority duration inside the Node function itself. Do not migrate unrelated Vercel functions merely to set one duration.
 
-Rejected because period-local restart could change flow growth/timing, debt interest clocks or margin state.
+### F. Cloudflare/Vercel deployment race — CONTROLLED BY SMOKE
 
-General fix: 4A-4 v1 disallows these states until a future contract supplies exact continuous component/state evidence.
+Cloudflare and Vercel can converge at different times after one main merge. Production acceptance waits until the new Walk-Forward health and Node authority report the exact expected merge SHA.
 
-### E. Split-boundary numerical drift — CONTROLLED BY GOLDEN PARITY
+## 12. Current Verification State
 
-An unchanged 100% target split across two Evaluation segments must equal one existing Portfolio v3 ledger over the equivalent total-return path. This proves segmentation alone does not reset or alter NAV.
+A pre-handoff implementation candidate already achieved full repository CI and a successful Vercel preview before the final self-review hardening.
 
-## 11. Remaining R2 Gates for PR #157
+A later preview exposed the Vercel `functions + builds` configuration incompatibility; that configuration has been removed and the narrow root-cause fix applied.
 
-1. fresh exact-head CI after this handoff commit;
-2. self-review of final diff and temporal/quant authority boundaries;
-3. independent review on the final exact head;
-4. zero unresolved BLOCKER review threads;
-5. Ready transition;
-6. `release-backup` pre-merge recovery verification against exact current main;
-7. final head/base/review/CI/recovery TOCTOU;
-8. squash merge using `expected_head_sha`;
-9. post-main recovery, CI and deployment-state verification.
+Because this live handoff write changes the exact branch head, **all previous CI/preview runs are supporting evidence only**. The final handoff-updated head must receive fresh:
 
-Independent-review focus:
+1. full exact-head CI;
+2. Vercel preview success;
+3. independent review on that exact head.
 
-- no OOS influence on frozen decisions;
-- no period-local NAV reset;
-- no duplicate Portfolio/transaction-cost/metric authority;
-- transition uses actual ending allocation, not target allocation;
-- gap policy does not invent returns;
-- unsupported ResearchDataset state fails closed;
-- initial-deployment-cost semantics are explicit;
-- unchanged-target golden parity holds;
-- no public/runtime surface is accidentally expanded.
+## 13. Remaining R2 Gates for PR #158
 
-## 12. Walk-Forward Roadmap
+1. final exact-head full CI;
+2. final exact-head Vercel preview success;
+3. final diff self-review / no BLOCKER;
+4. independent `cchung911` review on exact head;
+5. zero unresolved BLOCKER review threads;
+6. Ready transition;
+7. `release-backup` pre-merge recovery against exact current main;
+8. final head/base/review/CI/recovery TOCTOU;
+9. squash merge with expected exact head;
+10. post-main recovery;
+11. main CI SUCCESS;
+12. Vercel production deployment SUCCESS;
+13. Cloudflare Worker deploy + remote D1 + Russell / Portfolio / Walk-Forward / Refinery production smokes SUCCESS.
+
+## 14. Roadmap
 
 | Batch | Objective | Status |
 | --- | --- | --- |
-| 4A-1 | Temporal causality firewall + immutable `DecisionSnapshot` | **DONE / PR #154 / post-main verified** |
-| 4A-2 | `SelectionEngine` + physical Training/OOS separation | **DONE / PR #155 / post-main verified** |
-| 4A-3 | Existing Exhaustive adapter + golden parity | **DONE / PR #156 / production verified** |
-| 4A-4 | Continuous OOS Portfolio ledger across decisions | **ACTIVE / PR #157** |
-| 4A-5 | PIT resolver/API/job orchestration | **NEXT after 4A-4 closes** |
-| 4A-6 | User-facing Walk-Forward UX | PLANNED |
+| 4A-1 | Temporal causality firewall + immutable DecisionSnapshot | DONE |
+| 4A-2 | SelectionEngine + physical Training/OOS separation | DONE |
+| 4A-3 | Existing Exhaustive adapter + golden parity | DONE |
+| 4A-4 | Continuous OOS Portfolio ledger | DONE |
+| 4A-5 | PIT Resolver / API / Job Orchestration | **ACTIVE / PR #158** |
+| 4A-6 | User-facing Walk-Forward UX | NEXT after 4A-5 closes |
 | 4B+ | Research memory / PIT fundamentals / AI automation | BACKLOG until 4A foundation is stable |
 
-## 13. Authority Boundaries / Risk Register
-
-### Market / FX / research data
-
-Authority remains `ResearchDatasetV1`, `TWDHistoryService` and existing TWD valuation/corporate-action/FX contracts. Do not add another downloader or valuation path.
-
-### PIT membership
-
-Authority remains Worker/D1 PIT archive and its causality/integrity rules. Historical research fails closed where causally valid archived membership is unavailable.
-
-### Selection / Exhaustive
-
-Selection remains Batch 4A-2 `SelectionEngine`; existing `public/exhaustive-optimizer-core.js` remains Exhaustive numerical/ranking authority.
-
-### OOS execution
-
-Batch 4A-4 owns continuous OOS orchestration/state carry only. Portfolio math remains Portfolio v3 authority.
-
-### Key active risks
-
-- future-data leakage: controlled by physical Training/OOS separation and immutable decisions;
-- period reset bias: controlled by continuous equity/allocation carry and golden parity;
-- duplicate quant authority: controlled by direct delegation to existing Portfolio/Exhaustive engines;
-- unproven gap returns: controlled by flat carry/no invented observations;
-- incomplete return-component state: controlled by fail-closed v1 scope;
-- historical PIT/data incompleteness: fail closed, never fabricate;
-- PR #147 security/perimeter remains frozen/deferred and is not a 4A blocker.
-
-## 14. NOW / NEXT / BACKLOG / REJECT
+## 15. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-Close Batch 4A-4 / PR #157:
+Close Batch 4A-5 / PR #158:
 
 ```text
 handoff-updated exact head
-→ full CI
+→ full CI + Vercel preview
 → final self-review
 → independent review
 → Ready
 → recovery backup
 → final TOCTOU
 → squash merge
-→ post-main verification
+→ post-main CI / Vercel / Cloudflare production smokes
 ```
 
 ### NEXT
 
-Batch 4A-5 — PIT resolver/API/job orchestration around the already-versioned 4A-1…4A-4 internal contracts.
+Batch 4A-6 — user-facing Walk-Forward UX over the now-versioned server workflow. UX must surface provenance/failure truth rather than hide it.
 
 ### BACKLOG
 
-- 4A-6 Walk-Forward UX;
-- ResearchRun persistence / research memory;
-- PIT fundamentals;
+- persistent ResearchRun / research memory;
+- PIT fundamentals / large-universe causal narrowing;
 - AI research automation/autopilot;
-- scale/performance after correctness contracts stabilize.
+- distributed scale/performance after correctness contracts stabilize.
 
-### REJECT FOR CURRENT 4A-4
+### REJECT FOR CURRENT 4A-5
 
-- new selection/ranking/alpha methodology;
-- Python duplication of Exhaustive or Portfolio mathematics;
-- hidden expansion of Evaluation data windows;
-- public Walk-Forward API/UI;
-- non-reinvested distribution reconstruction;
-- cross-period external cashflow/leverage approximation;
-- persistence migration for convenience;
-- reactivating PR #147;
-- unrelated refactors/process expansion.
+- new alpha/ranking formulas;
+- Python copies of PIT, Exhaustive or Portfolio mathematics;
+- current fundamentals as historical evidence;
+- arbitrary large-universe truncation;
+- persistent job database/queue merely for convenience;
+- 4A-6 UI work;
+- unrelated refactors/process expansion;
+- reactivating frozen PR #147.
 
-## 15. Exact Resume Point
+## 16. Exact Resume Point
 
 On resume:
 
 1. read `AI_PROJECT_PLAYBOOK.md` and this file;
-2. read `RESEARCH_DATASET_V1.md`, `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md`, `WALK_FORWARD_SELECTION_CORE_V1.md`, `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md`, and `WALK_FORWARD_OOS_LEDGER_V1.md`;
-3. re-query current `main`, PR #157, exact-head CI, reviews/threads and release state;
-4. continue only Batch 4A-4 until its R2 gates close.
+2. read `docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md` plus 4A-1…4A-4 contracts;
+3. re-query current `main`, PR #158, exact-head CI, Vercel status, reviews/threads and release state;
+4. continue only Batch 4A-5 until R2 production gates close.
 
 Expected state immediately after this handoff commit:
 
 ```text
-main = 61513aeb0544494416064e66316d5b2a8caf94a2
-PR #157 = Draft / Batch 4A-4
-branch = feat/batch4a4-continuous-oos-ledger
-next gate = fresh exact-head full CI
+main = f993bac1877532e1dd16ae4dde6022601ac1b6ca
+PR #158 = Draft / Batch 4A-5
+branch = feat/batch4a5-walk-forward-api-orchestration
+next gate = fresh exact-head CI + Vercel preview
 ```
 
 If remote truth differs, remote truth wins and the discrepancy must be analyzed before merge/rebase/reset.
