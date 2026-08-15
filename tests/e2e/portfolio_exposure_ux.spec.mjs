@@ -129,7 +129,8 @@ test("390px mobile editor keeps the same weight-defined exposure semantics", asy
   const mobileWeight = page.locator(".mobile-asset-row .weight-input input").first();
   await mobileWeight.fill("150");
 
+  const mobileCard = page.locator(".mobile-portfolio-card");
   await expect(mobileWeight).toHaveValue("150");
-  await expect(page.getByText("150.0% · 1.50× · 融資 50.0%").first()).toBeVisible();
-  await expect(page.getByText("每日重設總曝險；內部比例依再平衡設定").first()).toBeVisible();
+  await expect(mobileCard.getByText("150.0% · 1.50× · 融資 50.0%", { exact: true })).toBeVisible();
+  await expect(mobileCard.getByText("每日重設總曝險；內部比例依再平衡設定", { exact: true })).toBeVisible();
 });
