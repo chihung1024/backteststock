@@ -9,6 +9,16 @@ from .dataset import (
     ResearchDatasetService,
     build_research_dataset,
 )
+from .exhaustive_selection import (
+    EXHAUSTIVE_RANKING_DIRECTION,
+    EXHAUSTIVE_RANKING_FIELD,
+    EXHAUSTIVE_RANKING_TIE_BREAK,
+    EXHAUSTIVE_SELECTION_RULE,
+    WALK_FORWARD_EXHAUSTIVE_ADAPTER_VERSION,
+    ExhaustiveAuthorityRunner,
+    ExhaustiveSelectionEngine,
+    NodeExhaustiveAuthorityRunner,
+)
 from .factor_data import (
     FRENCH_FACTOR_SOURCE,
     FrenchFactorProvider,
@@ -38,6 +48,14 @@ __all__ = [
     "FrenchFactorProvider",
     "build_research_dataset",
     "parse_monthly_factor_text",
+    "EXHAUSTIVE_RANKING_DIRECTION",
+    "EXHAUSTIVE_RANKING_FIELD",
+    "EXHAUSTIVE_RANKING_TIE_BREAK",
+    "EXHAUSTIVE_SELECTION_RULE",
+    "WALK_FORWARD_EXHAUSTIVE_ADAPTER_VERSION",
+    "ExhaustiveAuthorityRunner",
+    "ExhaustiveSelectionEngine",
+    "NodeExhaustiveAuthorityRunner",
     "CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION",
     "WALK_FORWARD_SELECTION_CONTRACT_VERSION",
     "ConfiguredEqualWeightSelectionEngine",
