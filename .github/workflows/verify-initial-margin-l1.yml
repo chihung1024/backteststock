@@ -28,37 +28,28 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
           path = Path('apps/api/app/portfolio/ledger.py')
           text = path.read_text()
-          old = '''    asset_values, debt, cash = _target_state(
-              config.initial_amount,
-              policy,
-              config.leverage,
-          )
-          cumulative_income_value = 0.0
-          '''.replace('          ', '')
-          new = '''    asset_values, debt, cash = _target_state(
-              config.initial_amount,
-              policy,
-              config.leverage,
-          )
-          initial_liquidation_reason = _liquidation_reason(
-              asset_values,
-              cash,
-              debt,
-              config.leverage.maintenance_margin_percent,
-          )
-          if initial_liquidation_reason is not None:
-              raise ValueError(
-                  "initial portfolio exposure violates liquidation guard: "
-                  f"{initial_liquidation_reason}"
+          anchor = '    cumulative_income_value = 0.0\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('expected cumulative-income initialization anchor exactly once')
+          insertion = dedent('''\
+              initial_liquidation_reason = _liquidation_reason(
+                  asset_values,
+                  cash,
+                  debt,
+                  config.leverage.maintenance_margin_percent,
               )
-          cumulative_income_value = 0.0
-          '''.replace('          ', '')
-          if text.count(old) != 1:
-              raise SystemExit('expected initial target-state block not found exactly once')
-          path.write_text(text.replace(old, new))
+              if initial_liquidation_reason is not None:
+                  raise ValueError(
+                      "initial portfolio exposure violates liquidation guard: "
+                      f"{initial_liquidation_reason}"
+                  )
+          ''')
+          insertion = ''.join(f'    {line}\n' if line else '\n' for line in insertion.splitlines())
+          path.write_text(text.replace(anchor, insertion + anchor, 1))
           PY
 
       - name: Add initial margin regressions
