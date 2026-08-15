@@ -32,82 +32,55 @@ jobs:
           import textwrap
 
           ledger_path = Path('apps/api/app/portfolio/ledger.py')
-          ledger = ledger_path.read_text()
+          lines = ledger_path.read_text().splitlines()
 
-          ledger = ledger.replace(
-              '    residual cash; totals above 1.0 create financed gross exposure. Leveraged\n'
-              '    gross exposure is reset at each close while preserving the current asset\n'
-              '    mix unless the configured allocation rebalance independently fires.\n',
-              '    residual cash; totals above 1.0 create financed gross exposure. Any\n'
-              '    non-100% gross exposure is reset at each close while preserving the\n'
-              '    current asset mix unless allocation rebalance independently fires.\n',
-              1,
+          old_condition = '        and target_gross > 1.0 + WEIGHT_TOLERANCE'
+          if lines.count(old_condition) != 1:
+              raise SystemExit('expected old daily-reset condition exactly once')
+          lines[lines.index(old_condition)] = (
+              '        and abs(target_gross - 1.0) > WEIGHT_TOLERANCE'
           )
 
-          old_daily = textwrap.dedent('''\
-              daily_reset = (
-                  target_gross
-                  if leverage.type != LeverageType.FIXED_DEBT
-                  and target_gross > 1.0 + WEIGHT_TOLERANCE
-                  else None
-              )
-          ''')
-          new_daily = textwrap.dedent('''\
-              daily_reset = (
-                  target_gross
-                  if leverage.type != LeverageType.FIXED_DEBT
-                  and abs(target_gross - 1.0) > WEIGHT_TOLERANCE
-                  else None
-              )
-          ''')
-          if ledger.count(old_daily) != 1:
-              raise SystemExit('expected daily-reset policy block exactly once')
-          ledger = ledger.replace(old_daily, new_daily, 1)
+          debt_line = '        target_debt = target_gross + preserved_cash - net_equity'
+          if lines.count(debt_line) != 1:
+              raise SystemExit('expected gross-reset debt target exactly once')
+          debt_index = lines.index(debt_line)
+          expected_prefix = [
+              '    def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:',
+              '        target_gross = target_ratio * net_equity',
+              '        target_assets = current_mix * target_gross',
+          ]
+          if lines[debt_index - 3:debt_index] != expected_prefix:
+              raise SystemExit('unexpected gross-reset target builder shape')
+          lines[debt_index:debt_index] = [
+              '        if target_ratio < 1.0 - WEIGHT_TOLERANCE:',
+              '            target_cash = max(net_equity - target_gross, 0.0)',
+              '            return target_assets, 0.0, target_cash',
+          ]
 
-          old_builder = textwrap.dedent('''\
-              def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
-                  target_gross = target_ratio * net_equity
-                  target_assets = current_mix * target_gross
-                  target_debt = target_gross + preserved_cash - net_equity
-                  return target_assets, max(target_debt, 0.0), preserved_cash
-          ''')
-          new_builder = textwrap.dedent('''\
-              def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
-                  target_gross = target_ratio * net_equity
-                  target_assets = current_mix * target_gross
-                  if target_ratio < 1.0 - WEIGHT_TOLERANCE:
-                      target_cash = max(net_equity - target_gross, 0.0)
-                      return target_assets, 0.0, target_cash
-                  target_debt = target_gross + preserved_cash - net_equity
-                  return target_assets, max(target_debt, 0.0), preserved_cash
-          ''')
-          if ledger.count(old_builder) != 1:
-              raise SystemExit('expected gross-reset target builder exactly once')
-          ledger = ledger.replace(old_builder, new_builder, 1)
+          threshold_start = '    if policy.target_gross_ratio < 1.0 - WEIGHT_TOLERANCE:'
+          mix_line = '    current_mix = asset_values / gross'
+          if lines.count(threshold_start) != 1:
+              raise SystemExit('expected underinvested threshold branch exactly once')
+          start = lines.index(threshold_start)
+          try:
+              end = lines.index(mix_line, start)
+          except ValueError as exc:
+              raise SystemExit('threshold current-mix line missing') from exc
+          if end <= start:
+              raise SystemExit('invalid threshold branch range')
+          del lines[start:end]
 
-          old_threshold = textwrap.dedent('''\
-              if policy.target_gross_ratio < 1.0 - WEIGHT_TOLERANCE:
-                  equity = _state_equity(asset_values, cash, debt)
-                  if equity <= _EPSILON:
-                      return False
-                  current_exposures = asset_values / equity
-                  asset_drift = float(
-                      np.max(np.abs(current_exposures - policy.target_exposures))
-                  )
-                  cash_drift = abs(cash / equity - policy.target_cash_ratio)
-                  return max(asset_drift, cash_drift) >= threshold
+          doc_old = '    residual cash; totals above 1.0 create financed gross exposure. Leveraged'
+          if doc_old in lines:
+              index = lines.index(doc_old)
+              lines[index:index + 3] = [
+                  '    residual cash; totals above 1.0 create financed gross exposure. Any',
+                  '    non-100% gross exposure is reset at each close while preserving the',
+                  '    current asset mix unless allocation rebalance independently fires.',
+              ]
 
-              current_mix = asset_values / gross
-              return bool(np.max(np.abs(current_mix - policy.target_asset_mix)) >= threshold)
-          ''')
-          new_threshold = textwrap.dedent('''\
-              current_mix = asset_values / gross
-              return bool(np.max(np.abs(current_mix - policy.target_asset_mix)) >= threshold)
-          ''')
-          if ledger.count(old_threshold) != 1:
-              raise SystemExit('expected underinvested threshold block exactly once')
-          ledger = ledger.replace(old_threshold, new_threshold, 1)
-          ledger_path.write_text(ledger)
+          ledger_path.write_text('\n'.join(lines) + '\n')
 
           test_path = Path('tests/test_portfolio_weight_defined_exposure.py')
           tests = test_path.read_text()
