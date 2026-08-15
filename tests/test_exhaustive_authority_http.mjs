@@ -19,6 +19,18 @@ function request(payload, { method = "POST", headers = {} } = {}) {
   return stream;
 }
 
+function parsedRequest(payload, { method = "POST", headers = {} } = {}) {
+  return {
+    method,
+    body: payload,
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(JSON.stringify(payload))),
+      ...headers,
+    },
+  };
+}
+
 function response() {
   const headers = new Map();
   return {
@@ -45,6 +57,16 @@ test("HTTP authority version endpoint exposes the existing JS authority identity
     res.header("x-exhaustive-authority-http-contract-version"),
     EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION,
   );
+  const payload = JSON.parse(res.body);
+  assert.match(payload.authorityVersion, /^exhaustive-/u);
+  assert.match(payload.bridgeVersion, /^exhaustive-selection-authority-/u);
+});
+
+test("HTTP authority accepts a Vercel-style pre-parsed request body", async () => {
+  const res = response();
+  await handler(parsedRequest({ type: "version" }), res);
+
+  assert.equal(res.statusCode, 200);
   const payload = JSON.parse(res.body);
   assert.match(payload.authorityVersion, /^exhaustive-/u);
   assert.match(payload.bridgeVersion, /^exhaustive-selection-authority-/u);
