@@ -227,7 +227,7 @@ def test_exhaustive_adapter_freezes_authority_identity_and_training_evidence():
 
     assert decision.selected_constituents == ("AAA", "BBB")
     assert decision.weights == (0.5, 0.5)
-    params = decision.selector_parameters
+    params = decision.export_payload()["selector"]["parameters"]
     assert params["quantAuthority"] == "public/exhaustive-optimizer-core.js"
     assert params["authorityVersion"] == runner.authority_version
     assert params["bridgeVersion"] == runner.bridge_version
@@ -328,5 +328,6 @@ def test_node_exhaustive_authority_runs_end_to_end_behind_selection_engine():
     assert len(decision.selected_constituents) == 2
     assert set(decision.selected_constituents).issubset(set(CANDIDATES))
     assert decision.weights == pytest.approx((0.5, 0.5), abs=1e-12)
-    assert decision.selector_parameters["authorityVersion"].startswith("exhaustive-band-")
-    assert decision.selector_parameters["authorityDatasetHash"] == authority.dataset_hash
+    params = decision.export_payload()["selector"]["parameters"]
+    assert params["authorityVersion"].startswith("exhaustive-band-")
+    assert params["authorityDatasetHash"] == authority.dataset_hash
