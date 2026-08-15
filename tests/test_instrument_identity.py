@@ -4,11 +4,13 @@ from datetime import date
 
 import pandas as pd
 
-from api import market_data
+from api import instrument_identity, market_data
 from api.instrument_identity import (
     InstrumentIdentity,
     apply_instrument_lifecycle_guard,
+    clear_instrument_identity_cache,
     parse_first_trade_date,
+    resolve_instrument_identity,
 )
 
 
@@ -65,11 +67,39 @@ def _downloaded_multi_history() -> pd.DataFrame:
 def test_parse_first_trade_date_accepts_yahoo_epoch_and_iso() -> None:
     expected = date(2023, 6, 22)
     epoch_seconds = pd.Timestamp("2023-06-22T13:30:00Z").timestamp()
-    assert parse_first_trade_date(epoch_seconds) == expected
-    assert parse_first_trade_date(epoch_seconds * 1000) == expected
-    assert parse_first_trade_date("2023-06-22") == expected
-    assert parse_first_trade_date(None) is None
-    assert parse_first_trade_date("not-a-date") is None
+    assert parse_first_trade_date(epoch_seconds, "America/New_York") == expected
+    assert parse_first_trade_date(epoch_seconds * 1000, "America/New_York") == expected
+    assert parse_first_trade_date("2023-06-22", "America/New_York") == expected
+    assert parse_first_trade_date(None, "America/New_York") is None
+    assert parse_first_trade_date("not-a-date", "America/New_York") is None
+
+
+def test_parse_first_trade_date_uses_exchange_local_calendar_day() -> None:
+    epoch_seconds = pd.Timestamp("2024-01-01T21:00:00Z").timestamp()
+
+    assert parse_first_trade_date(epoch_seconds) == date(2024, 1, 1)
+    assert parse_first_trade_date(epoch_seconds, "Pacific/Auckland") == date(2024, 1, 2)
+
+
+def test_resolver_requires_and_audits_exchange_local_timezone(monkeypatch) -> None:
+    clear_instrument_identity_cache()
+    epoch_seconds = pd.Timestamp("2024-01-01T21:00:00Z").timestamp()
+
+    class FakeTicker:
+        def get_history_metadata(self):
+            return {
+                "firstTradeDate": epoch_seconds,
+                "exchangeTimezoneName": "Pacific/Auckland",
+            }
+
+    monkeypatch.setattr(instrument_identity.yf, "Ticker", lambda _symbol: FakeTicker())
+
+    resolved = resolve_instrument_identity("nzl")
+
+    assert resolved.status == "verified"
+    assert resolved.first_trade_date == date(2024, 1, 2)
+    assert resolved.exchange_timezone == "Pacific/Auckland"
+    assert resolved.audit()["exchange_timezone"] == "Pacific/Auckland"
 
 
 def test_guard_clips_price_and_all_time_indexed_components() -> None:
