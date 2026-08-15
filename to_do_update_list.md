@@ -2,7 +2,7 @@
 
 > Repository-internal live handoff. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must be re-queried before important writes. Durable methodology belongs in versioned contracts under `docs/`. Closed execution history must remain in this handoff or an explicit archived section; Git/PR/Actions are supporting evidence, not a substitute for preserving project decisions.
 
-Last updated: **2026-08-15**
+Last updated: **2026-08-16**
 
 ## 1. North Star
 
@@ -67,8 +67,6 @@ PR:
 #162 — feat: add weight-defined Portfolio exposure semantics
 ```
 
-Do not trust a hard-coded candidate head in this file. Re-query PR #162 before important writes/reviews because verification and docs may advance the branch head.
-
 Primary product contract:
 
 ```text
@@ -77,9 +75,25 @@ sum(asset weights) = 100%  -> fully invested
 sum(asset weights) > 100%  -> financed gross exposure
 ```
 
-For gross exposure above 100%, the Portfolio v3 ledger must reset target gross exposure at each close. This is separate from asset-allocation rebalance, which continues to follow periodic/threshold policy.
+The user-confirmed execution semantic is:
 
-No `daily return × leverage` shortcut is permitted.
+- each Portfolio column has its **own** target gross exposure derived from its entered total percentage;
+- `VT 200%` means that Portfolio targets 200% gross exposure;
+- `QQQ 100%` means that separate Portfolio is unlevered and follows only its configured allocation-rebalance policy;
+- `USD 50%` means that separate Portfolio holds 50% asset exposure plus 50% residual ledger cash;
+- any non-100% Portfolio resets **total gross exposure** to its own target at each close;
+- a pure daily gross reset preserves the Portfolio's current internal asset mix;
+- internal asset weights are restored to their original target mix only when the configured periodic/drift-threshold asset-allocation rebalance independently fires;
+- if allocation rebalance and gross reset coincide, one consistent ledger trade restores both target mix and target gross, with no duplicate trade;
+- no `daily return × leverage` shortcut is permitted.
+
+Example locked by user confirmation:
+
+```text
+VT 100% + QQQ 50% => 150% target gross exposure
+```
+
+Daily close reset restores total gross to 150%, but VT/QQQ may drift relative to each other until the configured allocation rebalance fires.
 
 ## 4. Master Plan / Batch Boundaries
 
@@ -87,173 +101,117 @@ No `daily return × leverage` shortcut is permitted.
 
 Status: **DONE / exact-head CI + Vercel preview verified at `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`**.
 
-In scope:
+Locked:
 
 - weight-defined residual cash and gross exposure;
-- daily close leverage reset inside the existing Portfolio v3 ledger;
+- daily close gross-exposure reset inside the existing Portfolio v3 ledger;
 - debt/cash/interest/transaction-cost/reset-trade accounting;
 - gross/net exposure diagnostics;
 - liquidation/invalid-initial-margin guards;
-- preserve existing 100% no-leverage behavior;
-- preserve Walk-Forward OOS use of the same Portfolio ledger authority.
-
-Out of scope:
-
-- public API admission changes;
-- browser/UI changes;
-- new Portfolio performance engine;
-- PIT/Exhaustive/Walk-Forward methodology changes.
+- 100% no-leverage compatibility;
+- Walk-Forward OOS continues to use the same Portfolio ledger authority.
 
 ### L2 — API Contract
 
-Status: **ACTIVE — public admission + serialized ledger truth; L3 UX remains out of scope**.
+Status: **FINAL CANDIDATE / implementation + targeted/full Python regression verified; final user-authored exact-head CI/Vercel pending**.
 
-Objective:
+Implemented:
 
-- allow public Portfolio asset-weight totals below/above 100% within the domain bound;
-- expose ledger cash/debt/gross/net/reset truth through the existing API result;
-- define compatibility/deprecation behavior for the legacy explicit leverage schema without creating two active leverage authorities.
+- public Portfolio asset-weight totals may be below/equal/above 100% within the Portfolio domain gross-exposure bound;
+- API upper-bound admission derives from `MAX_TARGET_GROSS_EXPOSURE` and domain tolerance rather than a second hard-coded 500% authority;
+- existing 100% requests remain valid;
+- non-100% weight-defined exposure combined with explicit legacy leverage fails closed as ambiguous;
+- result serialization exposes existing L1 ledger cash/debt/gross/net exposure ratios, target gross/cash/mix and leverage-reset count without reimplementing calculations;
+- route/model/service regressions cover 80%, 100%, 150%, >domain-limit rejection and ambiguous legacy leverage behavior.
+
+Verification record:
+
+- initial L2 candidate source + targeted API tests + full Python regression passed before publish;
+- an obsolete route regression still expected a 90% Portfolio to return 422; this was correctly replaced with >domain-limit rejection plus route-level 80%/150% acceptance and ambiguous-leverage rejection;
+- L2 self-review found hard-coded `500%` duplicated the domain authority; the repair now imports/derives from `MAX_TARGET_GROSS_EXPOSURE`;
+- the final domain-authority repair workflow passed source patch, compile, ruff, targeted API tests and full Python regression and atomically removed both temporary L2 verifier workflows;
+- bot-authored product head after that repair was `349dcd81d6a1202e8a4d3a1bcb0c4aa4d0423680`; standard CI on that bot-authored head reported `action_required` because no job was allowed to start under the actor policy, not because of a test failure;
+- canonical `docs/PORTFOLIO_V3_CONTRACT.md` has been updated with the opened API contract and the user-confirmed gross-reset/internal-mix semantics;
+- this handoff update is part of the final user-authored L2 candidate used to obtain formal exact-head CI/Vercel evidence.
 
 ### L3 — UX
 
-Status: **DEFERRED until L2**.
+Status: **PLANNING ONLY / do not write until user confirms final UI details and L2 closes**.
 
-Objective:
+Required UX direction already established:
 
-- let the user enter/display residual cash and gross leverage directly from weights;
-- clearly distinguish asset-allocation rebalance from daily leverage reset;
-- remove ambiguous duplicate leverage controls;
-- keep responsive Portfolio user flows and existing 100% portfolios unchanged.
+- percentage cells become the direct leverage/cash control;
+- each Portfolio's total percentage is its own target gross exposure;
+- individual asset entries must no longer be capped at 100%; the Portfolio domain cap remains the sole gross-exposure authority;
+- non-100% totals must not be shown as invalid merely because they differ from 100%; they should be described as cash / fully invested / leveraged exposure;
+- remove or demote the global `fixed_ratio` leverage selector from the normal user flow so it cannot imply one common leverage ratio across all Portfolios;
+- keep legacy leverage only as compatibility behavior, not the primary new UI authority;
+- show that daily gross reset is automatic for non-100% totals, while internal allocation rebalance follows the user's periodic/threshold settings;
+- preserve responsive desktop/mobile Portfolio editing and existing 100% flows.
+
+Do not start L3 source writes until L2 exact-head verification is complete and the final UI change list has been presented to the user for confirmation.
 
 ## 5. L1 Locked Ledger Semantics
 
 1. Portfolio weights are equity-relative target exposures, with current domain gross bound `(0, 500%]`.
-2. `target_allocation` preserves the raw user-entered exposure weights.
-3. `target_asset_mix` is the normalized asset-only composition.
-4. Weight total below 100% creates ledger cash; it is not represented by a synthetic cash-price series.
+2. `target_allocation` preserves raw user-entered exposure weights.
+3. `target_asset_mix` is normalized asset-only composition.
+4. Weight total below 100% creates ledger cash; it is not a synthetic cash-price series.
 5. Weight total above 100% creates ledger debt and a target gross exposure ratio.
-6. Leveraged gross exposure resets at every close after returns/distributions/interest/flows and before final state recording.
-7. A leverage reset preserves the current asset mix unless an independently configured allocation rebalance fires on that close.
-8. Periodic/threshold allocation rebalance restores target asset mix and target gross in one ledger trade; it must not be followed by a redundant leverage-reset trade.
+6. Non-100% gross exposure resets at every close after returns/distributions/interest/flows and before final state recording.
+7. A pure gross reset preserves current asset mix unless an independently configured allocation rebalance fires on that close.
+8. Periodic/threshold allocation rebalance restores target asset mix and target gross in one ledger trade; no redundant gross-reset trade follows.
 9. Leveraged allocation-threshold checks normalized asset mix, so gross-exposure drift alone cannot masquerade as allocation drift.
 10. Underinvested allocation-threshold semantics include intentional residual cash.
 11. Reset/rebalance transaction costs are solved against post-cost equity through the ledger; no leveraged-return multiplication approximation is allowed.
 12. Borrowing interest remains explicit ledger cost.
 13. Existing fixed-ratio leverage routes through the same daily-reset authority.
 14. Fixed-debt remains explicit/separate.
-15. Non-100% weight-defined exposure plus an explicit legacy leverage overlay fails closed as ambiguous.
+15. Non-100% weight-defined exposure plus explicit legacy leverage fails closed as ambiguous.
 16. Existing 100% / no-leverage Portfolio behavior remains the compatibility baseline.
-17. Initial leveraged states must already satisfy the configured maintenance-margin guard. For example, 3x with a 25% maintenance margin is admissible, while 5x with a 25% maintenance margin is rejected before a fictitious initial state can be recorded.
-18. Existing direct `PortfolioLedger(...)` construction and Walk-Forward OOS `_rebalance(..., target_weights, ...)` integration remain compatible adapters into the same Portfolio authority.
-
-Current ledger diagnostics include:
-
-- cash;
-- debt;
-- gross exposure;
-- net exposure;
-- gross exposure ratio;
-- net exposure ratio;
-- target gross exposure ratio;
-- target cash allocation;
-- target asset mix;
-- leverage reset count/events.
+17. Initial leveraged states must satisfy the configured maintenance-margin guard before day-zero state is recorded.
+18. Existing direct `PortfolioLedger(...)` construction and Walk-Forward OOS `_rebalance(..., target_weights, ...)` remain compatible adapters into the same Portfolio authority.
 
 ## 6. L1 Root-Cause / Verification Record
 
-### A. Targeted implementation gate
+The initial published L1 candidate passed **20/20 targeted ledger tests**. Broad CI later exposed two integration compatibility failures: new ledger diagnostic fields had become required constructor arguments, and `_rebalance` no longer accepted the established Walk-Forward target-weight vector. The permanent repair kept diagnostics derivable/optional and preserved the weight-vector adapter into the same `ExposurePolicy` authority; Walk-Forward was not modified to duplicate Portfolio math.
 
-The implementation candidate was kept off the feature ref until exact source hashes, compile and focused ledger regressions passed. The initial published L1 candidate passed **20/20 targeted ledger tests**.
+Self-review also found that 5x exposure with the default 25% maintenance margin is invalid at inception. Initial states now pass the same margin/non-positive-equity guard before day zero is recorded. 3x with 25% remains admissible; 5x with 25% fails honestly.
 
-A test fixture originally expected a 5% threshold rebalance after one leg of a 50/50 portfolio rose 20%. Evidence showed normalized allocation only moved to 54.545%/45.455%, i.e. 4.545 percentage points of drift. The fixture was corrected to 4%; production logic was not changed for this failure.
+Final L1 exact-head CI #834 and Vercel preview both succeeded.
 
-### B. Broad-regression integration failure
+## 7. Current Public Product Boundary
 
-First formal PR CI after L1 implementation produced **8 Python failures** while compile/lint and targeted math were otherwise valid.
+At the L2 final candidate:
 
-Root causes:
+- Portfolio API admission supports below/equal/above 100% weight-defined exposure within the domain bound;
+- API serializer exposes ledger exposure truth directly;
+- browser Allocation Editor still has the old 100%-only UX validation and per-cell 100% cap;
+- browser Settings still exposes the old global leverage selector;
+- therefore the new behavior is **not yet a complete user-facing feature** until L3 is implemented and verified;
+- production main remains unchanged at `e93e3ba51...` until PR #162 completes R3 review/merge gates.
 
-1. new `PortfolioLedger` diagnostic fields were made required constructor arguments, breaking existing quant fixtures and Walk-Forward OOS direct construction;
-2. `_rebalance` had changed its established input from a target-weight vector to `ExposurePolicy`, while Walk-Forward OOS intentionally consumes that shared helper.
-
-Permanent fix:
-
-- preserve the established constructor prefix and make new diagnostics optional/derivable from existing ledger truth;
-- accept the existing weight-vector `_rebalance` adapter and immediately convert it into the same `ExposurePolicy` authority;
-- do **not** modify Walk-Forward OOS to duplicate calculations.
-
-The repair passed compile, ruff and the full Python regression before commit.
-
-### C. Initial-margin self-review blocker
-
-Self-review found that a 5x initial target with the default 25% maintenance margin has only 20% equity/gross, yet the previous flow would not evaluate margin until the next valuation date.
-
-Permanent fix:
-
-- validate the initial target state through the same liquidation guard before recording day zero;
-- apply the guard to weight-defined/fixed-ratio and fixed-debt states;
-- fail honestly for an invalid initial configuration instead of emitting a temporarily invalid ledger state.
-
-Targeted and full Python regression passed before this repair was committed.
-
-### D. Validation-workflow noise
-
-Temporary GitHub Actions assemblers were used only to keep large multi-file candidates off the feature ref until source-hash and regression gates passed. Several candidate-generation runs stopped before product commits because whitespace-sensitive or transport guards were too strict. These were tooling/verification noise, not product failures; permanent source changes were never published from a failed runner.
-
-## 7. L1 Current Verification State
-
-Verified so far:
-
-- exact candidate source/hash validation before initial publish;
-- targeted ledger regression 20/20 on initial L1 candidate;
-- integration repair: compile + ruff + full Python regression SUCCESS before commit;
-- initial-margin repair: targeted + full Python regression SUCCESS before commit;
-- current branch contains no intended temporary verification workflow in the final product diff after each verified repair commit.
-
-Final L1 closure evidence:
-
-1. canonical `docs/PORTFOLIO_V3_CONTRACT.md` updated;
-2. user-authored exact head `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`;
-3. formal CI #834 SUCCESS on that exact head, including Python/JS/Worker/score/Portfolio build/source/browser/Vercel-config/D1/Cloudflare-bundle gates;
-4. Vercel preview SUCCESS on that exact head;
-5. final L1 diff/self-review found no remaining BLOCKER;
-6. production main remained `e93e3ba51...`.
-
-L1 is **DONE**. This does **not** authorize merge of PR #162; L2/L3 and final R3 gates remain required.
-
-## 8. Current Public Product Boundary
-
-Until L2/L3 are completed:
-
-- public Portfolio API still enforces the existing approximately-100% weight contract;
-- browser Allocation Editor still treats non-100% totals as invalid and currently caps each weight at 100%;
-- therefore L1 is an internal ledger-authority foundation and is not yet a user-visible feature;
-- production main remains unchanged at `e93e3ba51...`.
-
-This staged boundary is intentional so each batch remains usable and independently rollbackable.
-
-## 9. NOW / NEXT / BACKLOG / REJECT
+## 8. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-Execute L2 API Contract only:
+Close L2 only:
 
 ```text
-public weight admission <100 / =100 / >100
-→ serialize L1 cash/debt/gross/net/reset truth
-→ preserve 100% request compatibility
-→ fail closed on ambiguous legacy leverage overlays
-→ targeted API regressions
-→ broad exact-head verification
+user-authored final candidate
+→ full repository CI
+→ Vercel preview
+→ self-review exact diff
+→ L2 DONE only if all gates pass
 ```
 
 ### NEXT
 
-L3 UX only after L2 is verified.
+Present the final L3 UI change list for user confirmation, then implement only the leverage/cash UX if authorized.
 
 ### AFTER L3
 
-Perform R3 final review/recovery/merge/post-main production verification for PR #162. Only then resume the broader product roadmap.
+Perform R3 final review, pre-merge recovery, exact-head independent review, squash merge, post-main recovery, main CI, Vercel production and live Portfolio production regression for representative 50% / 100% / 150%+ cases.
 
 ### BACKLOG
 
@@ -263,39 +221,40 @@ Perform R3 final review/recovery/merge/post-main production verification for PR 
 - AI research automation/autopilot;
 - distributed scale/performance after correctness contracts stabilize.
 
-### REJECT FOR CURRENT L1
+### REJECT FOR CURRENT FEATURE
 
 - `daily return × leverage` approximation;
+- one global leverage multiplier as the new Portfolio UX authority;
+- daily forced restoration of every asset's raw target weight when only gross reset is due;
 - a second Portfolio performance engine;
 - a second leverage state outside Portfolio v3 ledger;
-- mixing L2 API or L3 UI work into L1 before its gates close;
 - unrelated refactors;
 - reactivating frozen PR #147.
 
-## 10. Risks / Reopen Conditions
+## 9. Risks / Reopen Conditions
 
-Reopen L1 design if evidence shows any of:
+Reopen the ledger/API design if evidence shows any of:
 
 - 100% no-leverage parity regression;
 - cash/debt accounting identity failure;
-- target gross exposure not restored after a leverage reset;
-- reset changes asset mix when allocation rebalance did not fire;
+- target gross exposure not restored after required daily reset;
+- pure reset changes internal asset mix without allocation rebalance;
 - allocation threshold fires solely because gross exposure drifted;
-- transaction cost is not included in post-cost equity target solving;
+- transaction cost is excluded from post-cost equity target solving;
 - margin/liquidation ordering creates an impossible state;
-- Walk-Forward OOS parity or shared-ledger integration regresses;
-- API implementation in L2 cannot represent the L1 truth without duplicating authority.
+- Walk-Forward OOS parity/shared-ledger integration regresses;
+- API or browser begins maintaining a second exposure-limit/leverage authority.
 
-## 11. Exact Resume Point
+## 10. Exact Resume Point
 
 On resume:
 
 1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PORTFOLIO_V3_CONTRACT.md`;
-2. re-query main, PR #162, exact branch head, CI/Vercel and open review state;
-3. verify production main is still the last known good `e93e3ba51...` or analyze any divergence before rebasing;
+2. re-query main, PR #162, exact branch head, CI/Vercel and review state;
+3. verify production main is still `e93e3ba51...` or analyze divergence before important writes;
 4. treat L1 as CLOSED unless new correctness evidence reopens it;
-5. continue only L2 API Contract;
-6. do not start L3 UX until L2 is verified;
+5. finish L2 exact-head formal verification;
+6. do not write L3 UX until its final change list has been presented to the user and authorized;
 7. preserve the historical appendix below when updating this file.
 
 ---
