@@ -20,33 +20,62 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function requestTooLarge() {
+  const error = new Error("Exhaustive authority request is too large");
+  error.statusCode = 413;
+  return error;
+}
+
+function invalidJson() {
+  const error = new Error("Exhaustive authority request must be valid JSON");
+  error.statusCode = 400;
+  return error;
+}
+
+function parseRawJson(raw) {
+  if (Buffer.byteLength(raw) > MAX_REQUEST_BYTES) throw requestTooLarge();
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    throw invalidJson();
+  }
+}
+
 async function readJsonBody(request) {
   const declared = Number(request.headers?.["content-length"] || 0);
-  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
-    const error = new Error("Exhaustive authority request is too large");
-    error.statusCode = 413;
-    throw error;
+  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) throw requestTooLarge();
+
+  // @vercel/node may populate req.body before the function runs. Support that
+  // runtime shape without assuming the request remains an unread stream.
+  if (request.body !== undefined && request.body !== null) {
+    if (Buffer.isBuffer(request.body)) {
+      return parseRawJson(request.body.toString("utf8"));
+    }
+    if (typeof request.body === "string") {
+      return parseRawJson(request.body);
+    }
+    if (typeof request.body === "object") {
+      let encoded;
+      try {
+        encoded = JSON.stringify(request.body);
+      } catch {
+        throw invalidJson();
+      }
+      if (Buffer.byteLength(encoded) > MAX_REQUEST_BYTES) throw requestTooLarge();
+      return request.body;
+    }
+    throw invalidJson();
   }
+
   const chunks = [];
   let total = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_REQUEST_BYTES) {
-      const error = new Error("Exhaustive authority request is too large");
-      error.statusCode = 413;
-      throw error;
-    }
+    if (total > MAX_REQUEST_BYTES) throw requestTooLarge();
     chunks.push(buffer);
   }
-  const raw = Buffer.concat(chunks).toString("utf8");
-  try {
-    return JSON.parse(raw || "{}");
-  } catch {
-    const error = new Error("Exhaustive authority request must be valid JSON");
-    error.statusCode = 400;
-    throw error;
-  }
+  return parseRawJson(Buffer.concat(chunks).toString("utf8"));
 }
 
 function requireMatchingDeployment(request) {
