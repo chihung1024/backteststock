@@ -35,6 +35,33 @@ def _downloaded_history() -> pd.DataFrame:
     )
 
 
+def _downloaded_multi_history() -> pd.DataFrame:
+    dates = pd.to_datetime(
+        [
+            "2018-01-02",
+            "2023-06-22",
+            "2023-06-23",
+            "2024-02-01",
+            "2024-02-02",
+        ]
+    )
+    values: dict[tuple[str, str], list[float | bool]] = {}
+    for symbol, closes in {
+        "NEW_A": [10.0, 20.0, 20.5, 22.0, 22.5],
+        "NEW_B": [30.0, 31.0, 31.5, 40.0, 40.5],
+        "LONG": [50.0, 60.0, 60.5, 65.0, 65.5],
+    }.items():
+        values[("Adj Close", symbol)] = closes
+        values[("Close", symbol)] = closes
+        values[("Dividends", symbol)] = [0.0] * len(dates)
+        values[("Stock Splits", symbol)] = [0.0] * len(dates)
+        values[("Capital Gains", symbol)] = [0.0] * len(dates)
+        values[("Repaired?", symbol)] = [False] * len(dates)
+    frame = pd.DataFrame(values, index=dates)
+    frame.columns = pd.MultiIndex.from_tuples(frame.columns)
+    return frame
+
+
 def test_parse_first_trade_date_accepts_yahoo_epoch_and_iso() -> None:
     expected = date(2023, 6, 22)
     epoch_seconds = pd.Timestamp("2023-06-22T13:30:00Z").timestamp()
@@ -126,6 +153,61 @@ def test_market_data_never_exposes_pre_inception_ticker_reuse(monkeypatch) -> No
         frame.attrs["instrument_identity_audits"]["VFLO"]["first_trade_date"]
         == "2023-06-22"
     )
+
+
+def test_batch_guard_respects_distinct_lifecycles_and_preserves_long_history(
+    monkeypatch,
+) -> None:
+    market_data.clear_price_cache()
+    monkeypatch.setattr(
+        market_data,
+        "bulk_download_prices",
+        lambda *_args, **_kwargs: _downloaded_multi_history(),
+    )
+    monkeypatch.setattr(
+        market_data,
+        "resolve_instrument_identities",
+        lambda _symbols: {
+            "NEW_A": InstrumentIdentity(
+                symbol="NEW_A",
+                status="verified",
+                first_trade_date=date(2023, 6, 22),
+            ),
+            "NEW_B": InstrumentIdentity(
+                symbol="NEW_B",
+                status="verified",
+                first_trade_date=date(2024, 2, 1),
+            ),
+            "LONG": InstrumentIdentity(
+                symbol="LONG",
+                status="verified",
+                first_trade_date=date(2000, 1, 1),
+            ),
+        },
+    )
+
+    resolved, unresolved = market_data.download_prices_finitely(
+        ["NEW_A", "NEW_B", "LONG"],
+        "2018-01-01",
+        "2024-02-03",
+        attempts=1,
+        backoff_seconds=(0.0,),
+    )
+
+    assert unresolved == []
+    assert resolved["NEW_A"].index[0] == pd.Timestamp("2023-06-22")
+    assert resolved["NEW_B"].index[0] == pd.Timestamp("2024-02-01")
+    assert resolved["LONG"].index[0] == pd.Timestamp("2018-01-02")
+
+    audit_a = resolved["NEW_A"].attrs["instrument_identity_audit"]
+    audit_b = resolved["NEW_B"].attrs["instrument_identity_audit"]
+    audit_long = resolved["LONG"].attrs["instrument_identity_audit"]
+    assert audit_a["removed_pre_inception_rows"] == 1
+    assert audit_b["removed_pre_inception_rows"] == 3
+    assert audit_long["removed_pre_inception_rows"] == 0
+    assert audit_long["status"] == "verified"
+    assert audit_long["clipping_applied"] is False
+    assert len(resolved["LONG"]) == 5
 
 
 def test_unverified_metadata_fails_closed_instead_of_using_ticker_only_history(
