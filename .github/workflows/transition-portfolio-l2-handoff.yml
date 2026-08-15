@@ -1,0 +1,57 @@
+name: Transition Portfolio Handoff to L2
+
+on:
+  push:
+    branches:
+      - feat/portfolio-weight-defined-exposure
+    paths:
+      - .github/workflows/transition-portfolio-l2-handoff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  transition:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mark L1 done and L2 active without rewriting history
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('to_do_update_list.md')
+          text = path.read_text()
+          replacements = {
+              '### L1 — Ledger Authority\n\nStatus: **IMPLEMENTED / targeted + full Python regression verified / final exact-head full repository CI still required**.':
+              '### L1 — Ledger Authority\n\nStatus: **DONE / exact-head CI + Vercel preview verified at `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`**.',
+              '### L2 — API Contract\n\nStatus: **NEXT after L1 exact-head gates close**.':
+              '### L2 — API Contract\n\nStatus: **ACTIVE — public admission + serialized ledger truth; L3 UX remains out of scope**.',
+              '''Still required before L1 may be marked DONE:\n\n1. durable `docs/PORTFOLIO_V3_CONTRACT.md` update;\n2. user-authored final exact head;\n3. formal full repository CI SUCCESS on that exact head;\n4. Vercel preview SUCCESS on that exact head;\n5. final diff/self-review with no L1 BLOCKER;\n6. confirm main/base has not moved incompatibly.\n\nL1 completion does **not** authorize merge of PR #162. The PR remains Draft while L2/L3 are unfinished.''':
+              '''Final L1 closure evidence:\n\n1. canonical `docs/PORTFOLIO_V3_CONTRACT.md` updated;\n2. user-authored exact head `3b4d7fea90bb2298d89f62f9a0d4fe0c886cb9cc`;\n3. formal CI #834 SUCCESS on that exact head, including Python/JS/Worker/score/Portfolio build/source/browser/Vercel-config/D1/Cloudflare-bundle gates;\n4. Vercel preview SUCCESS on that exact head;\n5. final L1 diff/self-review found no remaining BLOCKER;\n6. production main remained `e93e3ba51...`.\n\nL1 is **DONE**. This does **not** authorize merge of PR #162; L2/L3 and final R3 gates remain required.''',
+              '''### NOW\n\nClose L1 only:\n\n```text\ndurable Portfolio contract + handoff\n→ final exact-head full CI + Vercel preview\n→ final L1 self-review\n→ mark L1 DONE\n```\n\n### NEXT\n\nL2 API Contract, then L3 UX.''':
+              '''### NOW\n\nExecute L2 API Contract only:\n\n```text\npublic weight admission <100 / =100 / >100\n→ serialize L1 cash/debt/gross/net/reset truth\n→ preserve 100% request compatibility\n→ fail closed on ambiguous legacy leverage overlays\n→ targeted API regressions\n→ broad exact-head verification\n```\n\n### NEXT\n\nL3 UX only after L2 is verified.''',
+              '''4. finish L1 exact-head gates only;\n5. after L1 is explicitly DONE, start L2 API Contract;\n6. do not start L3 UX until L2 is verified;''':
+              '''4. treat L1 as CLOSED unless new correctness evidence reopens it;\n5. continue only L2 API Contract;\n6. do not start L3 UX until L2 is verified;''',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected handoff block exactly once: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit only transition handoff and remove workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/transition-portfolio-l2-handoff.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- to_do_update_list.md .github/workflows/transition-portfolio-l2-handoff.yml
+          git diff --cached --check
+          git commit -m "docs: close Portfolio L1 and activate L2"
+          git push origin HEAD:feat/portfolio-weight-defined-exposure
