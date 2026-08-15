@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-15.1"
+WALK_FORWARD_PATH = "/api/v1/research/walk-forward"
+WALK_FORWARD_HEALTH_PATH = f"{WALK_FORWARD_PATH}/health"
 MAX_REQUEST_BYTES = 128 * 1024
 REQUESTS_PER_MINUTE = 2
 
@@ -112,7 +114,7 @@ class WalkForwardRequest(StrictModel):
         Field(min_length=1, max_length=MAX_WALK_FORWARD_PERIODS),
     ]
     selector: SelectorRequest
-    execution: ExecutionRequest = ExecutionRequest()
+    execution: ExecutionRequest = Field(default_factory=ExecutionRequest)
 
 
 app = FastAPI(
@@ -162,7 +164,9 @@ def _error_response(status_code: int, detail: str) -> JSONResponse:
 @app.middleware("http")
 async def request_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
     path = request.url.path
-    if path.startswith("/api/v1/research/walk-forward"):
+    if path == WALK_FORWARD_HEALTH_PATH:
+        return _secure_response(await call_next(request))
+    if path == WALK_FORWARD_PATH:
         forwarded = request.headers.get("x-forwarded-for", "")
         fallback = request.client.host if request.client else "unknown"
         client_key = forwarded.split(",")[0].strip() or fallback
@@ -188,7 +192,7 @@ async def request_guard(request: Request, call_next):  # type: ignore[no-untyped
     return _secure_response(await call_next(request))
 
 
-@app.get("/api/v1/research/walk-forward/health")
+@app.get(WALK_FORWARD_HEALTH_PATH)
 def health() -> dict[str, str]:
     return {
         "status": "ok",
@@ -199,7 +203,7 @@ def health() -> dict[str, str]:
     }
 
 
-@app.post("/api/v1/research/walk-forward")
+@app.post(WALK_FORWARD_PATH)
 async def run_walk_forward(payload: WalkForwardRequest, response: Response) -> dict:
     try:
         spec = _domain_spec(payload)
