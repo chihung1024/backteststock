@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 
 import {
   authorityIdentity,
@@ -10,7 +11,8 @@ export const config = { maxDuration: 240 };
 export const EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION =
   "exhaustive-authority-http-2026-08-15.1";
 export const MAX_SERVER_EXHAUSTIVE_COMBINATIONS = 500_000;
-const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
+export const MAX_AUTHORITY_WIRE_BYTES = 3 * 1024 * 1024;
+export const MAX_AUTHORITY_JSON_BYTES = 16 * 1024 * 1024;
 
 function sendJson(response, status, payload) {
   response.statusCode = status;
@@ -23,47 +25,85 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function requestTooLarge() {
-  const error = new Error("Exhaustive authority request is too large");
+function requestTooLarge(message = "Exhaustive authority request is too large") {
+  const error = new Error(message);
   error.statusCode = 413;
   return error;
 }
 
-function invalidJson() {
-  const error = new Error("Exhaustive authority request must be valid JSON");
+function invalidJson(message = "Exhaustive authority request must be valid JSON") {
+  const error = new Error(message);
   error.statusCode = 400;
   return error;
 }
 
-function parseRawJson(raw) {
-  if (Buffer.byteLength(raw) > MAX_REQUEST_BYTES) throw requestTooLarge();
+function unsupportedEncoding(encoding) {
+  const error = new Error(`Unsupported Exhaustive authority content encoding: ${encoding}`);
+  error.statusCode = 415;
+  return error;
+}
+
+function contentEncoding(request) {
+  return String(request.headers?.["content-encoding"] || "identity").trim().toLowerCase() || "identity";
+}
+
+function decodeRawBody(buffer, encoding) {
+  if (buffer.length > MAX_AUTHORITY_WIRE_BYTES) throw requestTooLarge();
+  let decoded = buffer;
+  if (encoding === "gzip") {
+    try {
+      decoded = gunzipSync(buffer, { maxOutputLength: MAX_AUTHORITY_JSON_BYTES });
+    } catch (error) {
+      if (error?.code === "ERR_BUFFER_TOO_LARGE") {
+        throw requestTooLarge("Exhaustive authority decoded JSON is too large");
+      }
+      throw invalidJson("Exhaustive authority gzip body is invalid");
+    }
+  } else if (encoding !== "identity") {
+    throw unsupportedEncoding(encoding);
+  }
+  if (decoded.length > MAX_AUTHORITY_JSON_BYTES) {
+    throw requestTooLarge("Exhaustive authority decoded JSON is too large");
+  }
   try {
-    return JSON.parse(raw || "{}");
+    return JSON.parse(decoded.toString("utf8") || "{}");
   } catch {
     throw invalidJson();
   }
 }
 
+function validateParsedBody(body) {
+  let encoded;
+  try {
+    encoded = Buffer.from(JSON.stringify(body));
+  } catch {
+    throw invalidJson();
+  }
+  if (encoded.length > MAX_AUTHORITY_JSON_BYTES) {
+    throw requestTooLarge("Exhaustive authority decoded JSON is too large");
+  }
+  return body;
+}
+
 async function readJsonBody(request) {
   const declared = Number(request.headers?.["content-length"] || 0);
-  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) throw requestTooLarge();
+  if (Number.isFinite(declared) && declared > MAX_AUTHORITY_WIRE_BYTES) {
+    throw requestTooLarge();
+  }
+  const encoding = contentEncoding(request);
 
+  // @vercel/node may populate req.body before the function runs. A parsed
+  // object is already decoded by the runtime; raw Buffer/string bodies still
+  // honor Content-Encoding and the independent wire/decoded ceilings.
   if (request.body !== undefined && request.body !== null) {
     if (Buffer.isBuffer(request.body)) {
-      return parseRawJson(request.body.toString("utf8"));
+      return decodeRawBody(request.body, encoding);
     }
     if (typeof request.body === "string") {
-      return parseRawJson(request.body);
+      return decodeRawBody(Buffer.from(request.body), encoding);
     }
     if (typeof request.body === "object") {
-      let encoded;
-      try {
-        encoded = JSON.stringify(request.body);
-      } catch {
-        throw invalidJson();
-      }
-      if (Buffer.byteLength(encoded) > MAX_REQUEST_BYTES) throw requestTooLarge();
-      return request.body;
+      return validateParsedBody(request.body);
     }
     throw invalidJson();
   }
@@ -73,10 +113,10 @@ async function readJsonBody(request) {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_REQUEST_BYTES) throw requestTooLarge();
+    if (total > MAX_AUTHORITY_WIRE_BYTES) throw requestTooLarge();
     chunks.push(buffer);
   }
-  return parseRawJson(Buffer.concat(chunks).toString("utf8"));
+  return decodeRawBody(Buffer.concat(chunks), encoding);
 }
 
 function configuredInternalSecret() {
