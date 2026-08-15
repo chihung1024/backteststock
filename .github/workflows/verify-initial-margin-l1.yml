@@ -1,0 +1,143 @@
+name: Verify Portfolio L1 Initial Margin
+
+on:
+  push:
+    branches:
+      - feat/portfolio-weight-defined-exposure
+    paths:
+      - .github/workflows/verify-initial-margin-l1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Enforce initial maintenance-margin admission
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/api/app/portfolio/ledger.py')
+          text = path.read_text()
+          old = '''    asset_values, debt, cash = _target_state(
+              config.initial_amount,
+              policy,
+              config.leverage,
+          )
+          cumulative_income_value = 0.0
+          '''.replace('          ', '')
+          new = '''    asset_values, debt, cash = _target_state(
+              config.initial_amount,
+              policy,
+              config.leverage,
+          )
+          initial_liquidation_reason = _liquidation_reason(
+              asset_values,
+              cash,
+              debt,
+              config.leverage.maintenance_margin_percent,
+          )
+          if initial_liquidation_reason is not None:
+              raise ValueError(
+                  "initial portfolio exposure violates liquidation guard: "
+                  f"{initial_liquidation_reason}"
+              )
+          cumulative_income_value = 0.0
+          '''.replace('          ', '')
+          if text.count(old) != 1:
+              raise SystemExit('expected initial target-state block not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+
+      - name: Add initial margin regressions
+        run: |
+          cat >> tests/test_portfolio_weight_defined_exposure.py <<'PY'
+
+
+          def test_initial_target_exposure_must_satisfy_maintenance_margin() -> None:
+              history = _history(
+                  "AAA",
+                  ["2024-01-02", "2024-01-03"],
+                  [0.0, 0.0],
+              )
+
+              valid = simulate_portfolio_ledger(
+                  PortfolioSpec.from_weights("Valid 3x", {"AAA": 3.0}),
+                  {"AAA": history},
+                  SimulationConfig(
+                      initial_amount=100.0,
+                      leverage=LeverageConfig(maintenance_margin_percent=25.0),
+                  ),
+              )
+              assert valid.gross_exposure_ratio.iloc[0] == pytest.approx(3.0)
+
+              with pytest.raises(ValueError, match="initial portfolio exposure"):
+                  simulate_portfolio_ledger(
+                      PortfolioSpec.from_weights("Invalid 5x", {"AAA": 5.0}),
+                      {"AAA": history},
+                      SimulationConfig(
+                          initial_amount=100.0,
+                          leverage=LeverageConfig(maintenance_margin_percent=25.0),
+                      ),
+                  )
+
+
+          def test_initial_fixed_debt_also_uses_the_same_margin_guard() -> None:
+              history = _history(
+                  "AAA",
+                  ["2024-01-02", "2024-01-03"],
+                  [0.0, 0.0],
+              )
+
+              with pytest.raises(ValueError, match="initial portfolio exposure"):
+                  simulate_portfolio_ledger(
+                      PortfolioSpec.from_weights("Invalid fixed debt", {"AAA": 1.0}),
+                      {"AAA": history},
+                      SimulationConfig(
+                          initial_amount=100.0,
+                          leverage=LeverageConfig(
+                              type=LeverageType.FIXED_DEBT,
+                              debt_amount=400.0,
+                              maintenance_margin_percent=25.0,
+                          ),
+                      ),
+                  )
+          PY
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run targeted and full Python regression
+        run: |
+          set -euo pipefail
+          python -m compileall -q api apps scripts tests
+          ruff check api apps scripts tests
+          pytest -q tests/test_portfolio_ledger.py tests/test_portfolio_weight_defined_exposure.py tests/test_portfolio_ledger_compatibility.py
+          python -m pytest -q
+
+      - name: Commit only verified margin guard
+        run: |
+          set -euo pipefail
+          rm .github/workflows/verify-initial-margin-l1.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            apps/api/app/portfolio/ledger.py \
+            tests/test_portfolio_weight_defined_exposure.py \
+            .github/workflows/verify-initial-margin-l1.yml
+          git diff --cached --check
+          git commit -m "fix: reject invalid initial Portfolio margin states"
+          git push origin HEAD:feat/portfolio-weight-defined-exposure
