@@ -28,15 +28,17 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
           path = Path('apps/api/app/portfolio/ledger.py')
           text = path.read_text()
 
           start = text.index('@dataclass(slots=True)\nclass PortfolioLedger:')
           end = text.index('\n\ndef align_portfolio_components', start)
-          replacement = '''@dataclass(slots=True)
+          replacement = dedent('''\
+          @dataclass(slots=True)
           class PortfolioLedger:
-              # Keep the established constructor prefix stable.  Quant fixtures and
+              # Keep the established constructor prefix stable. Quant fixtures and
               # Walk-Forward OOS construct this shared ledger directly; new exposure
               # diagnostics therefore remain optional and derive from existing truth.
               name: str
@@ -121,10 +123,11 @@ jobs:
               valid = aligned_equity > _EPSILON
               result.loc[valid] = aligned_exposure.loc[valid] / aligned_equity.loc[valid]
               return result
-          '''.replace('          ', '')
+          ''')
           text = text[:start] + replacement.rstrip() + text[end:]
 
-          signature = '''def _rebalance(
+          signature = dedent('''\
+          def _rebalance(
               asset_values: np.ndarray,
               debt: float,
               cash: float,
@@ -133,8 +136,9 @@ jobs:
               transaction_cost_bps: float,
           ) -> tuple[np.ndarray, float, float, float, float]:
               equity = _state_equity(asset_values, cash, debt)
-          '''.replace('          ', '')
-          adapter = '''def _rebalance(
+          ''')
+          adapter = dedent('''\
+          def _rebalance(
               asset_values: np.ndarray,
               debt: float,
               cash: float,
@@ -143,12 +147,12 @@ jobs:
               transaction_cost_bps: float,
           ) -> tuple[np.ndarray, float, float, float, float]:
               # Walk-Forward OOS already consumes this shared helper with a target
-              # weight vector.  Adapt that existing call immediately into the same
+              # weight vector. Adapt that existing call immediately into the same
               # ExposurePolicy rather than creating a second rebalance authority.
               if not isinstance(policy, ExposurePolicy):
                   policy = _exposure_policy(np.asarray(policy, dtype=float), leverage)
               equity = _state_equity(asset_values, cash, debt)
-          '''.replace('          ', '')
+          ''')
           if text.count(signature) != 1:
               raise SystemExit('expected _rebalance signature not found exactly once')
           text = text.replace(signature, adapter)
