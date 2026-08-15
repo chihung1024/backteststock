@@ -125,7 +125,7 @@ test("390px mobile editor keeps the same weight-defined exposure semantics", asy
   await mockExposureApi(page);
   await page.goto("/portfolio/");
 
-  await page.getByLabel("資產 1").fill("VT");
+  await page.locator(".mobile-asset-row .ticker-cell input").first().fill("VT");
   const mobileWeight = page.locator(".mobile-asset-row .weight-input input").first();
   await mobileWeight.fill("150");
 
