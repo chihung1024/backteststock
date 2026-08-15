@@ -32,6 +32,7 @@ _MAX_IDENTITY_WORKERS = 8
 _MAX_IDENTITY_ATTEMPTS = 2
 
 _identity_cache = TTLCache(maxsize=2048, ttl=6 * 60 * 60)
+_identity_failure_cache = TTLCache(maxsize=2048, ttl=30)
 _identity_cache_lock = threading.RLock()
 
 
@@ -72,8 +73,11 @@ def resolve_instrument_identity(symbol: str) -> InstrumentIdentity:
 
     with _identity_cache_lock:
         cached = _identity_cache.get(normalized)
+        failed = _identity_failure_cache.get(normalized)
     if cached is not None:
         return cached
+    if failed is not None:
+        return failed
 
     errors: list[str] = []
     for _attempt in range(_MAX_IDENTITY_ATTEMPTS):
@@ -91,6 +95,7 @@ def resolve_instrument_identity(symbol: str) -> InstrumentIdentity:
             )
             with _identity_cache_lock:
                 _identity_cache[normalized] = identity
+                _identity_failure_cache.pop(normalized, None)
             return identity
         except Exception as exc:  # noqa: BLE001 - untrusted upstream metadata boundary
             errors.append(str(exc))
@@ -102,10 +107,11 @@ def resolve_instrument_identity(symbol: str) -> InstrumentIdentity:
         first_trade_date=None,
         detail=detail,
     )
-    # Cache bounded failures briefly through the shared TTL to avoid turning a
-    # transient metadata outage into an N-times-per-request retry storm.
+    # Keep failures only briefly. That suppresses duplicate lookups inside the
+    # same finite retry cycle without turning a transient metadata outage into a
+    # multi-hour correctness outage.
     with _identity_cache_lock:
-        _identity_cache[normalized] = identity
+        _identity_failure_cache[normalized] = identity
     logger.warning(
         "Instrument identity metadata unavailable for %s: %s", normalized, detail
     )
@@ -117,7 +123,9 @@ def resolve_instrument_identities(
 ) -> dict[str, InstrumentIdentity]:
     """Resolve unique symbols concurrently without changing requested identity."""
 
-    requested = list(dict.fromkeys(str(symbol or "").strip().upper() for symbol in symbols))
+    requested = list(
+        dict.fromkeys(str(symbol or "").strip().upper() for symbol in symbols)
+    )
     requested = [symbol for symbol in requested if symbol]
     if not requested:
         return {}
@@ -132,7 +140,7 @@ def resolve_instrument_identities(
             symbol = futures[future]
             try:
                 resolved[symbol] = future.result()
-            except Exception as exc:  # pragma: no cover - resolver already fails closed to audit
+            except Exception as exc:  # pragma: no cover - resolver returns explicit failures
                 resolved[symbol] = InstrumentIdentity(
                     symbol=symbol,
                     status="unverified_metadata",
@@ -215,6 +223,7 @@ def parse_first_trade_date(value: object) -> date | None:
 def clear_instrument_identity_cache() -> None:
     with _identity_cache_lock:
         _identity_cache.clear()
+        _identity_failure_cache.clear()
 
 
 def _clip_time_series_attrs(attrs: dict[str, Any], boundary: pd.Timestamp) -> dict[str, Any]:
