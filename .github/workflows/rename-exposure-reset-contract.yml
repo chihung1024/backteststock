@@ -1,0 +1,99 @@
+name: Verify Generic Exposure Reset Contract
+
+on:
+  push:
+    branches:
+      - feat/portfolio-weight-defined-exposure
+    paths:
+      - .github/workflows/rename-exposure-reset-contract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Rename unreleased reset contract
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          code_paths = [
+              Path('apps/api/app/portfolio/ledger.py'),
+              Path('apps/api/app/portfolio/api_service.py'),
+              Path('tests/test_portfolio_weight_defined_exposure.py'),
+              Path('tests/test_portfolio_api_service.py'),
+              Path('tests/test_portfolio_ledger_compatibility.py'),
+          ]
+          doc_paths = [
+              Path('docs/PORTFOLIO_V3_CONTRACT.md'),
+              Path('to_do_update_list.md'),
+          ]
+
+          total_count = 0
+          event_count = 0
+          for path in code_paths:
+              text = path.read_text()
+              total_count += text.count('leverage_reset_count')
+              event_count += text.count('"leverage_reset"')
+              text = text.replace('leverage_reset_count', 'exposure_reset_count')
+              text = text.replace('"leverage_reset"', '"exposure_reset"')
+              path.write_text(text)
+
+          if total_count < 8:
+              raise SystemExit(f'unexpectedly few reset-count references: {total_count}')
+          if event_count < 5:
+              raise SystemExit(f'unexpectedly few reset-event references: {event_count}')
+
+          for path in doc_paths:
+              text = path.read_text()
+              text = text.replace('leverage-reset count', 'exposure-reset count')
+              text = text.replace('leverage-reset events', 'exposure-reset events')
+              text = text.replace('leverage-reset trade', 'exposure-reset trade')
+              text = text.replace('leverage-reset event', 'exposure-reset event')
+              text = text.replace('leverage reset count', 'exposure reset count')
+              text = text.replace('leverage reset/events', 'exposure reset/events')
+              path.write_text(text)
+
+          leftovers = []
+          for path in code_paths:
+              text = path.read_text()
+              if 'leverage_reset_count' in text or '"leverage_reset"' in text:
+                  leftovers.append(str(path))
+          if leftovers:
+              raise SystemExit('old reset contract remains in: ' + ', '.join(leftovers))
+          PY
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run focused and full Python regression
+        run: |
+          set -euo pipefail
+          python -m compileall -q api apps scripts tests
+          ruff check api apps scripts tests
+          pytest -q tests/test_portfolio_weight_defined_exposure.py tests/test_portfolio_api_models.py tests/test_portfolio_api_service.py tests/test_portfolio_v3_api.py tests/test_portfolio_ledger.py tests/test_portfolio_ledger_compatibility.py
+          python -m pytest -q
+
+      - name: Commit only verified contract rename and remove verifier
+        run: |
+          set -euo pipefail
+          rm .github/workflows/rename-exposure-reset-contract.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- apps/api/app/portfolio/ledger.py apps/api/app/portfolio/api_service.py tests/test_portfolio_weight_defined_exposure.py tests/test_portfolio_api_service.py tests/test_portfolio_ledger_compatibility.py docs/PORTFOLIO_V3_CONTRACT.md to_do_update_list.md .github/workflows/rename-exposure-reset-contract.yml
+          git diff --cached --check
+          git commit -m "refactor: name daily Portfolio resets generically"
+          git push origin HEAD:feat/portfolio-weight-defined-exposure
