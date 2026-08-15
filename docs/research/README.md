@@ -13,11 +13,12 @@ This index identifies which document owns which semantic boundary. Current execu
 5. `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md`
 6. `WALK_FORWARD_SELECTION_CORE_V1.md`
 7. `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md`
-8. `../quant/RISK_MATHEMATICS_V1.md`
-9. `REFINERY_API_V1.md`
-10. `REFINERY_UI_V1.md`
-11. `REFINERY_CLUSTERING_V1.md`
-12. corresponding implementation and tests
+8. `WALK_FORWARD_OOS_LEDGER_V1.md`
+9. `../quant/RISK_MATHEMATICS_V1.md`
+10. `REFINERY_API_V1.md`
+11. `REFINERY_UI_V1.md`
+12. `REFINERY_CLUSTERING_V1.md`
+13. corresponding implementation and tests
 
 Closed implementation/convergence/production-acceptance narratives are reconstructed from Git/PR/Issue/Actions history when needed; they are not parallel contract authorities.
 
@@ -29,6 +30,7 @@ Closed implementation/convergence/production-acceptance narratives are reconstru
 | `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md` | Batch 4A-1 temporal causality firewall and immutable decision identity; not a public Walk-Forward API/UI |
 | `WALK_FORWARD_SELECTION_CORE_V1.md` | Batch 4A-2 internal selector boundary: exact Training dataset, explicit PIT-member outcomes, SelectionEngine isolation from OOS data, post-decision Evaluation validation |
 | `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md` | Batch 4A-3 internal adapter binding the existing JavaScript Exhaustive numerical/ranking authority to SelectionEngine with candidates+benchmark Training provenance and golden parity |
+| `WALK_FORWARD_OOS_LEDGER_V1.md` | Batch 4A-4 internal continuous Evaluation/OOS ledger: state carry across frozen decisions, Portfolio v3 transition-cost authority, no period-local NAV reset, explicit gap/execution policies |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
 | `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, Phase 3–5 response schema `.3`, plus opt-in Phase 6 marginal contract `.1` |
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary, including the non-persisted Phase 6 explicit-plan UI |
@@ -53,6 +55,10 @@ A `SelectionEngine` receives the exact PIT-candidate Training `ResearchDataset` 
 ### Existing Exhaustive authority vs Walk-Forward adapter
 
 The Walk-Forward Exhaustive adapter does not own portfolio simulation or score mathematics. `public/exhaustive-optimizer-core.js` remains the numerical authority; the Python adapter owns only causal evidence validation, provenance binding and conversion of the authoritative winning combination into `SelectionResult`. Golden parity must fail rather than normalize an authority-version/result change in Python.
+
+### Evaluation segments vs one investable OOS ledger
+
+Walk-Forward Evaluation periods are evidence partitions, not independent portfolios. Batch 4A-4 carries actual ending OOS equity/allocation into the next frozen target, delegates inter-decision turnover/cost to Portfolio v3, and computes metrics once from one continuous ledger. Period-local NAV reset/average/stitch semantics are not a valid substitute. Evaluation-window gaps do not authorize hidden market observations: V1 carries the last audited state flat until the next validated OOS baseline.
 
 ### TWD risk vs native-currency diagnostics
 
