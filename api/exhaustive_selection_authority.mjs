@@ -1,6 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
+// The browser core re-exports this module through a cache-busted `?v=`
+// specifier. Keep one plain, semantically-used server-side edge in the Vercel
+// entrypoint so @vercel/node's dependency tracer always includes the physical
+// module in the function bundle. This does not create another numerical authority.
+import { MAX_EXHAUSTIVE_COMBINATIONS } from "../public/exhaustive-retention.js";
 import {
   authorityIdentity,
   selectBestExhaustivePortfolio,
@@ -13,6 +18,10 @@ export const EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION =
 export const MAX_SERVER_EXHAUSTIVE_COMBINATIONS = 500_000;
 export const MAX_AUTHORITY_WIRE_BYTES = 3 * 1024 * 1024;
 export const MAX_AUTHORITY_JSON_BYTES = 16 * 1024 * 1024;
+
+if (MAX_SERVER_EXHAUSTIVE_COMBINATIONS > MAX_EXHAUSTIVE_COMBINATIONS) {
+  throw new Error("server Exhaustive budget cannot exceed the existing engine ceiling");
+}
 
 function sendJson(response, status, payload) {
   response.statusCode = status;
