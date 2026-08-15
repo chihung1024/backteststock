@@ -28,7 +28,7 @@ For each valuation interval, the economic ordering is:
 3. borrowing interest;
 4. ending external cashflow;
 5. maintenance-margin/non-positive-equity guard before voluntary trades;
-6. periodic/drift-threshold asset-allocation rebalance **or**, when no allocation rebalance fires, the required daily leverage-exposure reset;
+6. periodic/drift-threshold asset-allocation rebalance **or**, when no allocation rebalance fires, the required daily gross-exposure reset;
 7. post-trade maintenance-margin/non-positive-equity guard;
 8. record equity, cash, debt, gross/net exposure, allocation and audit events.
 
@@ -58,13 +58,14 @@ These rules are ledger economics, not a synthetic return transformation:
 - Leveraged gross exposure is explicit asset market value financed by explicit debt.
 - `target_allocation` preserves the raw equity-relative exposure weights.
 - `target_asset_mix` is the normalized asset-only composition.
-- The ledger records target/realized gross exposure, net exposure, cash, debt and exposure-reset events.
+- The ledger records target/realized gross exposure, net exposure, cash, debt and `exposure_reset` events.
 - Any non-100% target gross exposure is reset at each close to its configured gross-exposure ratio. This reset is separate from asset-allocation rebalance.
+- For an underinvested target, the close reset recomputes both asset gross exposure and residual cash from post-cost equity; it does not create debt merely to preserve an old cash amount.
 - A pure daily gross-exposure reset **preserves the current asset mix**. It must not silently restore each asset to its original raw target weight.
 - Example: a portfolio entered as `VT 100% + QQQ 50%` has 150% target gross exposure. Daily close reset restores total gross exposure to 150%, while VT/QQQ may drift relative to each other. Their internal mix returns to the original target only when the configured periodic or drift-threshold asset-allocation rebalance independently fires.
+- Example: a single-asset 50% Portfolio restores asset exposure to 50% of post-cost equity and residual cash to 50% at each close.
 - If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant exposure-reset trade must not be added afterward.
-- Leveraged threshold logic compares normalized asset mix so gross-exposure drift alone cannot masquerade as allocation drift.
-- Underinvested threshold semantics include the intentional residual-cash allocation.
+- Allocation-threshold logic compares normalized asset mix. Gross/cash drift is handled by the independent daily exposure reset and must not by itself masquerade as internal allocation drift.
 - Transaction costs for reset/rebalance trades are solved inside the ledger against post-cost equity. The implementation must not approximate this contract as `daily return × leverage`.
 - Borrowing interest remains an explicit ledger cost.
 
@@ -75,7 +76,7 @@ Initial exposure is subject to the same maintenance-margin/non-positive-equity g
 - Supported periodic policies and threshold rebalancing are domain configuration, not UI-only behavior.
 - A drift threshold may independently trigger asset-allocation rebalancing.
 - Asset-allocation rebalance and daily gross-exposure reset are distinct concepts and distinct ledger event semantics.
-- A 100% total target has no weight-defined leverage/cash reset requirement; its asset allocation follows the configured rebalance policy.
+- A 100% total target has no weight-defined cash/leverage exposure-reset requirement; its asset allocation follows the configured rebalance policy.
 - A non-100% total target has daily gross-exposure reset in addition to the independently configured asset-allocation policy.
 - Transaction costs are based on traded notional and reduce portfolio equity; trades/costs remain auditable.
 - Periodic logic must not invent economically meaningless terminal trades solely because the requested range ends.
@@ -132,7 +133,7 @@ Requests are typed and strict:
 - the public API derives its maximum exposure admission from the Portfolio domain authority rather than maintaining a second hard-coded leverage cap;
 - a request with non-100% weight-defined exposure and explicit legacy leverage fails closed as ambiguous;
 - existing 100% / no-leverage requests remain the compatibility baseline;
-- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and exposure-reset count rather than recalculating them in the API layer;
+- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and `exposure_reset_count` rather than recalculating them in the API layer;
 - portfolio/asset/request-size resource caps are enforced by current models/Edge tests;
 - TWD is the supported Portfolio valuation currency;
 - future/invalid date ranges are rejected;
