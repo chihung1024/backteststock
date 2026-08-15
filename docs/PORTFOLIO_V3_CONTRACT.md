@@ -140,7 +140,21 @@ Requests are typed and strict:
 - future/invalid date ranges are rejected;
 - cashflow, distribution, rebalancing, transaction-cost, leverage and analytics configuration is converted into domain models rather than reimplemented in the browser.
 
-The API is therefore capable of the weight-defined exposure contract before the browser necessarily exposes it. Browser admission and removal of ambiguous legacy controls are the separate L3 UX boundary.
+### Browser exposure UX
+
+The browser consumes the same API/ledger contract instead of introducing a second leverage engine or a second gross-exposure limit authority:
+
+- each percentage cell is an equity-relative asset exposure; the sum of one Portfolio column is that Portfolio's target gross exposure;
+- the browser accepts non-negative exposure entries above 100% and does **not** hard-code the domain maximum; final admission remains the API/domain responsibility;
+- totals below 100% are presented as asset exposure plus residual cash, 100% as fully invested, and totals above 100% as gross multiple plus financed exposure;
+- a non-100% summary explicitly states that total exposure resets daily while internal asset proportions follow the configured allocation-rebalance policy;
+- `100% 等權` and `縮放至 100%` are explicit editing actions; the browser must not silently normalize a non-100% Portfolio merely because its total is not 100%;
+- borrowing annual interest and maintenance-margin assumptions remain configurable while legacy leverage mode is `none`, because weight-defined gross exposure uses those financing assumptions;
+- legacy `fixed_ratio` / `fixed_debt` controls remain available only as compatibility controls and are demoted from the normal weight-defined workflow;
+- legacy leverage combined with a non-100% active Portfolio is rejected before submission rather than multiplying two leverage definitions;
+- desktop and mobile editors preserve the same exposure semantics.
+
+The browser may present status/formatting helpers, but exact domain limits and ledger calculations remain server-authoritative. Generated production assets under `public/portfolio/` must be rebuilt and committed from the same browser source; CI rejects source/build drift.
 
 Exact numeric caps and schema/version strings must be read from current implementation/tests so this document does not preserve stale migration-era values.
 
@@ -200,19 +214,20 @@ The durable behaviors above are directly exercised by current runtime-facing tes
 - `tests/test_portfolio_analytics.py`
 - `tests/test_portfolio_v3_api.py`
 - `tests/test_portfolio_v3_edge_route.mjs`
+- `tests/e2e/portfolio_exposure_ux.spec.mjs`
 - Portfolio common-window, runtime-cutover, smoke-readiness and web-contract regressions.
 
 A future change that intentionally alters an externally observable semantic must update implementation, direct regression tests, exposed version/schema where applicable, and this contract in the same functional batch.
 
 ## 10. Staged rollout boundary
 
-The current weight-defined exposure implementation is intentionally staged:
+The weight-defined exposure feature is organized as three authority-preserving batches:
 
 1. **L1 Ledger Authority** — domain/ledger semantics and compatibility regressions.
 2. **L2 API Contract** — public admission and serialized ledger truth.
-3. **L3 UX** — editing/display and removal of ambiguous duplicate leverage controls.
+3. **L3 UX** — direct weight-defined exposure editing/display, financing settings, legacy-control demotion and browser regression coverage.
 
-L1 and L2 must not be interpreted as permission to bypass the browser's own validation before L3 is verified. L3 must consume the L1/L2 contract rather than reproduce leverage calculations in the browser.
+L3 must consume L1/L2 rather than reproduce leverage calculations or domain admission limits in the browser. Until the final R3 PR is merged and production-verified, the feature remains a branch/preview candidate rather than production truth.
 
 ## 11. Historical migration boundary
 
