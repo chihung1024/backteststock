@@ -132,24 +132,36 @@ export function SettingsPanels({
         <NumberField label="年度成長率" value={model.cashflow.annualGrowthRatePercent} min={-99.99} max={1000} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, cashflow: { ...current.cashflow, annualGrowthRatePercent: value } }))} />
       </SettingGroup>
 
-      <SettingGroup title="再平衡與槓桿">
+      <SettingGroup title="再平衡與融資">
+        <div className="notice info" style={{ gridColumn: "1 / -1", margin: 0 }}>
+          <strong>總曝險與內部再平衡分開計算</strong>
+          <p>每組權重總和就是該投組的目標總曝險。非 100% 投組每日只重設總曝險；資產內部比例只有定期或偏離門檻再平衡觸發時才回到目標。</p>
+        </div>
         <label className="field">
           <span>定期再平衡</span>
           <select value={model.rebalancing.frequency} onChange={(event) => setModel((current) => ({ ...current, rebalancing: { ...current.rebalancing, frequency: event.target.value as WorkspaceModel["rebalancing"]["frequency"] } }))}>
             <option value="none">不定期</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option>
           </select>
         </label>
-        <NumberField label="權重偏離門檻（0 表示停用）" value={model.rebalancing.thresholdPercent ?? 0} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, rebalancing: { ...current.rebalancing, thresholdPercent: value > 0 ? value : null } }))} />
-        <label className="field">
-          <span>槓桿模式</span>
-          <select value={model.leverage.type} onChange={(event) => setModel((current) => ({ ...current, leverage: { ...current.leverage, type: event.target.value as WorkspaceModel["leverage"]["type"] } }))}>
-            <option value="none">無槓桿</option><option value="fixed_ratio">固定倍數</option><option value="fixed_debt">固定借款</option>
-          </select>
-        </label>
-        {model.leverage.type === "fixed_ratio" && <NumberField label="槓桿倍數" value={model.leverage.ratio} min={1.01} max={5} step={0.05} suffix="×" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, ratio: value } }))} />}
-        {model.leverage.type === "fixed_debt" && <NumberField label="固定借款金額" value={model.leverage.debtAmount} min={0} step={1000} suffix="TWD" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, debtAmount: value } }))} />}
-        {model.leverage.type !== "none" && <NumberField label="借款年利率" value={model.leverage.annualInterestRatePercent} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, annualInterestRatePercent: value } }))} />}
-        {model.leverage.type !== "none" && <NumberField label="維持保證金率" value={model.leverage.maintenanceMarginPercent} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, maintenanceMarginPercent: value } }))} />}
+        <NumberField label="內部權重偏離門檻（0 表示停用）" value={model.rebalancing.thresholdPercent ?? 0} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, rebalancing: { ...current.rebalancing, thresholdPercent: value > 0 ? value : null } }))} />
+        <NumberField label="借款年利率" value={model.leverage.annualInterestRatePercent} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, annualInterestRatePercent: value } }))} />
+        <NumberField label="維持保證金率" value={model.leverage.maintenanceMarginPercent} min={0} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, maintenanceMarginPercent: value } }))} />
+        <details style={{ gridColumn: "1 / -1" }} open={model.leverage.type !== "none"}>
+          <summary>舊版槓桿相容（僅 100% 權重投組）</summary>
+          <div className="notice warning">
+            <p>新投組請直接用每組權重總和定義現金或槓桿曝險。以下控制只保留既有模型相容性，不會與非 100% 權重疊加。</p>
+          </div>
+          <div className="settings-grid">
+            <label className="field">
+              <span>舊版槓桿模式</span>
+              <select value={model.leverage.type} onChange={(event) => setModel((current) => ({ ...current, leverage: { ...current.leverage, type: event.target.value as WorkspaceModel["leverage"]["type"] } }))}>
+                <option value="none">停用（建議）</option><option value="fixed_ratio">固定倍數</option><option value="fixed_debt">固定借款</option>
+              </select>
+            </label>
+            {model.leverage.type === "fixed_ratio" && <NumberField label="舊版槓桿倍數" value={model.leverage.ratio} min={1.01} max={5} step={0.05} suffix="×" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, ratio: value } }))} />}
+            {model.leverage.type === "fixed_debt" && <NumberField label="舊版固定借款金額" value={model.leverage.debtAmount} min={0} step={1000} suffix="TWD" onChange={(value) => setModel((current) => ({ ...current, leverage: { ...current.leverage, debtAmount: value } }))} />}
+          </div>
+        </details>
       </SettingGroup>
 
       <SettingGroup title="進階分析">

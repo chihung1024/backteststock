@@ -9,6 +9,14 @@ const MAX_PORTFOLIOS = 5;
 const MAX_ASSETS = 20;
 const WEIGHT_TOLERANCE = 0.05;
 
+export type PortfolioExposureKind = "inactive" | "cash" | "fully_invested" | "leveraged";
+
+export interface PortfolioExposureSummary {
+  kind: PortfolioExposureKind;
+  label: string;
+  detail: string;
+}
+
 function uid(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID()}`;
@@ -106,6 +114,35 @@ export function portfolioWeightTotal(portfolio: PortfolioColumn, model: Workspac
   );
 }
 
+export function portfolioExposureSummary(total: number): PortfolioExposureSummary {
+  if (!Number.isFinite(total) || total <= 0) {
+    return {
+      kind: "inactive",
+      label: "0.0% · 未啟用",
+      detail: "輸入正曝險後啟用此投組",
+    };
+  }
+  if (Math.abs(total - 100) <= WEIGHT_TOLERANCE) {
+    return {
+      kind: "fully_invested",
+      label: `${total.toFixed(1)}% · 全額投資`,
+      detail: "內部比例依再平衡設定",
+    };
+  }
+  if (total < 100) {
+    return {
+      kind: "cash",
+      label: `${total.toFixed(1)}% · 現金 ${(100 - total).toFixed(1)}%`,
+      detail: "每日重設總曝險；內部比例依再平衡設定",
+    };
+  }
+  return {
+    kind: "leveraged",
+    label: `${total.toFixed(1)}% · ${(total / 100).toFixed(2)}× · 融資 ${(total - 100).toFixed(1)}%`,
+    detail: "每日重設總曝險；內部比例依再平衡設定",
+  };
+}
+
 export function activePortfolios(model: WorkspaceModel): PortfolioColumn[] {
   return model.portfolios.filter((portfolio) => portfolioWeightTotal(portfolio, model) > 0);
 }
@@ -133,21 +170,27 @@ export function validateModel(model: WorkspaceModel): ValidationIssue[] {
 
   const active = activePortfolios(model);
   if (!active.length) {
-    issues.push({ field: "portfolios", message: "至少需要一組權重合計 100% 的投資組合。" });
+    issues.push({ field: "portfolios", message: "至少需要一組總曝險大於 0% 的投資組合。" });
+  }
+  for (const portfolio of model.portfolios) {
+    const rawWeights = model.assets.map((asset) => Number(portfolio.weights[asset.id]) || 0);
+    if (rawWeights.some((weight) => weight < 0)) {
+      issues.push({ field: portfolio.id, message: `${portfolio.name || "未命名投組"} 的資產曝險不可為負數。` });
+    }
   }
   for (const portfolio of active) {
     const total = portfolioWeightTotal(portfolio, model);
-    if (Math.abs(total - 100) > WEIGHT_TOLERANCE) {
-      issues.push({
-        field: portfolio.id,
-        message: `${portfolio.name || "未命名投組"} 權重合計為 ${total.toFixed(2)}%，必須為 100%。`,
-      });
-    }
     const positiveRows = model.assets.filter(
       (asset) => (Number(portfolio.weights[asset.id]) || 0) > 0,
     );
     if (positiveRows.some((asset) => !normalizeSymbol(asset.symbol))) {
-      issues.push({ field: portfolio.id, message: `${portfolio.name} 有權重但缺少股票代碼。` });
+      issues.push({ field: portfolio.id, message: `${portfolio.name} 有曝險但缺少股票代碼。` });
+    }
+    if (model.leverage.type !== "none" && Math.abs(total - 100) > WEIGHT_TOLERANCE) {
+      issues.push({
+        field: "leverage",
+        message: `${portfolio.name || "未命名投組"} 使用舊版槓桿時資產權重必須為 100%；非 100% 請停用舊版槓桿並直接用權重總和定義曝險。`,
+      });
     }
   }
 
