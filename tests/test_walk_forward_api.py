@@ -87,10 +87,18 @@ def test_walk_forward_api_rejects_temporally_invalid_schedule_before_service(mon
     assert "strictly after decision_date" in response.json()["detail"]
 
 
-def test_walk_forward_health_is_side_effect_free():
+def test_walk_forward_health_is_side_effect_free_and_bypasses_research_quota():
     module._limiter._requests.clear()
     client = TestClient(module.app)
-    response = client.get("/api/v1/research/walk-forward/health")
 
-    assert response.status_code == 200
-    assert response.json()["service"] == "backteststock-walk-forward-v1"
+    responses = [
+        client.get("/api/v1/research/walk-forward/health")
+        for _ in range(module.REQUESTS_PER_MINUTE + 2)
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(
+        response.json()["service"] == "backteststock-walk-forward-v1"
+        for response in responses
+    )
+    assert not module._limiter._requests
