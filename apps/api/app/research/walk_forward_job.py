@@ -1,0 +1,421 @@
+"""Request-scoped Walk-Forward orchestration over the existing research authorities.
+
+Batch 4A-5 wires together the already-versioned PIT, Training selection and OOS
+ledger contracts.  It intentionally does not persist jobs or create another
+market-data, optimizer or portfolio implementation.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from dataclasses import asdict, dataclass
+from datetime import date, timedelta
+from typing import Any, Callable
+
+import pandas as pd
+
+from api import date_policy, exhaustive_optimizer
+from apps.api.app.data.history_service import PartialTWDHistories, TWDHistoryService
+from apps.api.app.portfolio.models import SimulationConfig
+from apps.api.app.research.dataset import ResearchDatasetService, build_research_dataset
+from apps.api.app.research.exhaustive_authority_http import HttpExhaustiveAuthorityRunner
+from apps.api.app.research.exhaustive_selection import (
+    ExhaustiveAuthorityRunner,
+    ExhaustiveSelectionEngine,
+)
+from apps.api.app.research.oos_ledger import (
+    WALK_FORWARD_OOS_LEDGER_CONTRACT_VERSION,
+    WalkForwardEvaluation,
+    WalkForwardOOSResult,
+    run_continuous_oos_ledger,
+)
+from apps.api.app.research.pit_client import PITUniverseClient, PITUniverseResolver
+from apps.api.app.research.selection import run_selection, validate_evaluation_dataset
+from apps.api.app.research.walk_forward import (
+    DecisionSnapshot,
+    WalkForwardPeriod,
+    validate_period_schedule,
+)
+
+WALK_FORWARD_JOB_CONTRACT_VERSION = "walk-forward-job-2026-08-15.1"
+WALK_FORWARD_JOB_HASH_ALGORITHM = "sha256-canonical-json-v1"
+WALK_FORWARD_PUBLIC_SELECTOR_POLICY = "exhaustive-gross-buy-and-hold-v1"
+WALK_FORWARD_PUBLIC_OOS_POLICY = "decision-transition-cost-only-v1"
+MAX_WALK_FORWARD_PERIODS = 24
+MAX_SERVER_EXHAUSTIVE_CANDIDATES = 100
+MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD = 500_000
+MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB = 2_000_000
+MAX_PUBLIC_HOLDING_COUNT = 20
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardSelectorSpec:
+    universe_id: str
+    benchmark_symbol: str
+    holding_count: int
+
+    def __post_init__(self) -> None:
+        universe = str(self.universe_id or "").strip().lower()
+        benchmark = str(self.benchmark_symbol or "").strip().upper()
+        if not universe or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in universe):
+            raise ValueError("universe_id must contain only lowercase letters, digits or hyphens")
+        if not benchmark or benchmark != benchmark.strip().upper():
+            raise ValueError("benchmark_symbol must be canonical")
+        if not isinstance(self.holding_count, int) or isinstance(self.holding_count, bool):
+            raise TypeError("holding_count must be an integer")
+        if not 1 <= self.holding_count <= MAX_PUBLIC_HOLDING_COUNT:
+            raise ValueError(
+                f"holding_count must be between 1 and {MAX_PUBLIC_HOLDING_COUNT}"
+            )
+        object.__setattr__(self, "universe_id", universe)
+        object.__setattr__(self, "benchmark_symbol", benchmark)
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardExecutionSpec:
+    initial_amount: float = 10_000.0
+    transition_cost_bps: float = 0.0
+
+    def __post_init__(self) -> None:
+        initial = float(self.initial_amount)
+        cost = float(self.transition_cost_bps)
+        if not math.isfinite(initial) or initial <= 0.0 or initial > 1e12:
+            raise ValueError("initial_amount must be finite, positive and <= 1e12 TWD")
+        if not math.isfinite(cost) or not 0.0 <= cost <= 1000.0:
+            raise ValueError("transition_cost_bps must be in [0, 1000]")
+        object.__setattr__(self, "initial_amount", initial)
+        object.__setattr__(self, "transition_cost_bps", cost)
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardJobSpec:
+    periods: tuple[WalkForwardPeriod, ...]
+    selector: WalkForwardSelectorSpec
+    execution: WalkForwardExecutionSpec = WalkForwardExecutionSpec()
+
+    def __post_init__(self) -> None:
+        periods = validate_period_schedule(self.periods)
+        if len(periods) > MAX_WALK_FORWARD_PERIODS:
+            raise ValueError(
+                f"walk-forward request supports at most {MAX_WALK_FORWARD_PERIODS} periods"
+            )
+        object.__setattr__(self, "periods", periods)
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardJobPeriodAudit:
+    period_id: str
+    pit_member_count: int
+    exhaustive_combination_count: int
+    training_dataset_hash: str
+    authority_dataset_hash: str
+    decision_hash: str
+    evaluation_dataset_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardJobResult:
+    job_hash: str
+    spec: WalkForwardJobSpec
+    as_of_date: date
+    decisions: tuple[DecisionSnapshot, ...]
+    period_audits: tuple[WalkForwardJobPeriodAudit, ...]
+    oos: WalkForwardOOSResult
+    contract_version: str = WALK_FORWARD_JOB_CONTRACT_VERSION
+
+    def export_payload(self) -> dict[str, Any]:
+        return {
+            "contractVersion": self.contract_version,
+            "jobHash": self.job_hash,
+            "hashAlgorithm": WALK_FORWARD_JOB_HASH_ALGORITHM,
+            "status": "completed",
+            "asOfDate": self.as_of_date.isoformat(),
+            "asOfPolicy": date_policy.AS_OF_POLICY,
+            "selectorPolicy": WALK_FORWARD_PUBLIC_SELECTOR_POLICY,
+            "oosPolicy": WALK_FORWARD_PUBLIC_OOS_POLICY,
+            "request": _spec_payload(self.spec),
+            "periods": [asdict(item) for item in self.period_audits],
+            "decisions": [decision.export_payload() for decision in self.decisions],
+            "oos": _oos_payload(self.oos),
+        }
+
+
+class WalkForwardJobService:
+    """Execute one synchronous, reproducible Walk-Forward research request."""
+
+    def __init__(
+        self,
+        *,
+        pit_resolver: PITUniverseResolver | None = None,
+        history_service: TWDHistoryService | None = None,
+        authority_runner_factory: Callable[[], ExhaustiveAuthorityRunner] | None = None,
+    ) -> None:
+        self._pit_resolver = pit_resolver or PITUniverseClient()
+        self._history_service = history_service or TWDHistoryService()
+        self._dataset_service = ResearchDatasetService(history_service=self._history_service)
+        self._authority_runner_factory = authority_runner_factory or HttpExhaustiveAuthorityRunner
+
+    def run(self, spec: WalkForwardJobSpec) -> WalkForwardJobResult:
+        periods = validate_period_schedule(spec.periods)
+        complete = date_policy.require_complete_period(
+            pd.Timestamp(min(period.training_start for period in periods)),
+            pd.Timestamp(max(period.evaluation_end for period in periods) + timedelta(days=1)),
+        )
+        runner = self._authority_runner_factory()
+        evaluations: list[WalkForwardEvaluation] = []
+        decisions: list[DecisionSnapshot] = []
+        audits: list[WalkForwardJobPeriodAudit] = []
+        total_combinations = 0
+
+        for period in periods:
+            pit = self._pit_resolver.resolve(spec.selector.universe_id, period.decision_date)
+            if not pit.membership_authoritative or pit.source_is_proxy:
+                raise ValueError(
+                    "public Walk-Forward v1 requires authoritative PIT membership; "
+                    f"{pit.universe_id} at {period.decision_date.isoformat()} is proxy/non-authoritative"
+                )
+            candidate_count = len(pit.members)
+            if candidate_count < exhaustive_optimizer.MIN_SOURCE_TICKERS:
+                raise ValueError(
+                    f"PIT universe contains only {candidate_count} candidates; Exhaustive requires at least "
+                    f"{exhaustive_optimizer.MIN_SOURCE_TICKERS}"
+                )
+            if candidate_count > MAX_SERVER_EXHAUSTIVE_CANDIDATES:
+                raise ValueError(
+                    f"PIT universe contains {candidate_count} members, but causal Walk-Forward v1 supports "
+                    f"at most {MAX_SERVER_EXHAUSTIVE_CANDIDATES} Exhaustive candidates. The service will not "
+                    "silently truncate membership or use current fundamentals as a historical prefilter."
+                )
+            if spec.selector.holding_count > candidate_count:
+                raise ValueError("holding_count cannot exceed PIT candidate count")
+            if spec.selector.benchmark_symbol in pit.members:
+                raise ValueError("benchmark_symbol cannot also be a PIT candidate")
+
+            combinations = math.comb(candidate_count, spec.selector.holding_count)
+            if combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD:
+                raise ValueError(
+                    f"period {period.period_id} requires {combinations} Exhaustive combinations, exceeding "
+                    f"the synchronous server budget {MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD}"
+                )
+            total_combinations += combinations
+            if total_combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB:
+                raise ValueError(
+                    f"walk-forward job exceeds the total synchronous Exhaustive budget "
+                    f"{MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB} combinations"
+                )
+
+            training_requested = (*pit.members, spec.selector.benchmark_symbol)
+            training_batch = self._history_service.histories_partial(
+                list(training_requested),
+                period.training_start,
+                period.training_end,
+            )
+            training_dataset = build_research_dataset(
+                _subset_histories(training_batch, pit.members),
+                start=period.training_start,
+                end=period.training_end,
+            )
+            authority_dataset = build_research_dataset(
+                _subset_histories(training_batch, training_requested),
+                start=period.training_start,
+                end=period.training_end,
+            )
+
+            engine = ExhaustiveSelectionEngine(
+                authority_dataset=authority_dataset,
+                benchmark_symbol=spec.selector.benchmark_symbol,
+                holding_count=spec.selector.holding_count,
+                rebalance_mode="never",
+                band_ratio=0.20,
+                transaction_cost_bps=0.0,
+                execution_delay_trading_days=1,
+                runner=runner,
+            )
+            decision = run_selection(
+                period=period,
+                pit_universe=pit,
+                training_dataset=training_dataset,
+                engine=engine,
+            )
+
+            evaluation_batch = self._history_service.histories_partial(
+                list(decision.selected_constituents),
+                period.evaluation_start,
+                period.evaluation_end,
+            )
+            evaluation_dataset = build_research_dataset(
+                evaluation_batch,
+                start=period.evaluation_start,
+                end=period.evaluation_end,
+            )
+            validate_evaluation_dataset(
+                decision=decision,
+                evaluation_dataset=evaluation_dataset,
+            )
+            evaluations.append(
+                WalkForwardEvaluation(
+                    decision=decision,
+                    evaluation_dataset=evaluation_dataset,
+                )
+            )
+            decisions.append(decision)
+            audits.append(
+                WalkForwardJobPeriodAudit(
+                    period_id=period.period_id,
+                    pit_member_count=candidate_count,
+                    exhaustive_combination_count=combinations,
+                    training_dataset_hash=training_dataset.dataset_hash,
+                    authority_dataset_hash=authority_dataset.dataset_hash,
+                    decision_hash=decision.decision_hash,
+                    evaluation_dataset_hash=evaluation_dataset.dataset_hash,
+                )
+            )
+
+        risk_free_rate = float(exhaustive_optimizer.legacy.RISK_FREE_RATE)
+        oos_config = SimulationConfig(
+            initial_amount=spec.execution.initial_amount,
+            reinvest_distributions=True,
+            transaction_cost_bps=spec.execution.transition_cost_bps,
+            risk_free_rate=risk_free_rate,
+        )
+        oos = run_continuous_oos_ledger(evaluations, oos_config)
+        job_hash = _job_hash(spec, complete.as_of_date, audits, oos)
+        return WalkForwardJobResult(
+            job_hash=job_hash,
+            spec=spec,
+            as_of_date=complete.as_of_date,
+            decisions=tuple(decisions),
+            period_audits=tuple(audits),
+            oos=oos,
+        )
+
+
+def _subset_histories(
+    batch: PartialTWDHistories,
+    requested: tuple[str, ...],
+) -> PartialTWDHistories:
+    requested_tuple = tuple(requested)
+    histories = {
+        symbol: batch.histories[symbol]
+        for symbol in requested_tuple
+        if symbol in batch.histories
+    }
+    failures = {
+        symbol: batch.failures[symbol]
+        for symbol in requested_tuple
+        if symbol in batch.failures
+    }
+    missing = [
+        symbol
+        for symbol in requested_tuple
+        if symbol not in histories and symbol not in failures
+    ]
+    if missing:
+        raise ValueError(
+            "shared Training history batch did not account for requested symbols: "
+            + ", ".join(missing)
+        )
+    return PartialTWDHistories(
+        requested=requested_tuple,
+        histories=histories,
+        failures=failures,
+    )
+
+
+def _spec_payload(spec: WalkForwardJobSpec) -> dict[str, Any]:
+    return {
+        "periods": [
+            {
+                "periodId": period.period_id,
+                "trainingStart": period.training_start.isoformat(),
+                "trainingEnd": period.training_end.isoformat(),
+                "decisionDate": period.decision_date.isoformat(),
+                "evaluationStart": period.evaluation_start.isoformat(),
+                "evaluationEnd": period.evaluation_end.isoformat(),
+                "decisionTiming": period.decision_timing,
+            }
+            for period in spec.periods
+        ],
+        "selector": {
+            "universe": spec.selector.universe_id,
+            "benchmark": spec.selector.benchmark_symbol,
+            "holdingCount": spec.selector.holding_count,
+            "rebalanceMode": "never",
+            "trainingTransactionCostBps": 0.0,
+            "executionDelayTradingDays": 1,
+        },
+        "execution": {
+            "initialAmountTwd": spec.execution.initial_amount,
+            "transitionCostBps": spec.execution.transition_cost_bps,
+            "inSegmentRebalance": "none",
+            "reinvestDistributions": True,
+            "cashflows": "none",
+            "leverage": "none",
+            "riskFreeRate": float(exhaustive_optimizer.legacy.RISK_FREE_RATE),
+        },
+    }
+
+
+def _oos_payload(result: WalkForwardOOSResult) -> dict[str, Any]:
+    ledger = result.ledger
+    return {
+        "contractVersion": result.contract_version,
+        "executionPolicy": result.execution_policy,
+        "gapPolicy": result.gap_policy,
+        "returnComponentPolicy": result.return_component_policy,
+        "periods": [asdict(item) for item in result.periods],
+        "ledger": {
+            "contractVersion": ledger.contract_version,
+            "valuationCurrency": "TWD",
+            "equity": [
+                {"date": timestamp.date().isoformat(), "value": float(value)}
+                for timestamp, value in ledger.equity.items()
+            ],
+            "returnIndex": [
+                {"date": timestamp.date().isoformat(), "value": float(value)}
+                for timestamp, value in ledger.return_index.items()
+            ],
+            "transactionCosts": float(ledger.transaction_costs),
+            "borrowingCosts": float(ledger.borrowing_costs),
+            "rebalanceCount": int(ledger.rebalance_count),
+            "liquidated": bool(ledger.liquidated),
+            "warnings": list(ledger.warnings),
+            "events": [
+                {
+                    "date": event.date,
+                    "type": event.type,
+                    "details": dict(event.details),
+                }
+                for event in ledger.events
+            ],
+        },
+        "metrics": asdict(result.metrics),
+    }
+
+
+def _job_hash(
+    spec: WalkForwardJobSpec,
+    as_of_date: date,
+    audits: list[WalkForwardJobPeriodAudit],
+    oos: WalkForwardOOSResult,
+) -> str:
+    payload = {
+        "contractVersion": WALK_FORWARD_JOB_CONTRACT_VERSION,
+        "asOfDate": as_of_date.isoformat(),
+        "asOfPolicy": date_policy.AS_OF_POLICY,
+        "request": _spec_payload(spec),
+        "periods": [asdict(item) for item in audits],
+        "oosContractVersion": WALK_FORWARD_OOS_LEDGER_CONTRACT_VERSION,
+        "oosPeriodDecisionHashes": [item.decision_hash for item in oos.periods],
+        "oosPeriodDatasetHashes": [item.evaluation_dataset_hash for item in oos.periods],
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()

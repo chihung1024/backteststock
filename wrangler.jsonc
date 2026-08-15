@@ -3,7 +3,7 @@
   "name": "backteststock",
   "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./worker/router.js",
+  "main": "./worker/walk_forward_router.js",
   "vars": {
     "BACKEND_ORIGIN": "https://stockbacktest.vercel.app"
   },

@@ -11,12 +11,17 @@
     { "src": "api/scan_v2.py", "use": "@vercel/python" },
     { "src": "api/screener.py", "use": "@vercel/python" },
     { "src": "api/exhaustive_optimizer.py", "use": "@vercel/python" },
+    { "src": "api/exhaustive_selection_authority.mjs", "use": "@vercel/node" },
+    { "src": "api/walk_forward_v1.py", "use": "@vercel/python" },
     { "src": "api/portfolio_v3.py", "use": "@vercel/python" },
     { "src": "api/refinery_v1.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/scan", "dest": "api/scan_v2.py" },
     { "src": "/api/optimizer/exhaustive/(.*)", "dest": "api/exhaustive_optimizer.py" },
+    { "src": "/api/internal/research/exhaustive-selection", "dest": "api/exhaustive_selection_authority.mjs" },
+    { "src": "/api/v1/research/walk-forward", "dest": "api/walk_forward_v1.py" },
+    { "src": "/api/v1/research/walk-forward/(.*)", "dest": "api/walk_forward_v1.py" },
     { "src": "/api/v1/refinery/(.*)", "dest": "api/refinery_v1.py" },
     { "src": "/api/v3/portfolio/(.*)", "dest": "api/portfolio_v3.py" },
     { "src": "/api/v2/screener", "dest": "api/screener.py" },
