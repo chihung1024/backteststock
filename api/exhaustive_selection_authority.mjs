@@ -1,6 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
+// The browser core re-exports this module through a cache-busted `?v=`
+// specifier.  Keep one plain server-side edge in the Vercel entrypoint so
+// @vercel/node's dependency tracer always includes the physical module in the
+// function bundle.  This import has no runtime side effects and does not create
+// another numerical authority.
+import "../public/exhaustive-retention.js";
 import {
   authorityIdentity,
   selectBestExhaustivePortfolio,
