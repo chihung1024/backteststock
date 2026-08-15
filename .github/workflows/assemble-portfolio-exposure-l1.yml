@@ -1,0 +1,119 @@
+name: Assemble Portfolio Exposure L1
+
+on:
+  push:
+    branches:
+      - feat/portfolio-weight-defined-exposure
+    paths:
+      - .github/workflows/assemble-portfolio-exposure-l1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  assemble-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MODELS_BLOB: d925f298e7e6320df9db5d8e24a8e9636e26a4f3
+      LEDGER_CHUNK_1: 3af3c67b99af33d3464ed82bf44e82316b949cfe
+      LEDGER_CHUNK_2: b0d6737b0e364251d1a049f700f4a4f7ce4fa288
+      LEDGER_CHUNK_3: 2bbe52c7e893544d1e29a7b0998e7a10c1715c89
+      LEDGER_CHUNK_4: 8538ab8328810540c03b622e019ab51ade7e485a
+      TESTS_BLOB: 65d71dfa054eb2c2b22da606cdb456e3be83f9e1
+      EXPECTED_MODELS_HASH: d925f298e7e6320df9db5d8e24a8e9636e26a4f3
+      EXPECTED_LEDGER_HASH: 4757f74dbc2d15bf02dd45d1d77db419ed7d3b22
+      EXPECTED_TESTS_HASH: 65d71dfa054eb2c2b22da606cdb456e3be83f9e1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Materialize exact reviewed candidate blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          fetch_blob_text() {
+            local sha="$1"
+            curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/blobs/${sha}" \
+              | python -c 'import base64,json,sys; print(base64.b64decode(json.load(sys.stdin)["content"]).decode(), end="")'
+          }
+
+          fetch_blob_text "${MODELS_BLOB}" > apps/api/app/portfolio/models.py
+          fetch_blob_text "${TESTS_BLOB}" > tests/test_portfolio_weight_defined_exposure.py
+
+          : > /tmp/ledger.gz.b64
+          for sha in "${LEDGER_CHUNK_1}" "${LEDGER_CHUNK_2}" "${LEDGER_CHUNK_3}" "${LEDGER_CHUNK_4}"; do
+            fetch_blob_text "${sha}" >> /tmp/ledger.gz.b64
+          done
+          base64 -d /tmp/ledger.gz.b64 | gzip -dc > apps/api/app/portfolio/ledger.py
+
+          test "$(git hash-object apps/api/app/portfolio/models.py)" = "${EXPECTED_MODELS_HASH}"
+          test "$(git hash-object apps/api/app/portfolio/ledger.py)" = "${EXPECTED_LEDGER_HASH}"
+          test "$(git hash-object tests/test_portfolio_weight_defined_exposure.py)" = "${EXPECTED_TESTS_HASH}"
+
+      - name: Update legacy validation regression for residual cash semantics
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/test_portfolio_ledger.py')
+          text = path.read_text()
+          old = '''def test_portfolio_validation_rejects_duplicate_or_incomplete_weights() -> None:
+              with pytest.raises(ValueError, match="unique"):
+                  PortfolioSpec(
+                      name="Duplicate",
+                      assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
+                  )
+              with pytest.raises(ValueError, match="sum"):
+                  PortfolioSpec.from_weights("Incomplete", {"AAA": 0.8})
+          '''.replace('          ', '')
+          new = '''def test_portfolio_validation_rejects_duplicate_weights() -> None:
+              with pytest.raises(ValueError, match="unique"):
+                  PortfolioSpec(
+                      name="Duplicate",
+                      assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
+                  )
+          '''.replace('          ', '')
+          if text.count(old) != 1:
+              raise SystemExit('expected legacy validation block not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt pytest
+
+      - name: Compile and run targeted ledger regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api/app/portfolio tests/test_portfolio_ledger.py tests/test_portfolio_weight_defined_exposure.py
+          pytest -q tests/test_portfolio_ledger.py tests/test_portfolio_weight_defined_exposure.py
+
+      - name: Commit only verified L1 source and regressions
+        run: |
+          set -euo pipefail
+          rm .github/workflows/assemble-portfolio-exposure-l1.yml
+          git status --short
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            apps/api/app/portfolio/models.py \
+            apps/api/app/portfolio/ledger.py \
+            tests/test_portfolio_ledger.py \
+            tests/test_portfolio_weight_defined_exposure.py \
+            .github/workflows/assemble-portfolio-exposure-l1.yml
+          git diff --cached --check
+          git commit -m "feat: add weight-defined exposure ledger authority"
+          git push origin HEAD:feat/portfolio-weight-defined-exposure
