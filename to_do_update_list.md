@@ -24,238 +24,285 @@ Functionality, quantitative correctness, data integrity and user experience outr
 
 ## 2. Verified Main Baseline
 
-Current verified `main` before the active Batch 4A-3 candidate:
+Current verified main before Batch 4A-4:
 
 ```text
-64b717c38c9522c0c68db5f122aa67ad963690d9
-feat: add Walk-Forward selection core (#155)
+61513aeb0544494416064e66316d5b2a8caf94a2
+feat: adapt Exhaustive authority to Walk-Forward selection (#156)
 ```
 
-Batch 4A-2 / PR #155 is **CLOSED / MERGED / POST-MAIN VERIFIED (R2)**.
+Batch 4A-3 / PR #156 is **CLOSED / MERGED / POST-MAIN VERIFIED / PRODUCTION VERIFIED (R2)**.
 
-Evidence:
+Verified closure evidence:
 
-- final candidate received independent approval and zero blocking review threads;
-- pre-merge and post-merge recovery releases targeted the exact protected SHAs;
-- post-main CI #763 passed at `64b717c38c9522c0c68db5f122aa67ad963690d9`;
-- Vercel production deployment completed successfully;
-- Cloudflare production runtime deploy was correctly not forced because Batch 4A-2 changed no matching Worker/public/migration runtime path.
+- exact-head independent approval before merge;
+- protected pre/post merge recovery releases;
+- squash merge to `61513aeb0544494416064e66316d5b2a8caf94a2`;
+- post-main CI #771 SUCCESS;
+- Vercel deployment SUCCESS;
+- Cloudflare Worker deployment + remote D1 migration + Russell 2000 / Portfolio v3 / Refinery production smokes SUCCESS.
 
-Batch 4A-1 / PR #154 remains closed and post-main verified. Earlier PF/UX history remains in Git/PR/Actions rather than being duplicated here.
+Batch 4A-1 / PR #154 and Batch 4A-2 / PR #155 are also closed and post-main verified. Closed implementation history belongs to Git/PR/Actions rather than being duplicated here.
 
 ## 3. Primary Active Batch
 
-### Batch 4A-3 — Existing Exhaustive Adapter + Golden Parity
+### Batch 4A-4 — Continuous OOS Portfolio Ledger
 
-Status: **ACTIVE / Draft PR #156 / R2 Significant**
+Status: **ACTIVE / Draft PR #157 / R2 Significant**
 
 Branch:
 
 ```text
-feat/batch4a3-exhaustive-adapter-parity
+feat/batch4a4-continuous-oos-ledger
 ```
 
 Base:
 
 ```text
-main@64b717c38c9522c0c68db5f122aa67ad963690d9
+main@61513aeb0544494416064e66316d5b2a8caf94a2
 ```
 
 PR:
 
 ```text
-#156 — feat: adapt Exhaustive authority to Walk-Forward selection
+#157 — feat: add continuous Walk-Forward OOS ledger
 ```
 
-Do not trust a hard-coded candidate head here. Re-query PR #156 before review, Ready or merge because this handoff commit itself changes the branch head.
+Do not trust a hard-coded candidate head in this file. Re-query PR #157 before review, Ready or merge because this handoff update itself changes the branch head.
 
-## 4. Objective / Architecture Lock
+## 4. 4A-4 Objective / Architecture Lock
 
-4A-3 adapts the **existing** Exhaustive authority behind the Batch 4A-2 `SelectionEngine` boundary. It must not create a second optimizer or new investment methodology.
+4A-4 converts frozen Walk-Forward decisions plus validated Evaluation datasets into **one continuous investable TWD OOS ledger**.
+
+It must not:
+
+- reset NAV to 1 or initial capital at each Evaluation period;
+- average/stitch period-local metrics as though they were one portfolio history;
+- create a second portfolio simulator or transaction-cost formula;
+- widen Evaluation windows to obtain hidden observations;
+- modify PIT, selection, Exhaustive numerical authority, public API, Worker route or UI.
 
 Causal path:
 
 ```text
-PIT candidate Training ResearchDataset
-        +
-Training-only Exhaustive authority ResearchDataset
-(exact candidates + benchmark)
-        ↓
-ExhaustiveSelectionEngine
-        ↓
-Node bridge
-        ↓
-public/exhaustive-optimizer-core.js
-        ↓
-authoritative winning combination
-        ↓
-SelectionResult
-        ↓
+PIT + Training
+    ↓
+SelectionEngine / existing Exhaustive authority
+    ↓
 immutable DecisionSnapshot
+    ↓
+validated Evaluation ResearchDataset
+    ↓
+existing Portfolio v3 segment ledger authority
+    ↓
+existing Portfolio v3 rebalance authority at Decision transitions
+    ↓
+one continuous OOS PortfolioLedger
+    ↓
+existing Portfolio metric authority
 ```
 
-No Evaluation/OOS observations are visible to the selector or JavaScript authority.
-
-`SelectionContext.training_dataset` remains candidate-only so PIT eligibility is unchanged. The separate Exhaustive authority dataset contains the exact candidate sequence followed by the benchmark for the same Training window; the benchmark never becomes an eligible constituent.
+Durable semantics: `docs/research/WALK_FORWARD_OOS_LEDGER_V1.md`.
 
 ## 5. Quant / Data Authority Invariants
 
-### One numerical authority
+### Decision identity
 
-`public/exhaustive-optimizer-core.js` remains authoritative for:
+Every `DecisionSnapshot` hash is revalidated before execution. OOS evidence never mutates the decision or becomes selection evidence.
 
-- exact combination simulation;
-- portfolio NAV and rebalance mathematics;
-- transaction costs;
-- Sortino, CAGR, MDD, volatility, beta and alpha;
-- stable/growth/drawdown/optimized scores.
+### Evaluation identity
 
-Python owns orchestration, causal admission, provenance and fail-closed result validation only. No Python copy of these formulas is permitted.
+Every Evaluation dataset must pass `validate_evaluation_dataset()` against its frozen decision. Exact Evaluation dataset hashes are recorded in period audit.
 
-### Current winner contract
+### One Portfolio execution authority
+
+Within each OOS segment, execution delegates to:
 
 ```text
-field     = optimized_score
-direction = descending
-nonfinite = negative infinity / worst
-tie-break = smaller combination rank
+apps/api/app/portfolio/ledger.py::simulate_portfolio_ledger()
 ```
 
-Golden parity tests compare the bridge winner against direct use of the same current JS core.
+Inter-decision turnover/cost delegates to the same module's existing `_rebalance()` implementation using the prior segment's **actual ending equity/allocation**, not prior target weights.
 
-### Training evidence
+No research-specific copy of transaction-cost or portfolio-return mathematics is permitted.
 
-The adapter requires:
+### One metric authority
 
-- no silently dropped PIT member;
-- exact candidates+benchmark authority dataset order;
-- exact Training start/end and no observation after Decision;
-- identical candidate raw native/FX/TWD history fingerprints and audit evidence across the candidate-only and authority datasets;
-- existing 2–100 candidate and 50,000,000-combination ceilings;
-- existing minimum-observation and `_strict_full_period_coverage()` policy;
-- `verified_standard_actions` for every candidate and benchmark;
-- finite positive TWD authority levels.
+Final metrics are computed once from the combined continuous `PortfolioLedger` through existing `compute_metric_report()`. Period-local metric reports are not aggregated.
 
-The authority dataset hash is frozen in selector parameters and revalidated after JS execution.
+### V1 return-component boundary
 
-### Risk-free-rate parity
-
-The adapter does **not** add a new risk-free-rate strategy control. It reads the same server-configured `legacy.RISK_FREE_RATE` used by the existing Exhaustive prepare path, snapshots the exact value into the decision, and passes it unchanged to the existing JS authority.
-
-## 6. Current Implementation Surface
+`ResearchDataset` exposes adjusted/total-return TWD levels, not separate cash distribution components. Therefore 4A-4 v1 requires:
 
 ```text
-apps/api/app/research/exhaustive_selection.py
+reinvest_distributions = True
+cashflow.type = none
+leverage.type = none
+```
+
+Unsupported state fails closed instead of being reconstructed from incomplete evidence.
+
+Periodic/threshold rebalancing inside an Evaluation segment remains Portfolio v3 authority behavior.
+
+### Initial deployment cost semantics
+
+V1 deliberately preserves existing Portfolio v3 semantics: the **first OOS initial capital allocation is not counted as a rebalance/transition transaction cost**. `transaction_cost_bps` applies to later Decision target transitions and any existing Portfolio v3 in-segment rebalance triggers. A different initial-deployment-cost convention would require a separately versioned contract change.
+
+## 6. Temporal / Gap / Transition Policies
+
+Execution policy:
+
+```text
+target-at-first-effective-oos-close-v1
+```
+
+The first effective OOS level is the segment execution/baseline close. The first attributed market return is the next effective valuation interval.
+
+Gap policy:
+
+```text
+carry-last-audited-state-flat-no-invented-return-v1
+```
+
+Evaluation-window gaps do not authorize synthetic market returns. The last audited equity/allocation state is carried flat until the next validated OOS baseline; no hidden row is created.
+
+At a later Decision boundary, target transition cost is represented as a real negative strategy return on the next segment baseline. Example for 100% AAA → 100% BBB, prior equity 110, cost 100 bps:
+
+```text
+sell AAA = 110
+buy BBB  = 110
+traded notional = 220
+cost = 2.2
+next OOS starting equity = 107.8
+```
+
+## 7. Current Implementation Surface
+
+```text
+apps/api/app/research/oos_ledger.py
 apps/api/app/research/__init__.py
-scripts/exhaustive_selection_authority.mjs
-tests/test_walk_forward_exhaustive_selection.py
-tests/test_exhaustive_selection_authority.mjs
-docs/research/WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md
+tests/test_walk_forward_oos_ledger.py
+tests/test_walk_forward_oos_ledger_parity.py
+docs/research/WALK_FORWARD_OOS_LEDGER_V1.md
 docs/research/README.md
-package.json
 to_do_update_list.md
 ```
 
-No `public/exhaustive-optimizer-core.js` numerical implementation, Worker route, D1 migration or public Walk-Forward UI is changed by this batch.
+No Worker/public/migration/package/deployment workflow file is changed by 4A-4.
 
-`NodeExhaustiveAuthorityRunner` is internal research/CI infrastructure for executable cross-language parity. 4A-3 does not assert Node availability in the eventual production Python runtime; deployment/job placement is intentionally deferred to 4A-5.
+## 8. Required Regression Locks
 
-## 7. Root Cause / General Fix Log
+Targeted tests currently lock:
 
-### A. Immutable DecisionSnapshot inspection in new tests — TEST-ONLY FIX
+1. full sell+buy traded notional and transaction cost for a disjoint target transition;
+2. continuous equity and return index across Decision boundaries;
+3. no fabricated rows/returns in Evaluation gaps;
+4. zero transition turnover when an unchanged 100% target already matches actual ending allocation;
+5. exact decision/Evaluation dataset identity in period audit;
+6. fail-closed non-reinvested distribution, external-cashflow and leverage requests;
+7. at least two effective valuation dates per OOS segment;
+8. golden parity: unchanged-target split Walk-Forward ledger equals one ordinary Portfolio v3 ledger over the equivalent TWD level path.
 
-Initial CI #764 passed compile/Ruff but two new Python tests directly subscripted the internal `_FrozenMapping` representation of `selector_parameters`.
-
-Root cause: the tests bypassed the 4A-1 immutable/export contract.
-
-General fix: inspect canonical selector parameters through `DecisionSnapshot.export_payload()`; production code was not weakened.
-
-### B. Adapter initially exposed arbitrary `risk_free_rate` — FIXED BEFORE REVIEW
-
-Self-review found the first adapter constructor allowed an arbitrary risk-free value even though the current production Exhaustive workflow receives its risk-free rate from server configuration.
-
-Impact: no observed result corruption, but it would have introduced a new strategy degree of freedom and broken strict parity.
-
-General fix:
-
-- remove adapter-level `risk_free_rate` constructor input;
-- bind to existing `legacy.RISK_FREE_RATE`;
-- freeze that value in selector parameters;
-- regression proves an attempted constructor override is rejected.
-
-### C. Non-finite tie-break fixture used a positive risk-free rate — TEST-ONLY FIX
-
-CI #768 passed 313 Python tests and the primary direct-core bridge parity test, but one new JS edge-case fixture expected a flat portfolio to produce `NaN` while retaining a 3% risk-free rate.
-
-Current core correctly produced a finite negative Sortino/optimized score in that case.
-
-General fix: set risk-free rate to zero only in the dedicated non-finite fixture so downside deviation is zero and the intended NaN/non-finite ranking path is genuinely exercised. Production behavior was unchanged.
-
-## 8. Verification Evidence
-
-Functional candidate before this handoff commit:
+The implementation also enforces:
 
 ```text
-head = 0b76ff38e5e5cc3c80bb4ede6e7a44f9d4612cd5
-CI #769 = SUCCESS
+equity[t] == initial_amount * continuous_return_index[t]
 ```
 
-CI #769 passed:
+within numerical tolerance for supported v1 state.
 
-- Python dependency consistency;
-- compile and Ruff;
-- full Python suite, including 4A-3 Python→Node→existing JS authority→DecisionSnapshot regression;
-- JavaScript syntax checks;
-- Worker/Exhaustive tests, including direct-core winner golden parity and non-finite smaller-rank tie-break;
-- existing canonical Exhaustive quant-authority fixture;
-- score-formula tests;
-- Portfolio type-check/build and source contracts;
-- committed production-asset verification;
-- Chromium E2E;
-- Vercel configuration;
-- local D1 migrations;
-- Cloudflare bundle dry-run.
+## 9. Verification Evidence
 
-Because this handoff update changes the PR head, **CI #769 is functional-candidate evidence, not the final exact-head merge gate**. The new final head must receive fresh CI before independent review/merge.
+Pre-handoff candidate:
 
-## 9. Remaining R2 Gates
+```text
+head = cd93102f4a96455eabeeb835241e915bcac55875
+CI #776 = in progress when this handoff commit was prepared
+```
 
-For PR #156:
+Observed before the handoff write:
+
+- dependency install/consistency SUCCESS;
+- compile SUCCESS;
+- Ruff SUCCESS;
+- full Python suite SUCCESS, including 4A-4 targeted and golden-parity tests;
+- JavaScript SUCCESS;
+- Worker SUCCESS;
+- score-formula SUCCESS;
+- Portfolio type-check/build SUCCESS;
+- Portfolio/Refinery source contracts SUCCESS;
+- committed Portfolio production assets SUCCESS;
+- browser stages were still completing.
+
+Because this file changes the branch head, **CI #776 is not the final merge gate**. The handoff-updated exact head must receive a fresh complete CI run.
+
+## 10. Self-Review / Convergence Log
+
+### A. Naive period-NAV stitching — REJECTED
+
+Rejected because it loses real prior allocation drift and inter-period turnover cost.
+
+General fix: carry actual ending OOS equity/allocation and apply the next target through existing Portfolio v3 rebalance authority.
+
+### B. Hidden gap-market-return inference — REJECTED
+
+Rejected because Evaluation datasets do not prove market returns outside their requested windows.
+
+General fix: explicit flat audited-state carry policy; no synthetic OOS observations.
+
+### C. Reconstructing non-reinvested distributions from total-return levels — REJECTED
+
+Rejected because ResearchDataset does not preserve the required separate cash-distribution components.
+
+General fix: v1 requires reinvested distributions and fails closed otherwise.
+
+### D. Carrying external cashflow/leverage state by approximation — REJECTED
+
+Rejected because period-local restart could change flow growth/timing, debt interest clocks or margin state.
+
+General fix: 4A-4 v1 disallows these states until a future contract supplies exact continuous component/state evidence.
+
+### E. Split-boundary numerical drift — CONTROLLED BY GOLDEN PARITY
+
+An unchanged 100% target split across two Evaluation segments must equal one existing Portfolio v3 ledger over the equivalent total-return path. This proves segmentation alone does not reset or alter NAV.
+
+## 11. Remaining R2 Gates for PR #157
 
 1. fresh exact-head CI after this handoff commit;
-2. independent review on that exact head;
-3. zero unresolved BLOCKER review threads;
-4. Ready transition;
-5. `release-backup` pre-merge recovery verification against exact current `main`;
-6. final head/base/review/CI/recovery TOCTOU;
-7. squash merge using `expected_head_sha`;
-8. post-main recovery, CI and deployment-state verification.
+2. self-review of final diff and temporal/quant authority boundaries;
+3. independent review on the final exact head;
+4. zero unresolved BLOCKER review threads;
+5. Ready transition;
+6. `release-backup` pre-merge recovery verification against exact current main;
+7. final head/base/review/CI/recovery TOCTOU;
+8. squash merge using `expected_head_sha`;
+9. post-main recovery, CI and deployment-state verification.
 
-Independent review focus:
+Independent-review focus:
 
-- no numerical formula duplication in Python;
-- no OOS observations in selection;
-- candidates+benchmark Training evidence remains causal and hash-bound;
-- benchmark never enters PIT eligibility;
-- current server-configured risk-free authority is preserved;
-- golden winner/tie-break semantics match current Exhaustive behavior;
-- Node execution placement is not falsely treated as a production-runtime guarantee.
+- no OOS influence on frozen decisions;
+- no period-local NAV reset;
+- no duplicate Portfolio/transaction-cost/metric authority;
+- transition uses actual ending allocation, not target allocation;
+- gap policy does not invent returns;
+- unsupported ResearchDataset state fails closed;
+- initial-deployment-cost semantics are explicit;
+- unchanged-target golden parity holds;
+- no public/runtime surface is accidentally expanded.
 
-## 10. Walk-Forward Roadmap
+## 12. Walk-Forward Roadmap
 
 | Batch | Objective | Status |
 | --- | --- | --- |
 | 4A-1 | Temporal causality firewall + immutable `DecisionSnapshot` | **DONE / PR #154 / post-main verified** |
 | 4A-2 | `SelectionEngine` + physical Training/OOS separation | **DONE / PR #155 / post-main verified** |
-| 4A-3 | Existing Exhaustive adapter + golden parity | **ACTIVE / PR #156** |
-| 4A-4 | Continuous OOS Portfolio ledger across decisions | **NEXT** |
-| 4A-5 | PIT resolver/API/job orchestration | PLANNED |
+| 4A-3 | Existing Exhaustive adapter + golden parity | **DONE / PR #156 / production verified** |
+| 4A-4 | Continuous OOS Portfolio ledger across decisions | **ACTIVE / PR #157** |
+| 4A-5 | PIT resolver/API/job orchestration | **NEXT after 4A-4 closes** |
 | 4A-6 | User-facing Walk-Forward UX | PLANNED |
 | 4B+ | Research memory / PIT fundamentals / AI automation | BACKLOG until 4A foundation is stable |
 
-4A-4 must create one continuous investable OOS ledger across decisions. Do not reset NAV per period and stitch/average period-local results as though they were one portfolio history.
-
-## 11. Authority Boundaries / Risk Register
+## 13. Authority Boundaries / Risk Register
 
 ### Market / FX / research data
 
@@ -263,37 +310,36 @@ Authority remains `ResearchDatasetV1`, `TWDHistoryService` and existing TWD valu
 
 ### PIT membership
 
-Authority remains Worker/D1 PIT archive and its causality/integrity rules. Historical research must fail closed where causally valid archived membership is unavailable.
+Authority remains Worker/D1 PIT archive and its causality/integrity rules. Historical research fails closed where causally valid archived membership is unavailable.
 
-### Exhaustive optimization
+### Selection / Exhaustive
 
-Authority remains `public/exhaustive-optimizer-core.js`; 4A-3 only adapts it behind SelectionEngine.
+Selection remains Batch 4A-2 `SelectionEngine`; existing `public/exhaustive-optimizer-core.js` remains Exhaustive numerical/ranking authority.
 
 ### OOS execution
 
-Continuous execution accounting belongs to 4A-4.
-
-### Fundamentals
-
-Current fundamentals are not PIT evidence and remain excluded from historical selection until a separately governed PIT source exists.
+Batch 4A-4 owns continuous OOS orchestration/state carry only. Portfolio math remains Portfolio v3 authority.
 
 ### Key active risks
 
-- future-data leakage: controlled structurally by Training/OOS separation;
-- duplicate quant authority: controlled by JS authority delegation + golden parity;
-- cross-language execution placement: intentionally deferred to 4A-5, not solved by duplicating formulas;
+- future-data leakage: controlled by physical Training/OOS separation and immutable decisions;
+- period reset bias: controlled by continuous equity/allocation carry and golden parity;
+- duplicate quant authority: controlled by direct delegation to existing Portfolio/Exhaustive engines;
+- unproven gap returns: controlled by flat carry/no invented observations;
+- incomplete return-component state: controlled by fail-closed v1 scope;
 - historical PIT/data incompleteness: fail closed, never fabricate;
-- PR #147 security/perimeter work remains frozen/deferred and is not a 4A blocker.
+- PR #147 security/perimeter remains frozen/deferred and is not a 4A blocker.
 
-## 12. NOW / NEXT / BACKLOG / REJECT
+## 14. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-Close Batch 4A-3 / PR #156:
+Close Batch 4A-4 / PR #157:
 
 ```text
-handoff commit
-→ exact-head CI
+handoff-updated exact head
+→ full CI
+→ final self-review
 → independent review
 → Ready
 → recovery backup
@@ -304,44 +350,44 @@ handoff commit
 
 ### NEXT
 
-Batch 4A-4 — continuous OOS Portfolio ledger across decisions.
+Batch 4A-5 — PIT resolver/API/job orchestration around the already-versioned 4A-1…4A-4 internal contracts.
 
 ### BACKLOG
 
-- 4A-5 PIT/API/job orchestration;
 - 4A-6 Walk-Forward UX;
 - ResearchRun persistence / research memory;
 - PIT fundamentals;
 - AI research automation/autopilot;
 - scale/performance after correctness contracts stabilize.
 
-### REJECT FOR CURRENT 4A-3
+### REJECT FOR CURRENT 4A-4
 
 - new selection/ranking/alpha methodology;
-- Python duplication of Exhaustive mathematics;
-- new risk-free-rate tuning surface;
-- OOS ledger implementation;
+- Python duplication of Exhaustive or Portfolio mathematics;
+- hidden expansion of Evaluation data windows;
 - public Walk-Forward API/UI;
+- non-reinvested distribution reconstruction;
+- cross-period external cashflow/leverage approximation;
 - persistence migration for convenience;
 - reactivating PR #147;
 - unrelated refactors/process expansion.
 
-## 13. Exact Resume Point
+## 15. Exact Resume Point
 
 On resume:
 
 1. read `AI_PROJECT_PLAYBOOK.md` and this file;
-2. read `RESEARCH_DATASET_V1.md`, `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md`, `WALK_FORWARD_SELECTION_CORE_V1.md` and `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md`;
-3. re-query `main`, PR #156, exact-head CI, reviews/threads and release state;
-4. continue only Batch 4A-3 until its R2 gates close.
+2. read `RESEARCH_DATASET_V1.md`, `WALK_FORWARD_TEMPORAL_CONTRACT_V1.md`, `WALK_FORWARD_SELECTION_CORE_V1.md`, `WALK_FORWARD_EXHAUSTIVE_ADAPTER_V1.md`, and `WALK_FORWARD_OOS_LEDGER_V1.md`;
+3. re-query current `main`, PR #157, exact-head CI, reviews/threads and release state;
+4. continue only Batch 4A-4 until its R2 gates close.
 
 Expected state immediately after this handoff commit:
 
 ```text
-main = 64b717c38c9522c0c68db5f122aa67ad963690d9
-PR #156 = Draft / Batch 4A-3
-branch = feat/batch4a3-exhaustive-adapter-parity
-next gate = fresh exact-head CI on the handoff-updated head
+main = 61513aeb0544494416064e66316d5b2a8caf94a2
+PR #157 = Draft / Batch 4A-4
+branch = feat/batch4a4-continuous-oos-ledger
+next gate = fresh exact-head full CI
 ```
 
 If remote truth differs, remote truth wins and the discrepancy must be analyzed before merge/rebase/reset.
