@@ -1,0 +1,290 @@
+name: Implement Portfolio L2 API Contract
+
+on:
+  push:
+    branches:
+      - feat/portfolio-weight-defined-exposure
+    paths:
+      - .github/workflows/implement-portfolio-l2-api.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Implement public weight admission and exposure serialization
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          models = Path('apps/api/app/portfolio/api_models.py')
+          text = models.read_text()
+          text = text.replace(
+              '    SimulationConfig,\n)',
+              '    SimulationConfig,\n    WEIGHT_TOLERANCE,\n)',
+              1,
+          )
+          text = text.replace(
+              'PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-04.1"',
+              'PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-15.1"',
+              1,
+          )
+          text = text.replace(
+              '    weight: float = Field(gt=0.0, le=100.0)',
+              '    weight: float = Field(gt=0.0, le=500.0)',
+              1,
+          )
+          old_total = '''        total = sum(asset.weight for asset in self.assets)
+                  if abs(total - 100.0) > 0.05:
+                      raise ValueError(f"portfolio weights must total 100%, received {total:.4f}%")
+          '''.replace('          ', '')
+          new_total = '''        total = sum(asset.weight for asset in self.assets)
+                  if total > 500.0:
+                      raise ValueError(
+                          "portfolio target gross exposure cannot exceed 500%, "
+                          f"received {total:.4f}%"
+                      )
+          '''.replace('          ', '')
+          if text.count(old_total) != 1:
+              raise SystemExit('expected legacy 100% validator exactly once')
+          text = text.replace(old_total, new_total, 1)
+
+          anchor = '''        names = [portfolio.name for portfolio in self.portfolios]
+                  if len(names) != len(set(names)):
+                      raise ValueError("portfolio names must be unique")
+                  if self.benchmark:
+          '''.replace('          ', '')
+          replacement = '''        names = [portfolio.name for portfolio in self.portfolios]
+                  if len(names) != len(set(names)):
+                      raise ValueError("portfolio names must be unique")
+                  if self.leverage.type != LeverageType.NONE:
+                      ambiguous = [
+                          portfolio.name
+                          for portfolio in self.portfolios
+                          if abs(
+                              sum(asset.weight for asset in portfolio.assets) / 100.0 - 1.0
+                          ) > WEIGHT_TOLERANCE
+                      ]
+                      if ambiguous:
+                          raise ValueError(
+                              "explicit legacy leverage requires 100% asset weights; "
+                              "non-100% weights already define residual cash or gross exposure: "
+                              + ", ".join(ambiguous)
+                          )
+                  if self.benchmark:
+          '''.replace('          ', '')
+          if text.count(anchor) != 1:
+              raise SystemExit('expected request validation anchor exactly once')
+          models.write_text(text.replace(anchor, replacement, 1))
+
+          service = Path('apps/api/app/portfolio/api_service.py')
+          text = service.read_text()
+          old_frame = '''                "cash": ledger.cash,
+                          "debt": ledger.debt,
+                          "gross_exposure": ledger.gross_exposure,
+          '''.replace('          ', '')
+          new_frame = '''                "cash": ledger.cash,
+                          "debt": ledger.debt,
+                          "gross_exposure": ledger.gross_exposure,
+                          "net_exposure": ledger.net_exposure,
+                          "gross_exposure_ratio": ledger.gross_exposure_ratio,
+                          "net_exposure_ratio": ledger.net_exposure_ratio,
+          '''.replace('          ', '')
+          if text.count(old_frame) != 1:
+              raise SystemExit('expected serialization frame anchor exactly once')
+          text = text.replace(old_frame, new_frame, 1)
+
+          old_payload = '''            "target_allocation": ledger.target_allocation,
+                      "final_allocation": ledger.final_allocation,
+                      "series": [
+          '''.replace('          ', '')
+          new_payload = '''            "target_allocation": ledger.target_allocation,
+                      "target_asset_mix": ledger.target_asset_mix,
+                      "target_gross_exposure_ratio": ledger.target_gross_exposure_ratio,
+                      "target_cash_allocation": ledger.target_cash_allocation,
+                      "final_allocation": ledger.final_allocation,
+                      "leverage_reset_count": ledger.leverage_reset_count,
+                      "series": [
+          '''.replace('          ', '')
+          if text.count(old_payload) != 1:
+              raise SystemExit('expected payload exposure anchor exactly once')
+          service.write_text(text.replace(old_payload, new_payload, 1))
+          PY
+
+      - name: Update API regressions for weight-defined exposure
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/test_portfolio_api_models.py')
+          text = path.read_text()
+          text = text.replace(
+              'def test_request_rejects_extra_fields_duplicate_symbols_and_invalid_weight_total() -> None:',
+              'def test_request_rejects_extra_fields_duplicate_symbols_and_excess_gross_exposure() -> None:',
+              1,
+          )
+          old = '''    payload = _payload()
+              payload["portfolios"][0]["assets"][0]["weight"] = 50
+              with pytest.raises(ValidationError, match="must total 100"):
+                  PortfolioRequest.model_validate(payload)
+          '''.replace('          ', '')
+          new = '''    payload = _payload()
+              payload["portfolios"][0]["assets"] = [
+                  {"symbol": "SPY", "weight": 450},
+                  {"symbol": "QQQ", "weight": 60},
+              ]
+              with pytest.raises(ValidationError, match="cannot exceed 500"):
+                  PortfolioRequest.model_validate(payload)
+          '''.replace('          ', '')
+          if text.count(old) != 1:
+              raise SystemExit('expected legacy invalid-total test exactly once')
+          text = text.replace(old, new, 1)
+          text += '''
+
+
+def test_request_preserves_cash_and_leveraged_weight_totals() -> None:
+    cash_payload = _payload()
+    cash_payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 80},
+    ]
+    cash_request = PortfolioRequest.model_validate(cash_payload)
+    assert cash_request.to_specs()[0].weights == pytest.approx((0.8,))
+    assert cash_request.to_specs()[0].target_cash_allocation == pytest.approx(0.2)
+
+    leveraged_payload = _payload()
+    leveraged_payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 75},
+        {"symbol": "QQQ", "weight": 75},
+    ]
+    leveraged_request = PortfolioRequest.model_validate(leveraged_payload)
+    spec = leveraged_request.to_specs()[0]
+    assert spec.weights == pytest.approx((0.75, 0.75))
+    assert spec.target_gross_exposure == pytest.approx(1.5)
+    assert spec.target_asset_mix == pytest.approx({"SPY": 0.5, "QQQ": 0.5})
+
+
+def test_non_100_weights_fail_closed_with_explicit_legacy_leverage() -> None:
+    payload = _payload()
+    payload["portfolios"][0]["assets"] = [{"symbol": "SPY", "weight": 150}]
+    payload["leverage"] = {"type": "fixed_ratio", "ratio": 2.0}
+    with pytest.raises(ValidationError, match="non-100% weights already define"):
+        PortfolioRequest.model_validate(payload)
+
+    payload = _payload()
+    payload["leverage"] = {"type": "fixed_ratio", "ratio": 1.5}
+    request = PortfolioRequest.model_validate(payload)
+    assert request.to_simulation_config().leverage.ratio == pytest.approx(1.5)
+'''
+          path.write_text(text)
+          PY
+
+          cat >> tests/test_portfolio_api_service.py <<'PY'
+
+
+def test_backtest_serializes_weight_defined_cash_exposure_truth() -> None:
+    service, _ = _service()
+    request = _request(
+        portfolios=[
+            {
+                "name": "Cash sleeve",
+                "assets": [{"symbol": "SPY", "weight": 80}],
+            }
+        ],
+        benchmark=None,
+        output_frequency="daily",
+    )
+
+    result = service.backtest(request)
+
+    portfolio = result.results[0]
+    assert portfolio["target_allocation"] == {"SPY": 0.8}
+    assert portfolio["target_asset_mix"] == {"SPY": 1.0}
+    assert portfolio["target_gross_exposure_ratio"] == pytest.approx(0.8)
+    assert portfolio["target_cash_allocation"] == pytest.approx(0.2)
+    assert portfolio["leverage_reset_count"] == 0
+    first = portfolio["series"][0]
+    assert first["cash"] == pytest.approx(20000.0)
+    assert first["debt"] == pytest.approx(0.0)
+    assert first["gross_exposure"] == pytest.approx(80000.0)
+    assert first["net_exposure"] == pytest.approx(80000.0)
+    assert first["gross_exposure_ratio"] == pytest.approx(0.8)
+    assert first["net_exposure_ratio"] == pytest.approx(0.8)
+
+
+def test_backtest_serializes_daily_weight_defined_leverage_truth() -> None:
+    service, _ = _service()
+    request = _request(
+        portfolios=[
+            {
+                "name": "Leveraged",
+                "assets": [{"symbol": "SPY", "weight": 150}],
+            }
+        ],
+        benchmark=None,
+        output_frequency="daily",
+        leverage={
+            "type": "none",
+            "annual_interest_rate_percent": 4,
+            "maintenance_margin_percent": 25,
+        },
+    )
+
+    result = service.backtest(request)
+
+    portfolio = result.results[0]
+    assert portfolio["target_allocation"] == {"SPY": 1.5}
+    assert portfolio["target_asset_mix"] == {"SPY": 1.0}
+    assert portfolio["target_gross_exposure_ratio"] == pytest.approx(1.5)
+    assert portfolio["target_cash_allocation"] == pytest.approx(0.0)
+    assert portfolio["leverage_reset_count"] > 0
+    first = portfolio["series"][0]
+    assert first["cash"] == pytest.approx(0.0)
+    assert first["debt"] == pytest.approx(50000.0)
+    assert first["gross_exposure"] == pytest.approx(150000.0)
+    assert first["net_exposure"] == pytest.approx(150000.0)
+    assert first["gross_exposure_ratio"] == pytest.approx(1.5)
+    assert first["net_exposure_ratio"] == pytest.approx(1.5)
+    for point in portfolio["series"][1:]:
+        if point["value"] and point["value"] > 0:
+            assert point["gross_exposure_ratio"] == pytest.approx(1.5, rel=1e-9)
+PY
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run L2 targeted and full Python regression
+        run: |
+          set -euo pipefail
+          python -m compileall -q api apps scripts tests
+          ruff check api apps scripts tests
+          pytest -q tests/test_portfolio_api_models.py tests/test_portfolio_api_service.py tests/test_portfolio_v3_api.py
+          python -m pytest -q
+
+      - name: Commit only verified L2 API implementation
+        run: |
+          set -euo pipefail
+          rm .github/workflows/implement-portfolio-l2-api.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            apps/api/app/portfolio/api_models.py \
+            apps/api/app/portfolio/api_service.py \
+            tests/test_portfolio_api_models.py \
+            tests/test_portfolio_api_service.py \
+            .github/workflows/implement-portfolio-l2-api.yml
+          git diff --cached --check
+          git commit -m "feat: expose weight-defined Portfolio API semantics"
+          git push origin HEAD:feat/portfolio-weight-defined-exposure
