@@ -6,6 +6,7 @@ import {
 } from "../scripts/exhaustive_selection_authority.mjs";
 import { combinationCountNumber } from "../public/exhaustive-optimizer-core.js";
 
+export const config = { maxDuration: 240 };
 export const EXHAUSTIVE_AUTHORITY_HTTP_CONTRACT_VERSION =
   "exhaustive-authority-http-2026-08-15.1";
 export const MAX_SERVER_EXHAUSTIVE_COMBINATIONS = 500_000;
@@ -47,8 +48,6 @@ async function readJsonBody(request) {
   const declared = Number(request.headers?.["content-length"] || 0);
   if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) throw requestTooLarge();
 
-  // @vercel/node may populate req.body before the function runs. Support that
-  // runtime shape without assuming the request remains an unread stream.
   if (request.body !== undefined && request.body !== null) {
     if (Buffer.isBuffer(request.body)) {
       return parseRawJson(request.body.toString("utf8"));
