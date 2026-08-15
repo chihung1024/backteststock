@@ -66,6 +66,7 @@ These rules are ledger economics, not a synthetic return transformation:
 - Example: a single-asset 50% Portfolio restores asset exposure to 50% of post-cost equity and residual cash to 50% at each close.
 - If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant exposure-reset trade must not be added afterward.
 - Allocation-threshold logic compares normalized asset mix. Gross/cash drift is handled by the independent daily exposure reset and must not by itself masquerade as internal allocation drift.
+- `exposure_reset_count` counts close resets that actually trade non-zero notional; it is not a count of elapsed valuation dates where the target happened to already be satisfied.
 - Transaction costs for reset/rebalance trades are solved inside the ledger against post-cost equity. The implementation must not approximate this contract as `daily return × leverage`.
 - Borrowing interest remains an explicit ledger cost.
 
