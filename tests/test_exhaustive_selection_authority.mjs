@@ -109,6 +109,7 @@ test("walk-forward bridge delegates exact simulation and winner ranking to curre
 
 test("non-finite optimized scores preserve current smaller-rank tie break", () => {
   const input = snapshot();
+  input.riskFreeRate = 0;
   const flat = input.dates.map(() => 100);
   input.prices = {
     AAA: [...flat],
