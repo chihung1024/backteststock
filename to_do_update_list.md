@@ -121,7 +121,7 @@ Implemented:
 - API upper-bound admission derives from `MAX_TARGET_GROSS_EXPOSURE` and domain tolerance rather than a second hard-coded 500% authority;
 - existing 100% requests remain valid;
 - non-100% weight-defined exposure combined with explicit legacy leverage fails closed as ambiguous;
-- result serialization exposes existing L1 ledger cash/debt/gross/net exposure ratios, target gross/cash/mix and leverage-reset count without reimplementing calculations;
+- result serialization exposes existing L1 ledger cash/debt/gross/net exposure ratios, target gross/cash/mix and exposure-reset count without reimplementing calculations;
 - route/model/service regressions cover 80%, 100%, 150%, >domain-limit rejection and ambiguous legacy leverage behavior.
 
 Verification record:

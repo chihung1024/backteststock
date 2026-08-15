@@ -468,7 +468,7 @@ class PortfolioAPIService:
             "target_gross_exposure_ratio": ledger.target_gross_exposure_ratio,
             "target_cash_allocation": ledger.target_cash_allocation,
             "final_allocation": ledger.final_allocation,
-            "leverage_reset_count": ledger.leverage_reset_count,
+            "exposure_reset_count": ledger.exposure_reset_count,
             "series": [
                 {
                     "date": timestamp.date().isoformat(),

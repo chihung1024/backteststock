@@ -362,7 +362,7 @@ def test_backtest_serializes_weight_defined_cash_exposure_truth() -> None:
     assert portfolio["target_asset_mix"] == {"SPY": 1.0}
     assert portfolio["target_gross_exposure_ratio"] == pytest.approx(0.8)
     assert portfolio["target_cash_allocation"] == pytest.approx(0.2)
-    assert portfolio["leverage_reset_count"] > 0
+    assert portfolio["exposure_reset_count"] > 0
     for point in portfolio["series"][1:]:
         if point["value"] and point["value"] > 0:
             assert point["gross_exposure_ratio"] == pytest.approx(0.8, rel=1e-9)
@@ -400,7 +400,7 @@ def test_backtest_serializes_daily_weight_defined_leverage_truth() -> None:
     assert portfolio["target_asset_mix"] == {"SPY": 1.0}
     assert portfolio["target_gross_exposure_ratio"] == pytest.approx(1.5)
     assert portfolio["target_cash_allocation"] == pytest.approx(0.0)
-    assert portfolio["leverage_reset_count"] > 0
+    assert portfolio["exposure_reset_count"] > 0
     first = portfolio["series"][0]
     assert first["cash"] == pytest.approx(0.0)
     assert first["debt"] == pytest.approx(50000.0)

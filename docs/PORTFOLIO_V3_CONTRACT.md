@@ -15,7 +15,7 @@ Portfolio v3 is the self-owned Portfolio research path in this repository.
 - Edge routing/security authority: `worker/router.js`.
 - Current behavior is verified by the direct Portfolio tests under `tests/`; historical migration fixtures are not a runtime authority.
 
-Portfolio and Scanner/Exhaustive may share audited market/TWD data semantics, but Portfolio ledger behavior remains path-dependent Portfolio domain logic. Cash, debt, leverage-reset trades and portfolio performance must be represented by this ledger rather than by a second performance engine.
+Portfolio and Scanner/Exhaustive may share audited market/TWD data semantics, but Portfolio ledger behavior remains path-dependent Portfolio domain logic. Cash, debt, exposure-reset trades and portfolio performance must be represented by this ledger rather than by a second performance engine.
 
 ## 2. Valuation and ledger semantics
 
@@ -58,11 +58,11 @@ These rules are ledger economics, not a synthetic return transformation:
 - Leveraged gross exposure is explicit asset market value financed by explicit debt.
 - `target_allocation` preserves the raw equity-relative exposure weights.
 - `target_asset_mix` is the normalized asset-only composition.
-- The ledger records target/realized gross exposure, net exposure, cash, debt and leverage-reset events.
+- The ledger records target/realized gross exposure, net exposure, cash, debt and exposure-reset events.
 - Any non-100% target gross exposure is reset at each close to its configured gross-exposure ratio. This reset is separate from asset-allocation rebalance.
 - A pure daily gross-exposure reset **preserves the current asset mix**. It must not silently restore each asset to its original raw target weight.
 - Example: a portfolio entered as `VT 100% + QQQ 50%` has 150% target gross exposure. Daily close reset restores total gross exposure to 150%, while VT/QQQ may drift relative to each other. Their internal mix returns to the original target only when the configured periodic or drift-threshold asset-allocation rebalance independently fires.
-- If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant leverage-reset trade must not be added afterward.
+- If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant exposure-reset trade must not be added afterward.
 - Leveraged threshold logic compares normalized asset mix so gross-exposure drift alone cannot masquerade as allocation drift.
 - Underinvested threshold semantics include the intentional residual-cash allocation.
 - Transaction costs for reset/rebalance trades are solved inside the ledger against post-cost equity. The implementation must not approximate this contract as `daily return × leverage`.
@@ -132,7 +132,7 @@ Requests are typed and strict:
 - the public API derives its maximum exposure admission from the Portfolio domain authority rather than maintaining a second hard-coded leverage cap;
 - a request with non-100% weight-defined exposure and explicit legacy leverage fails closed as ambiguous;
 - existing 100% / no-leverage requests remain the compatibility baseline;
-- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and leverage-reset count rather than recalculating them in the API layer;
+- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and exposure-reset count rather than recalculating them in the API layer;
 - portfolio/asset/request-size resource caps are enforced by current models/Edge tests;
 - TWD is the supported Portfolio valuation currency;
 - future/invalid date ranges are rejected;

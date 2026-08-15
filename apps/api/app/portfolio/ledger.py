@@ -85,7 +85,7 @@ class PortfolioLedger:
     net_exposure: pd.Series | None = None
     gross_exposure_ratio: pd.Series | None = None
     net_exposure_ratio: pd.Series | None = None
-    leverage_reset_count: int = 0
+    exposure_reset_count: int = 0
 
     def __post_init__(self) -> None:
         target_gross = (
@@ -236,7 +236,7 @@ def simulate_portfolio_ledger(
     transaction_costs = 0.0
     borrowing_costs = 0.0
     rebalance_count = 0
-    leverage_reset_count = 0
+    exposure_reset_count = 0
     liquidated = False
     events: list[LedgerEvent] = []
     warnings: list[str] = []
@@ -500,11 +500,11 @@ def simulate_portfolio_ledger(
                 )
                 transaction_costs += cost
                 if traded_notional > _EPSILON:
-                    leverage_reset_count += 1
+                    exposure_reset_count += 1
                     events.append(
                         LedgerEvent(
                             date=timestamp.date().isoformat(),
-                            type="leverage_reset",
+                            type="exposure_reset",
                             details={
                                 "target_gross_ratio": policy.daily_reset_ratio,
                                 "gross_exposure_before": gross_before,
@@ -590,7 +590,7 @@ def simulate_portfolio_ledger(
         transaction_costs=transaction_costs,
         borrowing_costs=borrowing_costs,
         rebalance_count=rebalance_count,
-        leverage_reset_count=leverage_reset_count,
+        exposure_reset_count=exposure_reset_count,
         events=events,
         warnings=warnings,
         liquidated=liquidated,

@@ -117,8 +117,8 @@ def test_weight_below_100_percent_resets_total_exposure_each_close() -> None:
     assert ledger.debt.iloc[1] == pytest.approx(0.0)
     assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(0.8)
     assert ledger.gross_exposure_ratio.iloc[2] == pytest.approx(0.8)
-    assert ledger.leverage_reset_count == 1
-    assert any(event.type == "leverage_reset" for event in ledger.events)
+    assert ledger.exposure_reset_count == 1
+    assert any(event.type == "exposure_reset" for event in ledger.events)
 
 def test_weight_defined_leverage_resets_gross_exposure_at_each_close() -> None:
     history = _history(
@@ -146,11 +146,11 @@ def test_weight_defined_leverage_resets_gross_exposure_at_each_close() -> None:
     assert ledger.debt.iloc[2] == pytest.approx(48.875)
     assert ledger.gross_exposure_ratio.iloc[2] == pytest.approx(1.5)
     assert ledger.return_index.iloc[-1] == pytest.approx(0.9775)
-    assert ledger.leverage_reset_count == 2
+    assert ledger.exposure_reset_count == 2
     assert all(
         event.details["asset_allocation_preserved"] is True
         for event in ledger.events
-        if event.type == "leverage_reset"
+        if event.type == "exposure_reset"
     )
 
 
@@ -174,7 +174,7 @@ def test_daily_leverage_reset_preserves_asset_mix_until_allocation_rebalance() -
         ),
     )
     assert reset_only.rebalance_count == 0
-    assert reset_only.leverage_reset_count >= 1
+    assert reset_only.exposure_reset_count >= 1
     assert reset_only.allocation_history.iloc[1]["AAA"] == pytest.approx(90.0 / 165.0)
     assert reset_only.allocation_history.iloc[1]["BBB"] == pytest.approx(75.0 / 165.0)
     assert reset_only.gross_exposure_ratio.iloc[1] == pytest.approx(1.5)
@@ -215,8 +215,8 @@ def test_gross_only_drift_does_not_trigger_asset_allocation_threshold() -> None:
     )
 
     assert ledger.rebalance_count == 0
-    assert ledger.leverage_reset_count >= 1
-    assert any(event.type == "leverage_reset" for event in ledger.events)
+    assert ledger.exposure_reset_count >= 1
+    assert any(event.type == "exposure_reset" for event in ledger.events)
 
 
 def test_underinvested_gross_drift_does_not_trigger_asset_mix_threshold() -> None:
@@ -235,12 +235,12 @@ def test_underinvested_gross_drift_does_not_trigger_asset_mix_threshold() -> Non
     )
 
     assert ledger.rebalance_count == 0
-    assert ledger.leverage_reset_count == 1
+    assert ledger.exposure_reset_count == 1
     assert ledger.equity.iloc[1] == pytest.approx(120.0)
     assert ledger.gross_exposure.iloc[1] == pytest.approx(96.0)
     assert ledger.cash.iloc[1] == pytest.approx(24.0)
     assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(0.8)
-    assert any(event.type == "leverage_reset" for event in ledger.events)
+    assert any(event.type == "exposure_reset" for event in ledger.events)
 
 
 def test_underinvested_daily_reset_preserves_asset_mix_until_rebalance() -> None:
@@ -260,7 +260,7 @@ def test_underinvested_daily_reset_preserves_asset_mix_until_rebalance() -> None
         SimulationConfig(initial_amount=100.0),
     )
     assert reset_only.rebalance_count == 0
-    assert reset_only.leverage_reset_count >= 1
+    assert reset_only.exposure_reset_count >= 1
     assert reset_only.gross_exposure_ratio.iloc[1] == pytest.approx(0.5)
     assert reset_only.cash.iloc[1] == pytest.approx(53.0)
     assert reset_only.allocation_history.iloc[1]["AAA"] == pytest.approx(36.0 / 56.0)
@@ -302,7 +302,7 @@ def test_leverage_reset_transaction_cost_is_charged_inside_ledger() -> None:
     assert 0.0 < ledger.transaction_costs < 0.1
     assert ledger.equity.iloc[1] < 115.0
     assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(1.5)
-    event = next(event for event in ledger.events if event.type == "leverage_reset")
+    event = next(event for event in ledger.events if event.type == "exposure_reset")
     assert event.details["traded_notional"] > 0.0
     assert event.details["transaction_cost"] == pytest.approx(
         ledger.transaction_costs
@@ -349,7 +349,7 @@ def test_legacy_fixed_ratio_now_uses_the_same_daily_reset_authority() -> None:
     assert ledger.gross_exposure.iloc[1] == pytest.approx(240.0)
     assert ledger.debt.iloc[1] == pytest.approx(120.0)
     assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(2.0)
-    assert ledger.leverage_reset_count == 1
+    assert ledger.exposure_reset_count == 1
 
 
 def test_initial_target_exposure_must_satisfy_maintenance_margin() -> None:

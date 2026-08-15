@@ -38,7 +38,7 @@ def test_legacy_portfolio_ledger_constructor_derives_new_exposure_diagnostics() 
     assert ledger.target_asset_mix == {"AAA": 1.0}
     assert ledger.target_gross_exposure_ratio == pytest.approx(1.0)
     assert ledger.target_cash_allocation == pytest.approx(0.0)
-    assert ledger.leverage_reset_count == 0
+    assert ledger.exposure_reset_count == 0
     assert ledger.net_exposure.tolist() == pytest.approx([100.0, 110.0])
     assert ledger.gross_exposure_ratio.tolist() == pytest.approx([1.0, 1.0])
     assert ledger.net_exposure_ratio.tolist() == pytest.approx([1.0, 1.0])
