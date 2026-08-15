@@ -86,6 +86,8 @@ select(SelectionContext) -> SelectionResult
 
 Selector identity and parameters are snapshotted **before** `select()` executes. If an engine mutates its own configuration during execution, the frozen decision still records the configuration presented at invocation.
 
+The value stored in `DecisionSnapshot.selector_contract_version` is the composite `<selection-core-version>+<engine-version>`. This binds both the orchestration contract and the engine contract into the existing Batch 4A-1 decision hash without adding a second decision schema. Built-in engine identity constants are not constructor-overridable.
+
 The Training dataset hash is captured before execution and revalidated after execution. If a selector mutates Training dataset content or identity, selection fails closed.
 
 ## SelectionResult
