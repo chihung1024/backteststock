@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from api import exhaustive_optimizer
 from apps.api.app.data.history_service import (
     HistoryFailure,
     PartialTWDHistories,
@@ -210,7 +211,6 @@ def _engine(authority_dataset, *, runner=None):
         band_ratio=0.20,
         transaction_cost_bps=0.0,
         execution_delay_trading_days=1,
-        risk_free_rate=0.03,
         runner=runner or FakeAuthorityRunner(),
     )
 
@@ -233,11 +233,28 @@ def test_exhaustive_adapter_freezes_authority_identity_and_training_evidence():
     assert params["bridgeVersion"] == runner.bridge_version
     assert params["authorityDatasetHash"] == authority.dataset_hash
     assert params["benchmarkSymbol"] == BENCHMARK
+    assert params["riskFreeRate"] == pytest.approx(
+        exhaustive_optimizer.legacy.RISK_FREE_RATE
+    )
     assert params["ranking"]["field"] == EXHAUSTIVE_RANKING_FIELD
     assert params["ranking"]["tieBreak"] == EXHAUSTIVE_RANKING_TIE_BREAK
     assert runner.payloads[0]["candidateTickers"] == list(CANDIDATES)
     assert runner.payloads[0]["benchmark"] == BENCHMARK
     assert runner.payloads[0]["datasetHash"] == authority.dataset_hash
+    assert runner.payloads[0]["riskFreeRate"] == pytest.approx(
+        exhaustive_optimizer.legacy.RISK_FREE_RATE
+    )
+
+
+def test_exhaustive_adapter_does_not_add_a_new_risk_free_strategy_parameter():
+    _, authority = _candidate_and_authority()
+    with pytest.raises(TypeError, match="risk_free_rate"):
+        ExhaustiveSelectionEngine(
+            authority_dataset=authority,
+            benchmark_symbol=BENCHMARK,
+            holding_count=2,
+            risk_free_rate=0.10,
+        )
 
 
 def test_exhaustive_adapter_rejects_candidate_history_drift_between_training_artifacts():
@@ -315,7 +332,6 @@ def test_node_exhaustive_authority_runs_end_to_end_behind_selection_engine():
         band_ratio=0.20,
         transaction_cost_bps=0.0,
         execution_delay_trading_days=1,
-        risk_free_rate=0.03,
         runner=NodeExhaustiveAuthorityRunner(timeout_seconds=60.0),
     )
     decision = run_selection(
@@ -331,3 +347,6 @@ def test_node_exhaustive_authority_runs_end_to_end_behind_selection_engine():
     params = decision.export_payload()["selector"]["parameters"]
     assert params["authorityVersion"].startswith("exhaustive-band-")
     assert params["authorityDatasetHash"] == authority.dataset_hash
+    assert params["riskFreeRate"] == pytest.approx(
+        exhaustive_optimizer.legacy.RISK_FREE_RATE
+    )
