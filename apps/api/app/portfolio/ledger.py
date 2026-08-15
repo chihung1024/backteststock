@@ -221,6 +221,17 @@ def simulate_portfolio_ledger(
         policy,
         config.leverage,
     )
+    initial_liquidation_reason = _liquidation_reason(
+        asset_values,
+        cash,
+        debt,
+        config.leverage.maintenance_margin_percent,
+    )
+    if initial_liquidation_reason is not None:
+        raise ValueError(
+            "initial portfolio exposure violates liquidation guard: "
+            f"{initial_liquidation_reason}"
+        )
     cumulative_income_value = 0.0
     transaction_costs = 0.0
     borrowing_costs = 0.0

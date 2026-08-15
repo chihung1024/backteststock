@@ -310,3 +310,53 @@ def test_legacy_fixed_ratio_now_uses_the_same_daily_reset_authority() -> None:
     assert ledger.debt.iloc[1] == pytest.approx(120.0)
     assert ledger.gross_exposure_ratio.iloc[1] == pytest.approx(2.0)
     assert ledger.leverage_reset_count == 1
+
+
+def test_initial_target_exposure_must_satisfy_maintenance_margin() -> None:
+    history = _history(
+        "AAA",
+        ["2024-01-02", "2024-01-03"],
+        [0.0, 0.0],
+    )
+
+    valid = simulate_portfolio_ledger(
+        PortfolioSpec.from_weights("Valid 3x", {"AAA": 3.0}),
+        {"AAA": history},
+        SimulationConfig(
+            initial_amount=100.0,
+            leverage=LeverageConfig(maintenance_margin_percent=25.0),
+        ),
+    )
+    assert valid.gross_exposure_ratio.iloc[0] == pytest.approx(3.0)
+
+    with pytest.raises(ValueError, match="initial portfolio exposure"):
+        simulate_portfolio_ledger(
+            PortfolioSpec.from_weights("Invalid 5x", {"AAA": 5.0}),
+            {"AAA": history},
+            SimulationConfig(
+                initial_amount=100.0,
+                leverage=LeverageConfig(maintenance_margin_percent=25.0),
+            ),
+        )
+
+
+def test_initial_fixed_debt_also_uses_the_same_margin_guard() -> None:
+    history = _history(
+        "AAA",
+        ["2024-01-02", "2024-01-03"],
+        [0.0, 0.0],
+    )
+
+    with pytest.raises(ValueError, match="initial portfolio exposure"):
+        simulate_portfolio_ledger(
+            PortfolioSpec.from_weights("Invalid fixed debt", {"AAA": 1.0}),
+            {"AAA": history},
+            SimulationConfig(
+                initial_amount=100.0,
+                leverage=LeverageConfig(
+                    type=LeverageType.FIXED_DEBT,
+                    debt_amount=400.0,
+                    maintenance_margin_percent=25.0,
+                ),
+            ),
+        )
