@@ -20,251 +20,281 @@ Priority order:
 6. AI research automation
 7. Scale / performance
 
-Functionality, quantitative correctness, data integrity and user experience outrank optional infrastructure/process work.
+Functionality, quantitative correctness, data integrity, causal validity and user experience outrank optional infrastructure/process work.
 
-## 2. Verified Main Baseline
+## 2. Verified Production Baseline
 
-Current remote baseline before the active P0 fix:
+Current production main before the active Portfolio exposure feature:
 
 ```text
-main@b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
-ci: verify Walk-Forward production after Vercel changes (#160)
+main@e93e3ba51fa6b082ccc5b6adbf446f3b3268728a
+fix: enforce current-instrument listing-date causality (#161)
 ```
 
-Walk-Forward foundation is closed through 4A-5:
+P0 pre-inception/ticker-reuse correctness incident is **CLOSED / MERGED / POST-MAIN VERIFIED / PRODUCTION VERIFIED**.
 
-| Batch | Result |
-| --- | --- |
-| 4A-1 | Temporal causality firewall + immutable DecisionSnapshot — DONE / PR #154 |
-| 4A-2 | SelectionEngine + physical Training/OOS separation — DONE / PR #155 |
-| 4A-3 | Existing JavaScript Exhaustive adapter + golden parity — DONE / PR #156 |
-| 4A-4 | Continuous OOS Portfolio ledger — DONE / PR #157 |
-| 4A-5 | PIT Resolver / API / Job Orchestration — DONE / PR #158 plus runtime closure PR #159 and production-verification PR #160 |
+Closure evidence:
 
-4A-5 final production evidence on `main@b260a50f...`:
+- PR #161 exact-head independent approval and squash merge completed;
+- post-merge recovery release `backup-post-pr161-e93e3ba51fa6` targets exact main;
+- main CI #822 SUCCESS;
+- Vercel production deployment is bound to exact main `e93e3ba51...` and succeeded;
+- real production VFLO regression requested history beginning in 2016 but returned first Portfolio observation and effective metric start on **2023-06-22**, matching the verified current-instrument first-trade boundary;
+- the production regression contained 808 observations and no pre-inception rows;
+- Cloudflare Walk-Forward health simultaneously reported `status=ok` and deployment SHA `e93e3ba51...`.
 
-- post-main recovery release exists;
-- main CI #810 SUCCESS;
-- Vercel production points to the exact main SHA;
-- `Verify Walk-Forward Production` executed the existing real production smoke against the exact deployment and returned `status=ok`;
-- existing production Worker routed successfully to the deployment-bound Exhaustive authority;
-- no Cloudflare runtime code change was required merely to verify a Vercel-only authority change.
+Do not reopen P0 unless new runtime evidence shows lifecycle leakage or an identity-boundary regression.
 
-Do not reopen 4A-5 unless new evidence shows a regression.
+## 3. Primary Active Work — Portfolio Weight-Defined Exposure
 
-## 3. Primary Active Work — P0 Correctness
-
-### Pre-inception / ticker-reuse history leakage
-
-Status: **ACTIVE / Draft PR #161 / R2 P0 correctness**
+Status: **ACTIVE / Draft PR #162 / R3 Portfolio-calculation change**
 
 Branch:
 
 ```text
-fix/p0-listing-date-causality
+feat/portfolio-weight-defined-exposure
 ```
 
 Base:
 
 ```text
-main@b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
+main@e93e3ba51fa6b082ccc5b6adbf446f3b3268728a
 ```
 
 PR:
 
 ```text
-#161 — fix: enforce current-instrument listing-date causality
+#162 — feat: add weight-defined Portfolio exposure semantics
 ```
 
-Do not trust a hard-coded candidate head in this file. Re-query PR #161 before review, Ready or merge because tests/docs may advance the branch head.
+Do not trust a hard-coded candidate head in this file. Re-query PR #162 before important writes/reviews because verification and docs may advance the branch head.
 
-Durable contract update:
+Primary product contract:
 
 ```text
-docs/UNIFIED_TWD_CONTRACT.md
+sum(asset weights) < 100%  -> residual cash
+sum(asset weights) = 100%  -> fully invested
+sum(asset weights) > 100%  -> financed gross exposure
 ```
 
-## 4. User-visible Reproduction / External Truth
+For gross exposure above 100%, the Portfolio v3 ledger must reset target gross exposure at each close. This is separate from asset-allocation rebalance, which continues to follow periodic/threshold policy.
 
-The incident was reproduced conceptually with `VFLO`:
+No `daily return × leverage` shortcut is permitted.
 
-- the current VictoryShares Free Cash Flow ETF is a June 2023 product;
-- the current Yahoo instrument lifecycle boundary used by this regression is **2023-06-22**;
-- a backtest request starting in 2016 could nevertheless show VFLO performance before the current ETF existed.
+## 4. Master Plan / Batch Boundaries
 
-The fix must never hard-code VFLO. VFLO is a regression example for the general ticker-reuse/history-stitching defect class.
+### L1 — Ledger Authority
 
-## 5. Root Cause — LOCKED
+Status: **IMPLEMENTED / targeted + full Python regression verified / final exact-head full repository CI still required**.
 
-The frontend is not fabricating history:
+In scope:
 
-- `ResultsDashboard` renders backend `result.series[{date,value}]` directly;
-- Portfolio API serialization uses the ledger index directly;
-- TWD valuation never backward-fills a later native price into an earlier date;
-- FX union-calendar logic begins only after an actual native observation exists.
+- weight-defined residual cash and gross exposure;
+- daily close leverage reset inside the existing Portfolio v3 ledger;
+- debt/cash/interest/transaction-cost/reset-trade accounting;
+- gross/net exposure diagnostics;
+- liquidation/invalid-initial-margin guards;
+- preserve existing 100% no-leverage behavior;
+- preserve Walk-Forward OOS use of the same Portfolio ledger authority.
 
-Therefore the false pre-inception history already existed in the native Yahoo adjusted-close series before TWD valuation.
+Out of scope:
 
-Root cause:
+- public API admission changes;
+- browser/UI changes;
+- new Portfolio performance engine;
+- PIT/Exhaustive/Walk-Forward methodology changes.
 
-> **The authoritative market-data boundary verified that a ticker had real prices and corporate-action evidence, but did not verify that those rows belonged to the instrument currently represented by that ticker.**
+### L2 — API Contract
 
-Ticker text is not instrument identity. A ticker can be reused or Yahoo can stitch history across an instrument change. Existing code even documented `ticker_or_exchange_change_history_stitching` as a corporate-action limitation, but no lifecycle guard prevented those rows from entering Scanner / Portfolio / Research / Exhaustive calculations.
+Status: **NEXT after L1 exact-head gates close**.
 
-## 6. P0 Fix Contract
+Objective:
 
-New versioned identity authority:
+- allow public Portfolio asset-weight totals below/above 100% within the domain bound;
+- expose ledger cash/debt/gross/net/reset truth through the existing API result;
+- define compatibility/deprecation behavior for the legacy explicit leverage schema without creating two active leverage authorities.
 
-```text
-INSTRUMENT_IDENTITY_CONTRACT_VERSION = yahoo-first-trade-date-2026-08-15.1
-source = yahoo_history_metadata.firstTradeDate
-```
+### L3 — UX
 
-Required invariants:
+Status: **DEFERRED until L2**.
 
-1. current Yahoo `firstTradeDate` must be verified before ticker-keyed history is usable;
-2. all adjusted-close rows before that date are removed;
-3. Raw Close, dividends, capital gains, stock splits and repair flags are clipped to the same boundary;
-4. corporate-action audit is rebuilt after clipping;
-5. identity audit records first-trade date, original/effective first dates, removed row count and clipping status;
-6. metadata failure is **fail closed / retryable** — never `audit=unverified` while still calculating a performance result;
-7. an entirely pre-inception requested window returns no usable current-instrument series;
-8. market-data cache identity includes the new contract version, so pre-fix cached histories are not reused;
-9. no UI patch, benchmark substitution, synthetic proxy or hard-coded instrument date may satisfy this contract.
+Objective:
 
-Implementation surface is intentionally narrow:
+- let the user enter/display residual cash and gross leverage directly from weights;
+- clearly distinguish asset-allocation rebalance from daily leverage reset;
+- remove ambiguous duplicate leverage controls;
+- keep responsive Portfolio user flows and existing 100% portfolios unchanged.
 
-```text
-api/instrument_identity.py
-api/market_data.py
-tests/test_instrument_identity.py
-docs/UNIFIED_TWD_CONTRACT.md
-to_do_update_list.md
-```
+## 5. L1 Locked Ledger Semantics
 
-No quant formulas, Portfolio ledger math, PIT resolver, Walk-Forward selector/OOS semantics, Worker routing or leverage behavior are changed.
+1. Portfolio weights are equity-relative target exposures, with current domain gross bound `(0, 500%]`.
+2. `target_allocation` preserves the raw user-entered exposure weights.
+3. `target_asset_mix` is the normalized asset-only composition.
+4. Weight total below 100% creates ledger cash; it is not represented by a synthetic cash-price series.
+5. Weight total above 100% creates ledger debt and a target gross exposure ratio.
+6. Leveraged gross exposure resets at every close after returns/distributions/interest/flows and before final state recording.
+7. A leverage reset preserves the current asset mix unless an independently configured allocation rebalance fires on that close.
+8. Periodic/threshold allocation rebalance restores target asset mix and target gross in one ledger trade; it must not be followed by a redundant leverage-reset trade.
+9. Leveraged allocation-threshold checks normalized asset mix, so gross-exposure drift alone cannot masquerade as allocation drift.
+10. Underinvested allocation-threshold semantics include intentional residual cash.
+11. Reset/rebalance transaction costs are solved against post-cost equity through the ledger; no leveraged-return multiplication approximation is allowed.
+12. Borrowing interest remains explicit ledger cost.
+13. Existing fixed-ratio leverage routes through the same daily-reset authority.
+14. Fixed-debt remains explicit/separate.
+15. Non-100% weight-defined exposure plus an explicit legacy leverage overlay fails closed as ambiguous.
+16. Existing 100% / no-leverage Portfolio behavior remains the compatibility baseline.
+17. Initial leveraged states must already satisfy the configured maintenance-margin guard. For example, 3x with a 25% maintenance margin is admissible, while 5x with a 25% maintenance margin is rejected before a fictitious initial state can be recorded.
+18. Existing direct `PortfolioLedger(...)` construction and Walk-Forward OOS `_rebalance(..., target_weights, ...)` integration remain compatible adapters into the same Portfolio authority.
 
-## 7. Why Shared `api.market_data` Is the Correct Boundary
+Current ledger diagnostics include:
 
-Production compatibility backtest in `api/index_v2.py`, `TWDHistoryService`, Scanner/Portfolio services, ResearchDataset and Exhaustive preparation already converge on the shared audited market-data path.
+- cash;
+- debt;
+- gross exposure;
+- net exposure;
+- gross exposure ratio;
+- net exposure ratio;
+- target gross exposure ratio;
+- target cash allocation;
+- target asset mix;
+- leverage reset count/events.
 
-Fixing only Portfolio v3 or only the chart would leave the same defect available to other research consumers. The guard therefore runs before TWD valuation and before return/portfolio metrics.
+## 6. L1 Root-Cause / Verification Record
 
-The historical legacy downloader retained in `api/index.py` is not the production backtest authority; `api/index_v2.py` replaces the production backtest handler and delegates market data to `api.market_data`. Do not expand this P0 into an unrelated legacy refactor unless remote runtime truth shows an active affected path.
+### A. Targeted implementation gate
 
-Existing downstream regression also locks the alignment rule: a later-starting asset is never backward-filled into an earlier common portfolio date. Portfolio v3 starts from the common genuinely available interval; it does not need a second lifecycle authority.
+The implementation candidate was kept off the feature ref until exact source hashes, compile and focused ledger regressions passed. The initial published L1 candidate passed **20/20 targeted ledger tests**.
 
-## 8. Regression Locks Added
+A test fixture originally expected a 5% threshold rebalance after one leg of a 50/50 portfolio rose 20%. Evidence showed normalized allocation only moved to 54.545%/45.455%, i.e. 4.545 percentage points of drift. The fixture was corrected to 4%; production logic was not changed for this failure.
 
-Targeted tests cover:
+### B. Broad-regression integration failure
 
-1. Yahoo `firstTradeDate` parsing from epoch seconds, milliseconds and ISO dates;
-2. simultaneous clipping of adjusted price and time-indexed component attrs;
-3. VFLO-class ticker-reuse rows removed before downstream use;
-4. corporate-action event counts rebuilt after pre-inception event removal;
-5. market-data frame audit preserves the verified identity boundary;
-6. unverifiable identity metadata fails closed instead of producing results;
-7. an entirely pre-inception window returns no usable current-instrument history;
-8. a batched multi-instrument fixture enforces distinct lifecycle boundaries while an ordinary long-history control remains unchanged;
-9. existing TWD backtest regression confirms a later-starting asset cannot be backward-filled before its first observation.
+First formal PR CI after L1 implementation produced **8 Python failures** while compile/lint and targeted math were otherwise valid.
 
-Full repository CI remains authoritative for cross-system regression.
+Root causes:
 
-## 9. Current Verification State
+1. new `PortfolioLedger` diagnostic fields were made required constructor arguments, breaking existing quant fixtures and Walk-Forward OOS direct construction;
+2. `_rebalance` had changed its established input from a target-weight vector to `ExposurePolicy`, while Walk-Forward OOS intentionally consumes that shared helper.
 
-Current candidate work has passed targeted compile/lint/Python tests during exact-head CI after the systemic regression expansion. The final exact head still requires all R2 gates to finish before merge.
+Permanent fix:
 
-Required gates:
+- preserve the established constructor prefix and make new diagnostics optional/derivable from existing ledger truth;
+- accept the existing weight-vector `_rebalance` adapter and immediately convert it into the same `ExposurePolicy` authority;
+- do **not** modify Walk-Forward OOS to duplicate calculations.
 
-1. full repository CI SUCCESS;
-2. Vercel preview SUCCESS;
-3. final diff self-review / no BLOCKER;
-4. independent review on the exact final head;
-5. zero unresolved BLOCKER threads;
-6. pre-merge recovery against exact current main;
-7. squash merge with exact expected head;
-8. post-main backup + main CI + Vercel production;
-9. production regression proving a 2016-requested VFLO path/effective history cannot begin before the current instrument's verified first-trade boundary.
+The repair passed compile, ruff and the full Python regression before commit.
 
-Recovery status:
+### C. Initial-margin self-review blocker
 
-```text
-backup-pre-pr161-b260a50fcbdf
-→ target_commitish = b260a50fcbdf71fafa1d3d3c8e1b11bf5b4d7156
-→ verified by Release Backup Gates
-```
+Self-review found that a 5x initial target with the default 25% maintenance margin has only 20% equity/gross, yet the previous flow would not evaluate margin until the next valuation date.
 
-## 10. Performance / Reliability Constraints
+Permanent fix:
 
-The identity resolver must not turn a 100-symbol scan into unbounded serial metadata work.
+- validate the initial target state through the same liquidation guard before recording day zero;
+- apply the guard to weight-defined/fixed-ratio and fixed-debt states;
+- fail honestly for an invalid initial configuration instead of emitting a temporarily invalid ledger state.
 
-Current design:
+Targeted and full Python regression passed before this repair was committed.
 
-- bounded concurrent resolver workers;
-- two metadata attempts per uncached symbol;
-- successful identity evidence cached for six hours;
-- metadata failures cached only briefly (30 seconds) to suppress duplicate lookups inside a finite retry cycle without creating a multi-hour outage;
-- market-data download retry remains finite.
+### D. Validation-workflow noise
 
-Do not trade correctness for speed by silently accepting unverified ticker-only history. If later profiling shows unacceptable latency, optimize the metadata acquisition mechanism while preserving the exact identity invariant.
+Temporary GitHub Actions assemblers were used only to keep large multi-file candidates off the feature ref until source-hash and regression gates passed. Several candidate-generation runs stopped before product commits because whitespace-sensitive or transport guards were too strict. These were tooling/verification noise, not product failures; permanent source changes were never published from a failed runner.
 
-Known provider caveat: Yahoo/yfinance metadata retrieval is an upstream availability dependency. A metadata outage must fail closed rather than revive ticker-only history. Availability/performance optimization is NEXT/BACKLOG unless production evidence shows it is a release-blocking regression.
+## 7. L1 Current Verification State
 
-## 11. NOW / NEXT / BACKLOG / REJECT
+Verified so far:
+
+- exact candidate source/hash validation before initial publish;
+- targeted ledger regression 20/20 on initial L1 candidate;
+- integration repair: compile + ruff + full Python regression SUCCESS before commit;
+- initial-margin repair: targeted + full Python regression SUCCESS before commit;
+- current branch contains no intended temporary verification workflow in the final product diff after each verified repair commit.
+
+Still required before L1 may be marked DONE:
+
+1. durable `docs/PORTFOLIO_V3_CONTRACT.md` update;
+2. user-authored final exact head;
+3. formal full repository CI SUCCESS on that exact head;
+4. Vercel preview SUCCESS on that exact head;
+5. final diff/self-review with no L1 BLOCKER;
+6. confirm main/base has not moved incompatibly.
+
+L1 completion does **not** authorize merge of PR #162. The PR remains Draft while L2/L3 are unfinished.
+
+## 8. Current Public Product Boundary
+
+Until L2/L3 are completed:
+
+- public Portfolio API still enforces the existing approximately-100% weight contract;
+- browser Allocation Editor still treats non-100% totals as invalid and currently caps each weight at 100%;
+- therefore L1 is an internal ledger-authority foundation and is not yet a user-visible feature;
+- production main remains unchanged at `e93e3ba51...`.
+
+This staged boundary is intentional so each batch remains usable and independently rollbackable.
+
+## 9. NOW / NEXT / BACKLOG / REJECT
 
 ### NOW
 
-Close PR #161 as an R2 P0 correctness batch:
+Close L1 only:
 
 ```text
-final exact-head CI + Vercel preview
-→ final self-review
-→ independent review
-→ Ready
-→ release-backup pre-merge recovery
-→ final TOCTOU
-→ squash merge
-→ post-main CI / Vercel production
-→ live VFLO pre-inception production regression
+durable Portfolio contract + handoff
+→ final exact-head full CI + Vercel preview
+→ final L1 self-review
+→ mark L1 DONE
 ```
 
-### NEXT AFTER P0
+### NEXT
 
-Batch 4A-6 — user-facing Walk-Forward UX over the already-versioned server workflow. UX must surface provenance/failure truth rather than hide it.
+L2 API Contract, then L3 UX.
+
+### AFTER L3
+
+Perform R3 final review/recovery/merge/post-main production verification for PR #162. Only then resume the broader product roadmap.
 
 ### BACKLOG
 
+- Batch 4A-6 Walk-Forward user-facing UX;
 - ResearchRun / research memory;
 - PIT fundamentals / large-universe causal narrowing;
 - AI research automation/autopilot;
-- distributed scale/performance after correctness contracts stabilize;
-- profile/optimize Yahoo lifecycle metadata acquisition only if real runtime evidence shows unacceptable latency or availability impact.
+- distributed scale/performance after correctness contracts stabilize.
 
-### REJECT FOR CURRENT P0
+### REJECT FOR CURRENT L1
 
-- hard-coded VFLO listing date;
-- chart-only truncation;
-- synthetic/proxy history before inception;
-- current-fundamental historical evidence;
-- new alpha/ranking formulas;
-- Portfolio/Exhaustive/PIT math duplication;
-- leverage changes;
-- 4A-6 UI implementation;
-- unrelated legacy refactors/process expansion;
+- `daily return × leverage` approximation;
+- a second Portfolio performance engine;
+- a second leverage state outside Portfolio v3 ledger;
+- mixing L2 API or L3 UI work into L1 before its gates close;
+- unrelated refactors;
 - reactivating frozen PR #147.
 
-## 12. Exact Resume Point
+## 10. Risks / Reopen Conditions
+
+Reopen L1 design if evidence shows any of:
+
+- 100% no-leverage parity regression;
+- cash/debt accounting identity failure;
+- target gross exposure not restored after a leverage reset;
+- reset changes asset mix when allocation rebalance did not fire;
+- allocation threshold fires solely because gross exposure drifted;
+- transaction cost is not included in post-cost equity target solving;
+- margin/liquidation ordering creates an impossible state;
+- Walk-Forward OOS parity or shared-ledger integration regresses;
+- API implementation in L2 cannot represent the L1 truth without duplicating authority.
+
+## 11. Exact Resume Point
 
 On resume:
 
-1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/UNIFIED_TWD_CONTRACT.md`;
-2. re-query GitHub `main`, PR #161, exact head/base, CI, Vercel, reviews/threads and releases;
-3. inspect the exact PR diff rather than trusting this handoff;
-4. confirm `firstTradeDate` verification remains upstream of all TWD/return/portfolio calculations;
-5. confirm metadata failure remains fail closed;
-6. confirm the historical appendix below remains preserved when updating this file;
-7. finish the R2 gates above;
-8. only after production VFLO regression is clean, mark this P0 CLOSED and activate 4A-6.
+1. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file and `docs/PORTFOLIO_V3_CONTRACT.md`;
+2. re-query main, PR #162, exact branch head, CI/Vercel and open review state;
+3. verify production main is still the last known good `e93e3ba51...` or analyze any divergence before rebasing;
+4. finish L1 exact-head gates only;
+5. after L1 is explicitly DONE, start L2 API Contract;
+6. do not start L3 UX until L2 is verified;
+7. preserve the historical appendix below when updating this file.
 
 ---
 
