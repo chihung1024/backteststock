@@ -59,8 +59,9 @@ These rules are ledger economics, not a synthetic return transformation:
 - `target_allocation` preserves the raw equity-relative exposure weights.
 - `target_asset_mix` is the normalized asset-only composition.
 - The ledger records target/realized gross exposure, net exposure, cash, debt and leverage-reset events.
-- A leveraged target is reset at each close to the configured gross-exposure ratio. This reset is separate from asset-allocation rebalance.
-- A pure leverage reset preserves the current asset mix. It must not silently restore the target asset mix unless a periodic or threshold allocation rebalance independently fires.
+- Any non-100% target gross exposure is reset at each close to its configured gross-exposure ratio. This reset is separate from asset-allocation rebalance.
+- A pure daily gross-exposure reset **preserves the current asset mix**. It must not silently restore each asset to its original raw target weight.
+- Example: a portfolio entered as `VT 100% + QQQ 50%` has 150% target gross exposure. Daily close reset restores total gross exposure to 150%, while VT/QQQ may drift relative to each other. Their internal mix returns to the original target only when the configured periodic or drift-threshold asset-allocation rebalance independently fires.
 - If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant leverage-reset trade must not be added afterward.
 - Leveraged threshold logic compares normalized asset mix so gross-exposure drift alone cannot masquerade as allocation drift.
 - Underinvested threshold semantics include the intentional residual-cash allocation.
@@ -73,7 +74,9 @@ Initial exposure is subject to the same maintenance-margin/non-positive-equity g
 
 - Supported periodic policies and threshold rebalancing are domain configuration, not UI-only behavior.
 - A drift threshold may independently trigger asset-allocation rebalancing.
-- Asset-allocation rebalance and daily leverage reset are distinct concepts and distinct ledger event semantics.
+- Asset-allocation rebalance and daily gross-exposure reset are distinct concepts and distinct ledger event semantics.
+- A 100% total target has no weight-defined leverage/cash reset requirement; its asset allocation follows the configured rebalance policy.
+- A non-100% total target has daily gross-exposure reset in addition to the independently configured asset-allocation policy.
 - Transaction costs are based on traded notional and reduce portfolio equity; trades/costs remain auditable.
 - Periodic logic must not invent economically meaningless terminal trades solely because the requested range ends.
 
@@ -125,13 +128,17 @@ Requests are typed and strict:
 - unknown fields are rejected rather than ignored;
 - symbols are canonicalized by current shared Portfolio/data rules;
 - portfolio names/symbols must satisfy uniqueness constraints;
-- **the currently exposed public API still enforces the approximately-100% weight contract until the separate L2 API batch intentionally versions/opens weight-defined cash and leverage admission**;
+- public Portfolio asset weights are equity-relative target exposures and may total below, equal to, or above 100% within the current Portfolio domain gross-exposure bound;
+- the public API derives its maximum exposure admission from the Portfolio domain authority rather than maintaining a second hard-coded leverage cap;
+- a request with non-100% weight-defined exposure and explicit legacy leverage fails closed as ambiguous;
+- existing 100% / no-leverage requests remain the compatibility baseline;
+- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and leverage-reset count rather than recalculating them in the API layer;
 - portfolio/asset/request-size resource caps are enforced by current models/Edge tests;
 - TWD is the supported Portfolio valuation currency;
 - future/invalid date ranges are rejected;
 - cashflow, distribution, rebalancing, transaction-cost, leverage and analytics configuration is converted into domain models rather than reimplemented in the browser.
 
-Therefore the weight-defined exposure work in the L1 ledger batch is an internal calculation-authority foundation, not yet a user-visible API promise. Public admission, response exposure fields and legacy-leverage compatibility UX must change only in their explicit later batches.
+The API is therefore capable of the weight-defined exposure contract before the browser necessarily exposes it. Browser admission and removal of ambiguous legacy controls are the separate L3 UX boundary.
 
 Exact numeric caps and schema/version strings must be read from current implementation/tests so this document does not preserve stale migration-era values.
 
@@ -203,7 +210,7 @@ The current weight-defined exposure implementation is intentionally staged:
 2. **L2 API Contract** — public admission and serialized ledger truth.
 3. **L3 UX** — editing/display and removal of ambiguous duplicate leverage controls.
 
-L1 must not be interpreted as permission for the current browser/API to accept non-100% portfolios before L2/L3 are verified. Conversely, L2/L3 must consume the L1 ledger rather than reproduce leverage calculations elsewhere.
+L1 and L2 must not be interpreted as permission to bypass the browser's own validation before L3 is verified. L3 must consume the L1/L2 contract rather than reproduce leverage calculations in the browser.
 
 ## 11. Historical migration boundary
 
