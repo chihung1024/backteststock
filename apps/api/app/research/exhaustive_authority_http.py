@@ -30,6 +30,13 @@ class HttpExhaustiveAuthorityRunner:
     deployment_sha: str = field(
         default_factory=lambda: os.getenv("VERCEL_GIT_COMMIT_SHA", "").strip()
     )
+    internal_secret: str = field(
+        default_factory=lambda: (
+            os.getenv("WALK_FORWARD_INTERNAL_SECRET", "").strip()
+            or os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip()
+        ),
+        repr=False,
+    )
     session: requests.Session = field(default_factory=requests.Session, repr=False)
 
     def __post_init__(self) -> None:
@@ -64,6 +71,15 @@ class HttpExhaustiveAuthorityRunner:
         }
         if self.deployment_sha:
             headers["x-backteststock-internal-deployment"] = self.deployment_sha
+        if self.internal_secret:
+            headers["x-backteststock-internal-secret"] = self.internal_secret
+            # If the same value is a Vercel Automation Bypass secret, this also
+            # keeps protected deployment URLs callable without weakening the
+            # selection endpoint's own secret check.
+            if self.internal_secret == os.getenv(
+                "VERCEL_AUTOMATION_BYPASS_SECRET", ""
+            ).strip():
+                headers["x-vercel-protection-bypass"] = self.internal_secret
         try:
             response = self.session.post(
                 f"{self.origin}{EXHAUSTIVE_AUTHORITY_PATH}",
@@ -95,12 +111,16 @@ def _configured_origin() -> str:
     explicit = os.getenv("EXHAUSTIVE_AUTHORITY_ORIGIN", "").strip()
     if explicit:
         return explicit
+    if os.getenv("VERCEL_ENV", "").strip() == "production":
+        production_url = os.getenv("VERCEL_PROJECT_PRODUCTION_URL", "").strip()
+        if production_url:
+            return f"https://{production_url}"
     vercel_url = os.getenv("VERCEL_URL", "").strip()
     if vercel_url:
         return f"https://{vercel_url}"
     raise RuntimeError(
         "Exhaustive authority origin is unavailable; set EXHAUSTIVE_AUTHORITY_ORIGIN "
-        "or run inside Vercel with VERCEL_URL"
+        "or run inside Vercel with VERCEL_URL/VERCEL_PROJECT_PRODUCTION_URL"
     )
 
 
