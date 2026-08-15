@@ -17,6 +17,7 @@ from apps.api.app.portfolio.models import (
     CashflowType,
     LeverageConfig,
     LeverageType,
+    MAX_TARGET_GROSS_EXPOSURE,
     PortfolioSpec,
     RebalanceConfig,
     RebalanceFrequency,
@@ -51,7 +52,9 @@ class AssetAllocationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     symbol: TickerSymbol
-    weight: float = Field(gt=0.0, le=500.0)
+    weight: float = Field(
+        gt=0.0, le=MAX_TARGET_GROSS_EXPOSURE * 100.0
+    )
 
 
 class PortfolioDefinitionInput(BaseModel):
@@ -66,10 +69,11 @@ class PortfolioDefinitionInput(BaseModel):
         if len(symbols) != len(set(symbols)):
             raise ValueError("portfolio assets must be unique")
         total = sum(asset.weight for asset in self.assets)
-        if total > 500.0:
+        max_total = (MAX_TARGET_GROSS_EXPOSURE + WEIGHT_TOLERANCE) * 100.0
+        if total > max_total:
             raise ValueError(
-                "portfolio target gross exposure cannot exceed 500%, "
-                f"received {total:.4f}%"
+                "portfolio target gross exposure cannot exceed "
+                f"{MAX_TARGET_GROSS_EXPOSURE * 100.0:g}%, received {total:.4f}%"
             )
         for asset, symbol in zip(self.assets, symbols, strict=True):
             asset.symbol = symbol
