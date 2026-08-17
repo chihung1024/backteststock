@@ -3,7 +3,7 @@ name: Internal Research Library Product Verify
 on:
   push:
     branches:
-      - internal-4a7-research-memory
+      - internal-4a7-research-memory-finalize
     paths:
       - ".github/workflows/internal-4a7b-verify.yml"
 
@@ -57,15 +57,15 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Test Walk-Forward and Research Library UX
-        run: npx playwright test tests/e2e/walk_forward_workspace.spec.mjs tests/e2e/walk_forward_admission.spec.mjs tests/e2e/research_library.spec.mjs tests/e2e/research_library_concurrency.spec.mjs --reporter=line
+        run: npx playwright test tests/e2e/walk_forward_workspace.spec.mjs tests/e2e/walk_forward_admission.spec.mjs tests/e2e/research_library.spec.mjs tests/e2e/research_library_concurrency.spec.mjs tests/e2e/research_library_stale.spec.mjs --reporter=line
 
       - name: Commit verified candidate and self-remove temporary verification
         run: |
-          git fetch origin internal-4a7-research-memory
-          test "$(git rev-parse origin/internal-4a7-research-memory)" = "$GITHUB_SHA"
+          git fetch origin internal-4a7-research-memory-finalize
+          test "$(git rev-parse origin/internal-4a7-research-memory-finalize)" = "$GITHUB_SHA"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- package.json package-lock.json apps/portfolio-web/src/ResearchLibraryPanel.tsx tests/e2e/research_library_concurrency.spec.mjs public/portfolio
+          git add -- package.json package-lock.json apps/portfolio-web/src/ResearchLibraryPanel.tsx public/portfolio
           git rm -- .github/workflows/internal-4a7b-verify.yml .github/workflows/internal-4a7-finalize-research-library.yml scripts/_internal_4a7_finalize.mjs
           git commit -m "fix: close Research Library stale-result boundary"
-          git push origin HEAD:internal-4a7-research-memory
+          git push origin HEAD:internal-4a7-research-memory-finalize
