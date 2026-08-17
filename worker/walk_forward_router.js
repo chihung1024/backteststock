@@ -1,5 +1,9 @@
 import router from "./router.js";
 import {
+  RESEARCH_RUN_HEALTH_PATH,
+  getResearchRunHealth,
+} from "./research_run_health.js";
+import {
   RESEARCH_RUNS_PATH,
   handleResearchRunRequest,
 } from "./research_runs.js";
@@ -151,17 +155,35 @@ function executeTrustedWalkForward(executionRequest, env) {
   return proxyWalkForward(request, env);
 }
 
-export { executeTrustedWalkForward, proxyWalkForward };
+async function routeResearchRun(request, env) {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === RESEARCH_RUN_HEALTH_PATH) {
+    const requestId = crypto.randomUUID();
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+    }
+    return getResearchRunHealth(env, requestId);
+  }
+  try {
+    return await handleResearchRunRequest(
+      request,
+      env,
+      (executionRequest) => executeTrustedWalkForward(executionRequest, env),
+    );
+  } catch (error) {
+    const requestId = crypto.randomUUID();
+    console.error("ResearchRun route failure", { requestId, message: String(error) });
+    return jsonResponse({ error: "ResearchRun durable store 暫時無法使用。" }, 503, requestId);
+  }
+}
+
+export { executeTrustedWalkForward, proxyWalkForward, routeResearchRun };
 
 export default {
   async fetch(request, env, context) {
     const pathname = new URL(request.url).pathname;
     if (pathname === RESEARCH_RUNS_PATH || pathname.startsWith(`${RESEARCH_RUNS_PATH}/`)) {
-      return handleResearchRunRequest(
-        request,
-        env,
-        (executionRequest) => executeTrustedWalkForward(executionRequest, env),
-      );
+      return routeResearchRun(request, env);
     }
     if (pathname === WALK_FORWARD_PATH || pathname.startsWith(`${WALK_FORWARD_PATH}/`)) {
       return proxyWalkForward(request, env);
