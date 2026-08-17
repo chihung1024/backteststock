@@ -1,0 +1,187 @@
+name: One-time 4B-1 safe closeout
+
+on:
+  push:
+    branches: [internal-4b1-closeout-handoff]
+    paths:
+      - ".github/workflows/one-time-4b1-closeout.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: internal-4b1-closeout-handoff
+      - name: Prepend verified 4B-1 handoff without rewriting history
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          handoff = Path("to_do_update_list.md")
+          text = handoff.read_text(encoding="utf-8")
+          title = "# BacktestStock — Live Project Status & Handoff\n"
+          if not text.startswith(title):
+              raise SystemExit("unexpected to_do_update_list.md title; refusing destructive rewrite")
+
+          sentinel = "## 0. Current Operational Truth — 2026-08-17 (4B-1 CLOSED)"
+          if sentinel not in text:
+              block = r'''## 0. Current Operational Truth — 2026-08-17 (4B-1 CLOSED)
+
+> This block supersedes older operational snapshots below where they conflict. Historical sections are intentionally preserved byte-for-byte after this prepended block. Re-query mutable remote truth before important writes.
+
+### Project Status / Stable State
+
+```text
+accepted 4B-1 product tree@8374bb17d3192c2e6adcfa06c7350d51e8651f2e
+PR #170 Optimizer Hub Dual Momentum: SQUASH-MERGED / POST-MAIN VERIFIED / PRODUCTION ACCEPTED
+base before merge: main@7008bd4c5cc78a9fb4076612280f326b3f4ef707
+recovery: backup-post-pr170-8374bb17d319
+current main: re-query remote truth; closeout handoff may be a documentation-only descendant
+```
+
+**Phase 4B / Batch 4B-1 — Optimizer Hub Dual Momentum is CLOSED / PRODUCTION ACCEPTED.**
+
+Primary Goal delivered: add the first user-facing Optimizer Hub vertical slice without creating a second research, PIT, Portfolio, metric, or persistence authority.
+
+### Architecture Notes / Locked Decisions
+
+- Dual Momentum configured ETF membership uses separately versioned `ConfiguredResearchUniverse` provenance; it does not fabricate PIT evidence.
+- Existing PIT / Exhaustive Decision payload and hash semantics remain frozen and regression-tested.
+- Momentum signals use only audited TWD total-return levels available inside Training; Evaluation/OOS data remains structurally absent from selection.
+- Absolute momentum hurdle is applied before deterministic relative ranking; canonical symbol is the tie-break; no risky pass uses defensive fallback.
+- 4B-1 allocation is equal weight only. Inverse-volatility, ERC/Risk Parity, minimum variance, maximum diversification, HRP, parameter optimization and advanced tactical allocation remain out of scope.
+- Existing Walk-Forward `SelectionEngine -> DecisionSnapshot -> Evaluation -> Portfolio v3 OOS` remains the execution authority.
+- Existing Portfolio v3 transaction cost and metric math remains unchanged.
+- ResearchRun remains D1 durable authority; saved exact requests are rerun through the backend authority, never from browser-computed completed evidence.
+- Browser renders backend-produced signal/performance evidence and does not become an authoritative calculation path.
+- Production exact-SHA and fail-closed gates remain mandatory.
+
+### Master Plan / Current Phase
+
+```text
+4A-7 Research Memory: CLOSED
+4B-1 Optimizer Hub Dual Momentum: CLOSED
+NEXT: select one user-facing 4B capability from verified main; preserve the 4B-1 authority seams and avoid methodology expansion inside closeout.
+```
+
+### Batch 4B-1 Change Log
+
+Scope delivered:
+- configured-request universe provenance separate from PIT authority;
+- trailing calendar-month TWD total-return Momentum primitive;
+- absolute filter + deterministic relative Top-K ranking + defensive fallback;
+- monthly Walk-Forward schedule validation;
+- equal-weight 4B-1 selection;
+- additive public API selector dispatch with legacy Exhaustive backward compatibility;
+- Optimizer Hub controls and backend evidence in the existing Walk-Forward workspace;
+- ResearchRun save/load/rerun compatibility;
+- causal, golden, API, model and browser regression coverage;
+- canonical generated `public/portfolio` assets synchronized to source.
+
+Final PR scope: 19 files. No D1 schema migration, Portfolio/metric formula rewrite, CI gate weakening, PR #147 merge, or unrelated cleanup/refactor was included.
+
+### Root Cause Log
+
+Candidate hardening exposed three issues, all closed at root cause:
+
+1. **TypeScript selector union drift**
+   - Symptom: Research Library naming helper assumed only the legacy Exhaustive selector shape.
+   - Root Cause: UI helper was not narrowed against the new discriminated selector union.
+   - Fix: explicit strategy narrowing; no persistence or quant semantics changed.
+   - Regression: exact-head TypeScript/Vite, source contracts and full CI passed.
+
+2. **Committed production asset drift**
+   - Symptom: fail-closed committed-Portfolio verifier rejected the candidate.
+   - Root Cause: canonical `public/portfolio` generated assets were stale relative to verified source.
+   - Fix: recover exact Vite-generated outputs from CI and commit only canonical generated artifacts; temporary diagnostics/sync workflow was fully removed.
+   - Regression: the original verifier remained enabled and passed on final candidate and main.
+
+3. **Playwright strict locator drift**
+   - Symptom: E2E failed on page-global exact `PASS` after the new evidence table legitimately rendered multiple PASS cells.
+   - Failure Point: Playwright strict locator ambiguity.
+   - Root Cause: test scope was broader than the intended QQQ risky-ranking evidence row.
+   - Fix: scope assertion to the intended row/cell; product behavior was not changed.
+   - Regression: exact-head and post-main full Playwright suites passed.
+
+### Verification / Regression Evidence
+
+Candidate exact head before squash merge:
+
+```text
+1d3c8c040109401d87f4e909d6939bea38b713be
+```
+
+- independent reviewer `cchung911`: **APPROVED** on that exact commit;
+- candidate CI #890 / run `32022060392`: **SUCCESS**;
+- candidate Vercel Preview `dpl_3ouMWf7cXbetvP2nRLrvksDvAQ6c`: READY on exact candidate SHA;
+- PR #170 squash merge produced accepted product main `8374bb17d3192c2e6adcfa06c7350d51e8651f2e` with the same verified product tree.
+
+Post-main exact-SHA verification:
+
+- main CI **#891 / run `32027340171` — SUCCESS**;
+- Vercel production `dpl_HfeBgEBEHi43FjzA39sRuEPV7Vfs` — READY, `target=production`, exact Git SHA `8374bb17d3192c2e6adcfa06c7350d51e8651f2e`, production alias `stockbacktest.vercel.app` attached;
+- live Walk-Forward health HTTP 200 / `status=ok`, contract `walk-forward-api-2026-08-17.2`, Dual Momentum job contract `walk-forward-dual-momentum-job-2026-08-17.1`, exact `deployment_sha=8374bb17d3192c2e6adcfa06c7350d51e8651f2e`;
+- Cloudflare production **#82 / run `32027340183` — SUCCESS**;
+- Cloudflare remote D1 migration, Worker/static deployment, Russell 2000 smoke, Portfolio v3 exact-SHA smoke, Walk-Forward routing smoke and Refinery smoke all passed;
+- Verify Walk-Forward Production **#3 / run `32027340137` — SUCCESS** on exact main;
+- Vercel production runtime error/fatal scan for the new deployment after release returned no matching logs.
+
+### Commit / PR / Release / Deployment
+
+```text
+PR: #170 feat: add Optimizer Hub Dual Momentum
+merge: squash
+accepted product main: 8374bb17d3192c2e6adcfa06c7350d51e8651f2e
+recovery branch: backup-post-pr170-8374bb17d319
+Vercel production: dpl_HfeBgEBEHi43FjzA39sRuEPV7Vfs
+Cloudflare production run: 32027340183 (#82)
+Walk-Forward production verifier: 32027340137 (#3)
+```
+
+Rollback: `backup-post-pr170-8374bb17d319` is the Last Known Good 4B-1 accepted product checkpoint. If a later closeout-only descendant regresses release routing, restore/re-emit this accepted product tree first, then perform RCA.
+
+### Known Issues / Technical Debt / Risks
+
+- BACKLOG: define an explicit runtime capacity benchmark/budget for maximum configured Dual Momentum workloads before widening practical defaults (contract permits up to the existing configured limits; practical defaults should remain evidence-based).
+- BACKLOG: clean install has an existing high-severity npm audit finding; triage separately and promote only if production reachability/exploitability warrants it.
+- Risk: configured strategy/API methodology is versioned R2 surface; future strategy additions must preserve selector discrimination and legacy Exhaustive compatibility.
+- Risk: closeout documentation may be a main descendant of the accepted product tree; always distinguish product-tree acceptance from a later documentation-only SHA and re-query deployment truth.
+
+### Deferred / Rejected Candidates
+
+- BACKLOG/NEXT only when justified: inverse-volatility, ERC/Risk Parity, minimum variance, maximum diversification, HRP, parameter search/optimization, advanced tactical allocation, capacity benchmarking.
+- REJECT for 4B-1 closeout: PR #147, unrelated cleanup/refactor/security/infra expansion, synthetic PIT membership, browser result authority, alternate Portfolio/metric authority, CI/smoke weakening.
+
+### NOW / NEXT
+
+**NOW:** 4B-1 is production accepted. Preserve the recovery checkpoint and finish only this descendant-safe closeout handoff/release marker cycle.
+
+**NEXT:** choose one user-facing Optimizer Hub / AI-automation capability from current verified main under a new independently scoped Batch. Do not reopen 4B-1 unless production evidence violates the locked contract.
+'''
+              rest = text[len(title):]
+              handoff.write_text(title + "\n" + block + "\n\n---\n" + rest, encoding="utf-8")
+
+          marker = Path(".vercel-redeploy-trigger")
+          marker_text = marker.read_text(encoding="utf-8")
+          expected = "4a7-closeout-2026-08-17"
+          replacement = "4b1-closeout-2026-08-17"
+          if replacement not in marker_text:
+              if expected not in marker_text:
+                  raise SystemExit("unexpected release marker; refusing blind replacement")
+              marker.write_text(marker_text.replace(expected, replacement), encoding="utf-8")
+          PY
+      - name: Remove one-time workflow and commit clean closeout tree
+        shell: bash
+        run: |
+          rm .github/workflows/one-time-4b1-closeout.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add to_do_update_list.md .vercel-redeploy-trigger .github/workflows/one-time-4b1-closeout.yml
+          git diff --cached --check
+          git commit -m "docs: close 4B-1 production handoff"
+          git push origin HEAD:internal-4b1-closeout-handoff
