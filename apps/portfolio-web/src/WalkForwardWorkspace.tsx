@@ -11,6 +11,7 @@ import {
   toWalkForwardApiRequest,
   validateWalkForwardModel,
 } from "./walkForwardModel";
+import { ResearchLibraryPanel } from "./ResearchLibraryPanel";
 import { WalkForwardResults } from "./WalkForwardResults";
 import type {
   WalkForwardPeriodDraft,
@@ -64,12 +65,14 @@ function PeriodEditor({
   period,
   index,
   canRemove,
+  disabled,
   onChange,
   onRemove,
 }: {
   period: WalkForwardPeriodDraft;
   index: number;
   canRemove: boolean;
+  disabled: boolean;
   onChange: (field: PeriodField, value: string) => void;
   onRemove: () => void;
 }) {
@@ -84,7 +87,7 @@ function PeriodEditor({
             <p>先用 Training 與當時 PIT Universe 形成決策，再進入未參與選股的 Evaluation。</p>
           </div>
         </div>
-        <button type="button" className="secondary danger-text" disabled={!canRemove} onClick={onRemove}>移除</button>
+        <button type="button" className="secondary danger-text" disabled={disabled || !canRemove} onClick={onRemove}>移除</button>
       </div>
 
       <label className="field wf-period-id">
@@ -93,6 +96,7 @@ function PeriodEditor({
           aria-label={`${labelPrefix} 名稱`}
           value={period.periodId}
           maxLength={80}
+          disabled={disabled}
           onChange={(event) => onChange("periodId", event.target.value)}
         />
       </label>
@@ -108,35 +112,36 @@ function PeriodEditor({
       <div className="wf-date-grid">
         <label className="field">
           <span>Training 起始日</span>
-          <input type="date" aria-label={`${labelPrefix} Training 起始日`} value={period.trainingStart} onChange={(event) => onChange("trainingStart", event.target.value)} />
+          <input type="date" disabled={disabled} aria-label={`${labelPrefix} Training 起始日`} value={period.trainingStart} onChange={(event) => onChange("trainingStart", event.target.value)} />
         </label>
         <label className="field">
           <span>Training 結束日</span>
-          <input type="date" aria-label={`${labelPrefix} Training 結束日`} value={period.trainingEnd} onChange={(event) => onChange("trainingEnd", event.target.value)} />
+          <input type="date" disabled={disabled} aria-label={`${labelPrefix} Training 結束日`} value={period.trainingEnd} onChange={(event) => onChange("trainingEnd", event.target.value)} />
         </label>
         <label className="field">
           <span>Decision 日期</span>
-          <input type="date" aria-label={`${labelPrefix} Decision 日期`} value={period.decisionDate} onChange={(event) => onChange("decisionDate", event.target.value)} />
+          <input type="date" disabled={disabled} aria-label={`${labelPrefix} Decision 日期`} value={period.decisionDate} onChange={(event) => onChange("decisionDate", event.target.value)} />
         </label>
         <label className="field">
           <span>Evaluation 起始日</span>
-          <input type="date" aria-label={`${labelPrefix} Evaluation 起始日`} value={period.evaluationStart} onChange={(event) => onChange("evaluationStart", event.target.value)} />
+          <input type="date" disabled={disabled} aria-label={`${labelPrefix} Evaluation 起始日`} value={period.evaluationStart} onChange={(event) => onChange("evaluationStart", event.target.value)} />
         </label>
         <label className="field">
           <span>Evaluation 結束日</span>
-          <input type="date" aria-label={`${labelPrefix} Evaluation 結束日`} value={period.evaluationEnd} max={latestCompleteUtcDate()} onChange={(event) => onChange("evaluationEnd", event.target.value)} />
+          <input type="date" disabled={disabled} aria-label={`${labelPrefix} Evaluation 結束日`} value={period.evaluationEnd} max={latestCompleteUtcDate()} onChange={(event) => onChange("evaluationEnd", event.target.value)} />
         </label>
       </div>
     </article>
   );
 }
 
-export function WalkForwardWorkspace() {
+export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) {
   const [model, setModelState] = useState<WalkForwardWorkspaceModel>(loadInitialModel);
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [libraryBusy, setLibraryBusy] = useState(false);
   const [result, setResult] = useState<WalkForwardResultResponse | null>(null);
   const validationRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
@@ -146,6 +151,7 @@ export function WalkForwardWorkspace() {
   const request = useMemo(() => issues.length === 0 ? toWalkForwardApiRequest(model) : null, [issues.length, model]);
   const requestPreview = useMemo(() => request ? JSON.stringify(request, null, 2) : "", [request]);
   const latestComplete = latestCompleteUtcDate();
+  const workspaceBusy = busy || libraryBusy;
 
   useEffect(() => {
     try {
@@ -164,6 +170,11 @@ export function WalkForwardWorkspace() {
   }, []);
 
   useEffect(() => () => activeController.current?.abort(), []);
+
+  useEffect(() => {
+    onBusyChange?.(workspaceBusy);
+    return () => onBusyChange?.(false);
+  }, [onBusyChange, workspaceBusy]);
 
   function invalidateExecution() {
     requestVersion.current += 1;
@@ -265,6 +276,26 @@ export function WalkForwardWorkspace() {
     setMessage("已取消目前的 Walk-Forward 請求；未完成的結果不會保留。 ");
   }
 
+function setResearchLibraryBusy(nextBusy: boolean) {
+  setLibraryBusy(nextBusy);
+  if (!nextBusy) return;
+  requestVersion.current += 1;
+  activeController.current?.abort();
+  activeController.current = null;
+  setBusy(false);
+  setResult(null);
+  setError("");
+  setMessage("");
+}
+
+function showResearchLibraryResult(nextResult: WalkForwardResultResponse, nextMessage: string) {
+  setResult(nextResult);
+  setError("");
+  setMessage(nextMessage);
+  window.requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+
   return (
     <div className="walk-forward-workspace">
       <section className="wf-hero">
@@ -274,8 +305,8 @@ export function WalkForwardWorkspace() {
           <p>每一期只使用 Decision 當時可知的 Universe 與 Training 證據完成選股，決策凍結後才讀取 Evaluation / OOS。這裡的設定直接對應既有 Walk-Forward v1 API，不建立第二套選股或績效計算。</p>
         </div>
         <div className="wf-hero-actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => replaceModel(createExampleWalkForwardModel(), "已載入單期因果範例。 ")}>載入單期範例</button>
-          <button type="button" className="secondary danger-text" disabled={busy} onClick={() => replaceModel(createDefaultWalkForwardModel(), "已重設 Walk-Forward 設定。 ")}>重設</button>
+          <button type="button" className="secondary" disabled={workspaceBusy} onClick={() => replaceModel(createExampleWalkForwardModel(), "已載入單期因果範例。 ")}>載入單期範例</button>
+          <button type="button" className="secondary danger-text" disabled={workspaceBusy} onClick={() => replaceModel(createDefaultWalkForwardModel(), "已重設 Walk-Forward 設定。 ")}>重設</button>
         </div>
       </section>
 
@@ -315,7 +346,7 @@ export function WalkForwardWorkspace() {
               aria-label="Walk-Forward Universe"
               value={model.universe}
               placeholder="sp500"
-              disabled={busy}
+              disabled={workspaceBusy}
               onChange={(event) => mutateModel((current) => ({ ...current, universe: event.target.value.toLowerCase() }))}
             />
             <small>輸入 D1 Universe ID；不會自動改用今天的成分股。若 PIT candidates 超過 100，後端會明確拒絕而不截斷。</small>
@@ -328,18 +359,18 @@ export function WalkForwardWorkspace() {
           </datalist>
           <label className="field">
             <span>Benchmark</span>
-            <input aria-label="Walk-Forward Benchmark" value={model.benchmark} maxLength={20} disabled={busy} onChange={(event) => mutateModel((current) => ({ ...current, benchmark: event.target.value.toUpperCase() }))} />
+            <input aria-label="Walk-Forward Benchmark" value={model.benchmark} maxLength={20} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, benchmark: event.target.value.toUpperCase() }))} />
             <small>用於 Training 排名與 OOS 比較的 canonical symbol。</small>
           </label>
           <label className="field">
             <span>持股檔數</span>
-            <input type="number" aria-label="Walk-Forward 持股檔數" min={1} max={20} step={1} value={model.holdingCount} disabled={busy} onChange={(event) => mutateModel((current) => ({ ...current, holdingCount: numericValue(event.target.value, 0) }))} />
+            <input type="number" aria-label="Walk-Forward 持股檔數" min={1} max={20} step={1} value={model.holdingCount} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, holdingCount: numericValue(event.target.value, 0) }))} />
             <small>Public v1 支援 1–20 檔，採等權選股。</small>
           </label>
           <label className="field">
             <span>初始資金</span>
             <div className="input-with-suffix">
-              <input type="number" aria-label="Walk-Forward 初始資金" min={1} step={1000} value={model.initialAmountTwd} disabled={busy} onChange={(event) => mutateModel((current) => ({ ...current, initialAmountTwd: numericValue(event.target.value, 0) }))} />
+              <input type="number" aria-label="Walk-Forward 初始資金" min={1} step={1000} value={model.initialAmountTwd} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, initialAmountTwd: numericValue(event.target.value, 0) }))} />
               <span>TWD</span>
             </div>
             <small>連續 OOS ledger 的起始權益。</small>
@@ -347,7 +378,7 @@ export function WalkForwardWorkspace() {
           <label className="field">
             <span>Decision 換倉成本</span>
             <div className="input-with-suffix">
-              <input type="number" aria-label="Walk-Forward 換倉成本" min={0} max={1000} step={1} value={model.transitionCostBps} disabled={busy} onChange={(event) => mutateModel((current) => ({ ...current, transitionCostBps: numericValue(event.target.value, 0) }))} />
+              <input type="number" aria-label="Walk-Forward 換倉成本" min={0} max={1000} step={1} value={model.transitionCostBps} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, transitionCostBps: numericValue(event.target.value, 0) }))} />
               <span>bps</span>
             </div>
             <small>只在下一個凍結 Decision 改變持股時由 Portfolio ledger 計入。</small>
@@ -365,16 +396,17 @@ export function WalkForwardWorkspace() {
             </div>
           </div>
           <div className="section-actions">
-            <button type="button" className="secondary" disabled={busy || model.periods.length >= MAX_WALK_FORWARD_PERIODS} onClick={addPeriod}>新增 Period</button>
+            <button type="button" className="secondary" disabled={workspaceBusy || model.periods.length >= MAX_WALK_FORWARD_PERIODS} onClick={addPeriod}>新增 Period</button>
           </div>
         </div>
-        <div className={busy ? "wf-period-list busy" : "wf-period-list"}>
+        <div className={workspaceBusy ? "wf-period-list busy" : "wf-period-list"}>
           {model.periods.map((period, index) => (
             <PeriodEditor
               key={period.id}
               period={period}
               index={index}
-              canRemove={!busy && model.periods.length > 1}
+              canRemove={model.periods.length > 1}
+              disabled={workspaceBusy}
               onChange={(field, value) => updatePeriod(period.id, field, value)}
               onRemove={() => removePeriod(period.id)}
             />
@@ -392,7 +424,7 @@ export function WalkForwardWorkspace() {
             </div>
           </div>
           <div className="section-actions">
-            <button type="button" className="secondary" disabled={busy || !request} onClick={() => void copyRequest()}>複製 Request</button>
+            <button type="button" className="secondary" disabled={workspaceBusy || !request} onClick={() => void copyRequest()}>複製 Request</button>
           </div>
         </div>
         {request ? (
@@ -419,7 +451,7 @@ export function WalkForwardWorkspace() {
           </div>
           <div className="section-actions wf-run-actions">
             {busy && <button type="button" className="secondary" onClick={cancelResearch}>取消</button>}
-            <button type="button" className="primary" disabled={busy || !request} onClick={() => void executeResearch()}>{busy ? "研究執行中…" : "執行研究"}</button>
+            <button type="button" className="primary" disabled={workspaceBusy || !request} onClick={() => void executeResearch()}>{busy ? "研究執行中…" : "執行研究"}</button>
           </div>
         </div>
         <div className="wf-run-guidance">
@@ -428,6 +460,13 @@ export function WalkForwardWorkspace() {
         </div>
         {busy && <div className="wf-progress" role="status" aria-live="polite"><i /><span>後端正在建立可重現的研究證據；完成前不會產生部分績效結論。</span></div>}
       </section>
+
+      <ResearchLibraryPanel
+        request={request}
+        disabled={workspaceBusy}
+        onBusyChange={setResearchLibraryBusy}
+        onResult={showResearchLibraryResult}
+      />
 
       <div ref={resultRef}>{result && <WalkForwardResults result={result} />}</div>
     </div>
