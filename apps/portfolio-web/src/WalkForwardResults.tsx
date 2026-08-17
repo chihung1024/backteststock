@@ -102,6 +102,7 @@ function DecisionEvidence({
   const pit = decision.pitUniverse;
   const configured = decision.configuredUniverse;
   const signal = decision.selectionEvidence;
+  const allocation = signal?.allocation;
   const provenanceMemberCount = pit?.members.length ?? configured?.members.length ?? decision.eligibleCandidates.length;
   const provenanceLabel = pit ? `${provenanceMemberCount} PIT members` : `${provenanceMemberCount} configured members`;
   const riskyRanking = Array.isArray(signal?.riskyRanking) ? signal.riskyRanking : [];
@@ -186,6 +187,22 @@ function DecisionEvidence({
             </div>
           )}
 
+          {allocation && (
+            <div className="wf-allocation-evidence">
+              <h4>Training-only allocation evidence</h4>
+              <dl className="wf-provenance-grid">
+                <div><dt>Method</dt><dd>{allocation.method === "equal" ? "Equal Weight" : allocation.method === "inverse_volatility" ? "Inverse Volatility" : "Risk Parity / ERC"}</dd></div>
+                <div><dt>Complete cases</dt><dd>{allocation.method === "equal" || allocation.status === "single_asset" ? `${allocation.completeCaseObservations} / minimum not required` : `${allocation.completeCaseObservations} / min ${allocation.minimumCompleteCaseObservations}`}</dd></div>
+                <div><dt>Covariance</dt><dd>{allocation.covariance?.method ?? "Not required"}</dd></div>
+                <div><dt>Annualization</dt><dd>{allocation.covariance?.annualization ?? "—"}</dd></div>
+                <div><dt>Portfolio vol</dt><dd>{allocation.portfolioVolatility === null ? "—" : formatPercent(allocation.portfolioVolatility)}</dd></div>
+                <div><dt>Risk contribution shares</dt><dd>{allocation.riskBudgetShares ? allocation.symbols.map((symbol, index) => `${symbol} ${formatPercent(allocation.riskBudgetShares?.[index])}`).join(" · ") : "—"}</dd></div>
+                <div><dt>Shrinkage</dt><dd>{allocation.covariance?.shrinkage === null || allocation.covariance?.shrinkage === undefined ? "—" : allocation.covariance.shrinkage.toFixed(6)}</dd></div>
+                <div><dt>ERC residual</dt><dd>{allocation.solver?.maxAbsRiskBudgetError === null || allocation.solver?.maxAbsRiskBudgetError === undefined ? "—" : allocation.solver.maxAbsRiskBudgetError.toExponential(2)}</dd></div>
+              </dl>
+            </div>
+          )}
+
           <details className="wf-evidence-details">
             <summary>查看完整 provenance</summary>
             <div className="wf-provenance-detail-grid">
@@ -211,7 +228,8 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
   const metrics = result.oos.metrics.metrics;
   const auditByDecision = new Map(result.periods.map((period) => [period.decision_hash, period]));
   const oosByDecision = new Map(result.oos.periods.map((period) => [period.decision_hash, period]));
-  const isDualMomentum = result.selectorPolicy === "dual-momentum-configured-monthly-v1";
+  const isDualMomentum = result.selectorPolicy === "dual-momentum-configured-monthly-v1"
+    || result.selectorPolicy === "dual-momentum-configured-monthly-allocation-v1";
 
   return (
     <section className="workspace-card wf-result-card" aria-labelledby="wf-result-title">
@@ -262,7 +280,7 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
       {isDualMomentum ? (
         <div className="notice info wf-benchmark-boundary">
           <strong>Dual Momentum authority boundary</strong>
-          <p>Momentum ranking、absolute filter 與 frozen selection 由後端 Training evidence 產生；4B-1 allocation 固定等權。瀏覽器不自行重算 signal 或績效。</p>
+          <p>Momentum ranking、absolute filter、frozen selection 與可選的 Allocation 都由後端 Training evidence 產生；Inverse Vol / ERC 共用正式 Ledoit-Wolf covariance 與 Risk Mathematics authority。瀏覽器不自行重算 signal、risk weights 或績效。</p>
         </div>
       ) : (
         <div className="notice info wf-benchmark-boundary">
