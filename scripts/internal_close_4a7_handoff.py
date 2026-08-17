@@ -1,0 +1,100 @@
+from pathlib import Path
+
+HANDOFF_PATH = Path("to_do_update_list.md")
+TRIGGER_PATH = Path(".vercel-redeploy-trigger")
+
+text = HANDOFF_PATH.read_text(encoding="utf-8")
+start_marker = "## 0. Current Operational Truth — 2026-08-17 (4A-7 Research Memory)"
+start = text.index(start_marker)
+end = text.index("\n---\n", start)
+
+block = r'''## 0. Current Operational Truth — 2026-08-17 (4A-7 CLOSED)
+
+> This block supersedes older operational snapshots below where they conflict. Historical sections remain intentionally preserved. Re-query mutable remote truth before important writes.
+
+### Production baseline
+
+```text
+main@3971244255fb3045a8cb6981a00acaccd1f8841b
+PR #165 Research Memory merged
+PR #166 Vercel missed-main-push recovery merged
+PR #167 release-retrigger closure merged
+recovery: backup-post-pr167-3971244255fb
+```
+
+**4A-7 — ResearchRun / Research Memory is CLOSED / SQUASH-MERGED / POST-MAIN VERIFIED / PRODUCTION ACCEPTED.**
+
+The product now provides a durable capability-scoped Research Library without creating a second research/calculation authority:
+- D1-backed named ResearchRun create/list/detail/rerun;
+- immutable `jobHash` completed-result identity plus separate durable `run_id`;
+- rerun uses the D1-saved original execution request and records `source_run_id` lineage;
+- browser localStorage remains credential/workspace convenience only, never durable result authority;
+- raw recovery capability is returned only to the browser on first library creation; D1 stores SHA-256 material only;
+- existing Walk-Forward backend remains the sole research execution authority;
+- stale-response generation guards cover save/load/rerun/connect/refresh/unmount;
+- D1-safe row/result bounds and trusted client identity propagation remain fail-closed.
+
+### Production release RCA and systemic closure
+
+1. PR #165 merged to `main@85eb1e363fbc6698fd8dfb8fa0d1f708d063d9d8`; main CI, D1 migration 0005 and Worker/static deployment succeeded, but Vercel created **no deployment at all** for that main push. Cloudflare deploy #79 correctly failed closed because production Vercel still served `5182170fcbee40f044fb0f4a3231cf1fff4e22a9` instead of the expected main SHA.
+2. The failure matched prior PR #150. PR #166 re-emitted the validated tree through the protected PR/main path with zero repository file changes. Vercel then created a normal production deployment, proving the issue was a missed Git-integration event rather than an application build failure or an ignored-build rule.
+3. A second release-chain gap was found: the repository already had `.vercel-redeploy-trigger`, but `deploy-cloudflare.yml` did not watch that marker. Therefore a Vercel recovery could leave the Cloudflare exact-SHA production gate un-run.
+4. PR #167 fixed the systemic gap by adding `.vercel-redeploy-trigger` to the existing Cloudflare production path filter. Exact-SHA Portfolio and Walk-Forward checks were not weakened or bypassed.
+
+### Exact current-main verification
+
+Current production candidate `3971244255fb3045a8cb6981a00acaccd1f8841b` is verified:
+- main CI **#880 / run 32003819948 — SUCCESS**;
+- Vercel production deployment `dpl_7xLAb9LCtibNeWsVCQfXUCGHmhw9` — READY, `target=production`, exact Git SHA `3971244255fb3045a8cb6981a00acaccd1f8841b`;
+- production Portfolio health returned exact `deployment_sha=3971244255fb3045a8cb6981a00acaccd1f8841b`;
+- Cloudflare production **#80 / run 32003819946 — SUCCESS**;
+- remote D1 migrations, Worker/static deploy, Russell 2000 smoke, Portfolio exact-SHA smoke, Walk-Forward exact-SHA routing smoke and Refinery smoke all passed;
+- GitHub combined statuses on the exact main are `Vercel: success` and `Cloudflare Worker: success`.
+
+### Real production ResearchRun acceptance
+
+Temporary internal acceptance run **32004467822 / run #3 — SUCCESS** against the exact production product tree:
+- ResearchRun health: `status=ok`, `durableStore=d1`, `schemaReady=true`, contract `research-run-memory-2026-08-17.1`;
+- Walk-Forward production authority and deployment SHA verified before writes;
+- live admission selected executable SOXX recommendation (`2026-07-29`, 5 holdings, 142,506 combinations);
+- isolated `create → list → detail → rerun → list → detail` completed successfully;
+- initial run `run_edaf9143-dd6e-4c58-bc1b-d33da790a3c8` and rerun `run_fc102a36-58b2-4cbe-968d-efd65803d2d0` are distinct;
+- rerun lineage points to the original run and the identical saved request reproduced jobHash `fe9ad05a489498a18f37b24c2bd294188b86d5a8797217268e34f9a3c4f99e85`;
+- raw library capability was never printed or persisted by the verifier;
+- `always()` production D1 cleanup deleted the isolated library and cascaded its runs;
+- final cleanup proof: `libraryCount=0`, `runCount=0`, `cascadeVerified=true`;
+- the temporary acceptance workflow self-removed; the internal acceptance branch is content-identical to current main after cleanup.
+
+Two earlier acceptance attempts failed only in temporary verifier plumbing before any ResearchRun write: job-context use before runner allocation, then Node `require()` + top-level-await module ambiguity. Both were corrected in the verifier only; neither required product changes.
+
+### Authority / architecture locks
+
+- D1 remains the only durable ResearchRun authority.
+- Walk-Forward remains the only research calculation authority.
+- Browser-submitted completed result evidence remains forbidden.
+- `jobHash` is immutable completed-result identity, not a ResearchRun id.
+- Rerun request mutation remains forbidden.
+- Production exact-SHA gates remain fail-closed.
+- `.vercel-redeploy-trigger` is the explicit reviewed recovery/retrigger marker; it now closes both Vercel and Cloudflare release paths.
+
+### NOW
+
+`4A-7 CLOSED → preserve recovery checkpoint → start the next product-feature planning cycle from the current verified main; do not reopen Research Memory unless runtime evidence violates the locked contract.`
+
+### NEXT
+
+Prioritize the next user-facing research capability that advances the North Star toward AI-automated research. Treat infrastructure/debug work as supporting work only when required by functionality, correctness, data integrity or user experience. Re-query current main/open PR/CI/Vercel/Cloudflare truth before choosing the next batch.
+
+### BACKLOG / REJECT
+
+- BACKLOG: clean install still reports one high-severity npm audit finding; triage separately and promote only if production reachability/exploitability warrants it.
+- REJECT: localStorage result authority, browser-submitted completed evidence, second Walk-Forward calculation, rerun request mutation, CI/smoke weakening, force-push over unknown changes, or unrelated cleanup expansion.
+'''
+
+HANDOFF_PATH.write_text(text[:start] + block.rstrip() + "\n" + text[end:], encoding="utf-8")
+TRIGGER_PATH.write_text(
+    "# Operational release retrigger marker.\n"
+    "# Change only through a reviewed release/recovery PR when an exact-main production cycle must be re-emitted.\n"
+    "4a7-closeout-2026-08-17\n",
+    encoding="utf-8",
+)
