@@ -10,6 +10,7 @@ from typing import Any, Mapping
 WEIGHT_TOLERANCE = 1e-8
 MAX_PORTFOLIOS = 5
 MAX_ASSETS_PER_PORTFOLIO = 20
+MAX_TARGET_GROSS_EXPOSURE = 5.0
 
 
 class CashflowType(StrEnum):
@@ -54,8 +55,15 @@ class AssetWeight:
         weight = float(self.weight)
         if not symbol:
             raise ValueError("asset symbol is required")
-        if not math.isfinite(weight) or weight <= 0.0 or weight > 1.0:
-            raise ValueError("asset weight must be a finite fraction in (0, 1]")
+        if (
+            not math.isfinite(weight)
+            or weight <= 0.0
+            or weight > MAX_TARGET_GROSS_EXPOSURE
+        ):
+            raise ValueError(
+                "asset weight must be a finite fraction in "
+                f"(0, {MAX_TARGET_GROSS_EXPOSURE:g}]"
+            )
         object.__setattr__(self, "symbol", symbol)
         object.__setattr__(self, "weight", weight)
 
@@ -80,8 +88,15 @@ class PortfolioSpec:
         if len(symbols) != len(set(symbols)):
             raise ValueError("portfolio assets must be unique")
         total = sum(asset.weight for asset in assets)
-        if not math.isclose(total, 1.0, abs_tol=WEIGHT_TOLERANCE):
-            raise ValueError(f"portfolio weights must sum to 1.0, received {total:.12f}")
+        if (
+            not math.isfinite(total)
+            or total <= WEIGHT_TOLERANCE
+            or total > MAX_TARGET_GROSS_EXPOSURE + WEIGHT_TOLERANCE
+        ):
+            raise ValueError(
+                "portfolio target gross exposure must be in "
+                f"(0, {MAX_TARGET_GROSS_EXPOSURE:g}]"
+            )
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "assets", assets)
 
@@ -104,8 +119,23 @@ class PortfolioSpec:
         return tuple(asset.weight for asset in self.assets)
 
     @property
+    def target_gross_exposure(self) -> float:
+        return float(sum(self.weights))
+
+    @property
+    def target_cash_allocation(self) -> float:
+        return max(1.0 - self.target_gross_exposure, 0.0)
+
+    @property
     def target_allocation(self) -> dict[str, float]:
+        """Return user-entered equity-relative target exposures."""
         return {asset.symbol: asset.weight for asset in self.assets}
+
+    @property
+    def target_asset_mix(self) -> dict[str, float]:
+        """Return asset-only composition normalized to 100% of invested gross."""
+        gross = self.target_gross_exposure
+        return {asset.symbol: asset.weight / gross for asset in self.assets}
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,8 +194,14 @@ class LeverageConfig:
         values = (ratio, debt, rate, margin)
         if not all(math.isfinite(value) for value in values):
             raise ValueError("leverage settings must be finite")
-        if self.type == LeverageType.FIXED_RATIO and not 1.0 < ratio <= 5.0:
-            raise ValueError("fixed-ratio leverage must be in (1, 5]")
+        if (
+            self.type == LeverageType.FIXED_RATIO
+            and not 1.0 < ratio <= MAX_TARGET_GROSS_EXPOSURE
+        ):
+            raise ValueError(
+                "fixed-ratio leverage must be in "
+                f"(1, {MAX_TARGET_GROSS_EXPOSURE:g}]"
+            )
         if self.type == LeverageType.FIXED_DEBT and debt <= 0.0:
             raise ValueError("fixed debt amount must be positive")
         if debt < 0.0 or rate < 0.0 or rate > 100.0:

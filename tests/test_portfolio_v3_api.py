@@ -132,7 +132,10 @@ def test_api_rejects_unknown_fields_invalid_weights_and_oversized_requests(monke
         headers={"x-forwarded-for": "203.0.113.5"},
     )
     weight_payload = _payload()
-    weight_payload["portfolios"][0]["assets"][0]["weight"] = 90
+    weight_payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 450},
+        {"symbol": "QQQ", "weight": 60},
+    ]
     weight_response = client.post(
         "/api/v3/portfolio/preflight",
         json=weight_payload,
@@ -184,3 +187,32 @@ def test_portfolio_routes_reject_incomplete_end_date_before_service(monkeypatch)
     assert "2026-08-13" in preflight.json()["detail"]
     assert backtest.status_code == 422
     assert "2026-08-13" in backtest.json()["detail"]
+
+
+
+def test_api_accepts_weight_defined_cash_and_leverage_but_rejects_ambiguous_overlay(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(portfolio_api, "get_service", lambda: FakeService())
+    client = TestClient(portfolio_api.app, raise_server_exceptions=False)
+
+    for forwarded_for, weight in (("203.0.113.20", 80), ("203.0.113.21", 150)):
+        payload = _payload()
+        payload["portfolios"][0]["assets"] = [{"symbol": "SPY", "weight": weight}]
+        response = client.post(
+            "/api/v3/portfolio/preflight",
+            json=payload,
+            headers={"x-forwarded-for": forwarded_for},
+        )
+        assert response.status_code == 200
+
+    ambiguous = _payload()
+    ambiguous["portfolios"][0]["assets"] = [{"symbol": "SPY", "weight": 150}]
+    ambiguous["leverage"] = {"type": "fixed_ratio", "ratio": 2.0}
+    response = client.post(
+        "/api/v3/portfolio/preflight",
+        json=ambiguous,
+        headers={"x-forwarded-for": "203.0.113.22"},
+    )
+    assert response.status_code == 422
+    assert "non-100% weights already define" in response.json()["detail"][0]["msg"]

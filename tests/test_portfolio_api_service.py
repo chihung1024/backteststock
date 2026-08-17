@@ -339,3 +339,75 @@ def test_single_portfolio_keeps_full_benchmark_history_without_common_policy() -
     assert result.benchmark["metrics"]["start"] == "2024-01-02"
     assert result.benchmark["metrics"]["end"] == "2024-01-05"
     assert not any("common-runnable-portfolios-v1" in warning for warning in result.warnings)
+
+
+
+def test_backtest_serializes_weight_defined_cash_exposure_truth() -> None:
+    service, _ = _service()
+    request = _request(
+        portfolios=[
+            {
+                "name": "Cash sleeve",
+                "assets": [{"symbol": "SPY", "weight": 80}],
+            }
+        ],
+        benchmark=None,
+        output_frequency="daily",
+    )
+
+    result = service.backtest(request)
+
+    portfolio = result.results[0]
+    assert portfolio["target_allocation"] == {"SPY": 0.8}
+    assert portfolio["target_asset_mix"] == {"SPY": 1.0}
+    assert portfolio["target_gross_exposure_ratio"] == pytest.approx(0.8)
+    assert portfolio["target_cash_allocation"] == pytest.approx(0.2)
+    assert portfolio["exposure_reset_count"] > 0
+    for point in portfolio["series"][1:]:
+        if point["value"] and point["value"] > 0:
+            assert point["gross_exposure_ratio"] == pytest.approx(0.8, rel=1e-9)
+    first = portfolio["series"][0]
+    assert first["cash"] == pytest.approx(20000.0)
+    assert first["debt"] == pytest.approx(0.0)
+    assert first["gross_exposure"] == pytest.approx(80000.0)
+    assert first["net_exposure"] == pytest.approx(80000.0)
+    assert first["gross_exposure_ratio"] == pytest.approx(0.8)
+    assert first["net_exposure_ratio"] == pytest.approx(0.8)
+
+
+def test_backtest_serializes_daily_weight_defined_leverage_truth() -> None:
+    service, _ = _service()
+    request = _request(
+        portfolios=[
+            {
+                "name": "Leveraged",
+                "assets": [{"symbol": "SPY", "weight": 150}],
+            }
+        ],
+        benchmark=None,
+        output_frequency="daily",
+        leverage={
+            "type": "none",
+            "annual_interest_rate_percent": 4,
+            "maintenance_margin_percent": 25,
+        },
+    )
+
+    result = service.backtest(request)
+
+    portfolio = result.results[0]
+    assert portfolio["target_allocation"] == {"SPY": 1.5}
+    assert portfolio["target_asset_mix"] == {"SPY": 1.0}
+    assert portfolio["target_gross_exposure_ratio"] == pytest.approx(1.5)
+    assert portfolio["target_cash_allocation"] == pytest.approx(0.0)
+    assert portfolio["exposure_reset_count"] > 0
+    first = portfolio["series"][0]
+    assert first["cash"] == pytest.approx(0.0)
+    assert first["debt"] == pytest.approx(50000.0)
+    assert first["gross_exposure"] == pytest.approx(150000.0)
+    assert first["net_exposure"] == pytest.approx(150000.0)
+    assert first["gross_exposure_ratio"] == pytest.approx(1.5)
+    assert first["net_exposure_ratio"] == pytest.approx(1.5)
+    for point in portfolio["series"][1:]:
+        if point["value"] and point["value"] > 0:
+            assert point["gross_exposure_ratio"] == pytest.approx(1.5, rel=1e-9)

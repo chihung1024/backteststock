@@ -41,7 +41,7 @@ def test_request_normalizes_symbols_and_builds_ledger_models() -> None:
     assert request.to_simulation_config().initial_amount == 100000
 
 
-def test_request_rejects_extra_fields_duplicate_symbols_and_invalid_weight_total() -> None:
+def test_request_rejects_extra_fields_duplicate_symbols_and_excess_gross_exposure() -> None:
     payload = _payload()
     payload["unexpected"] = True
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
@@ -56,8 +56,11 @@ def test_request_rejects_extra_fields_duplicate_symbols_and_invalid_weight_total
         PortfolioRequest.model_validate(payload)
 
     payload = _payload()
-    payload["portfolios"][0]["assets"][0]["weight"] = 50
-    with pytest.raises(ValidationError, match="must total 100"):
+    payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 450},
+        {"symbol": "QQQ", "weight": 60},
+    ]
+    with pytest.raises(ValidationError, match="cannot exceed 500"):
         PortfolioRequest.model_validate(payload)
 
 
@@ -121,3 +124,38 @@ def test_request_supports_cashflow_rebalance_leverage_and_analytics() -> None:
     assert config.rebalancing.threshold_percent == 5
     assert config.leverage.ratio == 1.5
     assert config.risk_free_rate == pytest.approx(0.015)
+
+
+
+def test_request_preserves_cash_and_leveraged_weight_totals() -> None:
+    cash_payload = _payload()
+    cash_payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 80},
+    ]
+    cash_request = PortfolioRequest.model_validate(cash_payload)
+    assert cash_request.to_specs()[0].weights == pytest.approx((0.8,))
+    assert cash_request.to_specs()[0].target_cash_allocation == pytest.approx(0.2)
+
+    leveraged_payload = _payload()
+    leveraged_payload["portfolios"][0]["assets"] = [
+        {"symbol": "SPY", "weight": 75},
+        {"symbol": "QQQ", "weight": 75},
+    ]
+    leveraged_request = PortfolioRequest.model_validate(leveraged_payload)
+    spec = leveraged_request.to_specs()[0]
+    assert spec.weights == pytest.approx((0.75, 0.75))
+    assert spec.target_gross_exposure == pytest.approx(1.5)
+    assert spec.target_asset_mix == pytest.approx({"SPY": 0.5, "QQQ": 0.5})
+
+
+def test_non_100_weights_fail_closed_with_explicit_legacy_leverage() -> None:
+    payload = _payload()
+    payload["portfolios"][0]["assets"] = [{"symbol": "SPY", "weight": 150}]
+    payload["leverage"] = {"type": "fixed_ratio", "ratio": 2.0}
+    with pytest.raises(ValidationError, match="non-100% weights already define"):
+        PortfolioRequest.model_validate(payload)
+
+    payload = _payload()
+    payload["leverage"] = {"type": "fixed_ratio", "ratio": 1.5}
+    request = PortfolioRequest.model_validate(payload)
+    assert request.to_simulation_config().leverage.ratio == pytest.approx(1.5)

@@ -17,14 +17,16 @@ from apps.api.app.portfolio.models import (
     CashflowType,
     LeverageConfig,
     LeverageType,
+    MAX_TARGET_GROSS_EXPOSURE,
     PortfolioSpec,
     RebalanceConfig,
     RebalanceFrequency,
     SimulationConfig,
+    WEIGHT_TOLERANCE,
 )
 
 PORTFOLIO_API_CONTRACT_VERSION = "portfolio-v3"
-PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-04.1"
+PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-15.1"
 
 TickerSymbol = Annotated[
     str,
@@ -50,7 +52,9 @@ class AssetAllocationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     symbol: TickerSymbol
-    weight: float = Field(gt=0.0, le=100.0)
+    weight: float = Field(
+        gt=0.0, le=MAX_TARGET_GROSS_EXPOSURE * 100.0
+    )
 
 
 class PortfolioDefinitionInput(BaseModel):
@@ -65,8 +69,12 @@ class PortfolioDefinitionInput(BaseModel):
         if len(symbols) != len(set(symbols)):
             raise ValueError("portfolio assets must be unique")
         total = sum(asset.weight for asset in self.assets)
-        if abs(total - 100.0) > 0.05:
-            raise ValueError(f"portfolio weights must total 100%, received {total:.4f}%")
+        max_total = (MAX_TARGET_GROSS_EXPOSURE + WEIGHT_TOLERANCE) * 100.0
+        if total > max_total:
+            raise ValueError(
+                "portfolio target gross exposure cannot exceed "
+                f"{MAX_TARGET_GROSS_EXPOSURE * 100.0:g}%, received {total:.4f}%"
+            )
         for asset, symbol in zip(self.assets, symbols, strict=True):
             asset.symbol = symbol
         self.name = self.name.strip()
@@ -173,6 +181,20 @@ class PortfolioRequest(BaseModel):
         names = [portfolio.name for portfolio in self.portfolios]
         if len(names) != len(set(names)):
             raise ValueError("portfolio names must be unique")
+        if self.leverage.type != LeverageType.NONE:
+            ambiguous = [
+                portfolio.name
+                for portfolio in self.portfolios
+                if abs(
+                    sum(asset.weight for asset in portfolio.assets) / 100.0 - 1.0
+                ) > WEIGHT_TOLERANCE
+            ]
+            if ambiguous:
+                raise ValueError(
+                    "explicit legacy leverage requires 100% asset weights; "
+                    "non-100% weights already define residual cash or gross exposure: "
+                    + ", ".join(ambiguous)
+                )
         if self.benchmark:
             self.benchmark = _normalize_symbol(self.benchmark)
         return self

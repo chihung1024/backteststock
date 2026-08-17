@@ -444,6 +444,9 @@ class PortfolioAPIService:
                 "cash": ledger.cash,
                 "debt": ledger.debt,
                 "gross_exposure": ledger.gross_exposure,
+                "net_exposure": ledger.net_exposure,
+                "gross_exposure_ratio": ledger.gross_exposure_ratio,
+                "net_exposure_ratio": ledger.net_exposure_ratio,
             }
         )
         sampled = _sample_frame(frame, request.output_frequency.value)
@@ -461,7 +464,11 @@ class PortfolioAPIService:
             "annual_returns": [asdict(item) for item in report.annual_returns],
             "monthly_returns": [asdict(item) for item in report.monthly_returns],
             "target_allocation": ledger.target_allocation,
+            "target_asset_mix": ledger.target_asset_mix,
+            "target_gross_exposure_ratio": ledger.target_gross_exposure_ratio,
+            "target_cash_allocation": ledger.target_cash_allocation,
             "final_allocation": ledger.final_allocation,
+            "exposure_reset_count": ledger.exposure_reset_count,
             "series": [
                 {
                     "date": timestamp.date().isoformat(),

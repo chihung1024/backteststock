@@ -76,15 +76,12 @@ def _history(
     )
 
 
-def test_portfolio_validation_rejects_duplicate_or_incomplete_weights() -> None:
+def test_portfolio_validation_rejects_duplicate_weights() -> None:
     with pytest.raises(ValueError, match="unique"):
         PortfolioSpec(
-            name="Duplicate",
-            assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
+  name="Duplicate",
+  assets=(AssetWeight("AAA", 0.5), AssetWeight("AAA", 0.5)),
         )
-    with pytest.raises(ValueError, match="sum"):
-        PortfolioSpec.from_weights("Incomplete", {"AAA": 0.8})
-
 
 def test_distribution_can_be_retained_as_cash_without_double_counting() -> None:
     history = _history(

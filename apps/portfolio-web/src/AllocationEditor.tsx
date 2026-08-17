@@ -8,6 +8,7 @@ import {
   equalWeightPortfolio,
   normalizePortfolio,
   normalizeSymbol,
+  portfolioExposureSummary,
   portfolioWeightTotal,
   removeAsset,
   removePortfolio,
@@ -75,6 +76,9 @@ export function AllocationEditor({
     () => model.portfolios.find((portfolio) => portfolio.id === mobilePortfolioId) ?? model.portfolios[0],
     [mobilePortfolioId, model.portfolios],
   );
+  const mobileExposure = mobilePortfolio
+    ? portfolioExposureSummary(portfolioWeightTotal(mobilePortfolio, model))
+    : portfolioExposureSummary(0);
 
   function updateAssetSymbol(assetId: string, symbol: string) {
     setModel((current) => ({
@@ -100,7 +104,7 @@ export function AllocationEditor({
       ...current,
       portfolios: current.portfolios.map((portfolio) =>
         portfolio.id === portfolioId
-          ? { ...portfolio, weights: { ...portfolio.weights, [assetId]: Math.max(0, Math.min(value, 100)) } }
+          ? { ...portfolio, weights: { ...portfolio.weights, [assetId]: Math.max(0, value) } }
           : portfolio,
       ),
     }));
@@ -141,8 +145,8 @@ export function AllocationEditor({
         <div>
           <span className="section-index">01</span>
           <div>
-            <h2 id="allocation-title">資產配置</h2>
-            <p>桌機使用資產 × 投組矩陣；手機聚焦編輯單一投組。每組最多 20 項資產。</p>
+            <h2 id="allocation-title">資產配置與總曝險</h2>
+            <p>每組權重總和就是該投組的目標總曝險：低於 100% 的差額保留現金，高於 100% 的部分由融資支應。每組最多 20 項資產。</p>
           </div>
         </div>
         <div className="section-actions">
@@ -162,7 +166,7 @@ export function AllocationEditor({
               <th scope="col" className="asset-column">資產代碼</th>
               {model.portfolios.map((portfolio) => {
                 const total = portfolioWeightTotal(portfolio, model);
-                const valid = total === 0 || Math.abs(total - 100) <= 0.05;
+                const exposure = portfolioExposureSummary(total);
                 return (
                   <th scope="col" key={portfolio.id}>
                     <input
@@ -171,10 +175,11 @@ export function AllocationEditor({
                       onChange={(event) => updatePortfolioName(portfolio.id, event.target.value)}
                       aria-label="投資組合名稱"
                     />
-                    <div className={`weight-total ${valid ? "valid" : "invalid"}`}>{total.toFixed(1)}%</div>
+                    <div className={`weight-total ${exposure.kind === "inactive" ? "invalid" : "valid"}`}>{exposure.label}</div>
+                    <small>{exposure.detail}</small>
                     <div className="mini-actions" aria-label={`${portfolio.name} 操作`}>
-                      <button type="button" onClick={() => setModel((current) => equalWeightPortfolio(current, portfolio.id))}>等權</button>
-                      <button type="button" onClick={() => setModel((current) => normalizePortfolio(current, portfolio.id))}>正規化</button>
+                      <button type="button" onClick={() => setModel((current) => equalWeightPortfolio(current, portfolio.id))}>100% 等權</button>
+                      <button type="button" onClick={() => setModel((current) => normalizePortfolio(current, portfolio.id))}>縮放至 100%</button>
                       <button type="button" onClick={() => setModel((current) => copyPortfolio(current, portfolio.id))} disabled={model.portfolios.length >= 5}>複製</button>
                       <button type="button" onClick={() => setModel((current) => clearPortfolio(current, portfolio.id))}>清空</button>
                       <button type="button" onClick={() => setModel((current) => removePortfolio(current, portfolio.id))} disabled={model.portfolios.length <= 1}>刪除</button>
@@ -209,12 +214,11 @@ export function AllocationEditor({
                 {model.portfolios.map((portfolio) => (
                   <td key={portfolio.id}>
                     <label className="weight-input">
-                      <span className="sr-only">{portfolio.name} 的 {asset.symbol || `第 ${rowIndex + 1} 列`} 權重</span>
+                      <span className="sr-only">{portfolio.name} 的 {asset.symbol || `第 ${rowIndex + 1} 列`} 曝險</span>
                       <input
                         inputMode="decimal"
                         type="number"
                         min="0"
-                        max="100"
                         step="0.01"
                         value={portfolio.weights[asset.id] ?? 0}
                         onChange={(event) => updateWeight(portfolio.id, asset.id, numberValue(event.target.value))}
@@ -258,10 +262,11 @@ export function AllocationEditor({
                 onChange={(event) => updatePortfolioName(mobilePortfolio.id, event.target.value)}
                 aria-label="目前投資組合名稱"
               />
-              <span className={`weight-total ${Math.abs(portfolioWeightTotal(mobilePortfolio, model) - 100) <= 0.05 ? "valid" : "invalid"}`}>
-                {portfolioWeightTotal(mobilePortfolio, model).toFixed(1)}%
+              <span className={`weight-total ${mobileExposure.kind === "inactive" ? "invalid" : "valid"}`}>
+                {mobileExposure.label}
               </span>
             </div>
+            <small>{mobileExposure.detail}</small>
             <div className="mobile-asset-list">
               {model.assets.map((asset, index) => (
                 <div className="mobile-asset-row" key={asset.id}>
@@ -282,12 +287,11 @@ export function AllocationEditor({
                     {searchMenu(asset.id)}
                   </div>
                   <label className="weight-input">
-                    <span>權重</span>
+                    <span>曝險</span>
                     <input
                       type="number"
                       inputMode="decimal"
                       min="0"
-                      max="100"
                       step="0.01"
                       value={mobilePortfolio.weights[asset.id] ?? 0}
                       onChange={(event) => updateWeight(mobilePortfolio.id, asset.id, numberValue(event.target.value))}
@@ -305,8 +309,8 @@ export function AllocationEditor({
               ))}
             </div>
             <div className="mobile-tools">
-              <button type="button" onClick={() => setModel((current) => equalWeightPortfolio(current, mobilePortfolio.id))}>等權</button>
-              <button type="button" onClick={() => setModel((current) => normalizePortfolio(current, mobilePortfolio.id))}>正規化</button>
+              <button type="button" onClick={() => setModel((current) => equalWeightPortfolio(current, mobilePortfolio.id))}>100% 等權</button>
+              <button type="button" onClick={() => setModel((current) => normalizePortfolio(current, mobilePortfolio.id))}>縮放至 100%</button>
               <button type="button" onClick={() => setModel((current) => clearPortfolio(current, mobilePortfolio.id))}>清空</button>
               <button type="button" onClick={() => setModel(addAsset)} disabled={model.assets.length >= 20}>新增資產</button>
             </div>

@@ -15,7 +15,7 @@ Portfolio v3 is the self-owned Portfolio research path in this repository.
 - Edge routing/security authority: `worker/router.js`.
 - Current behavior is verified by the direct Portfolio tests under `tests/`; historical migration fixtures are not a runtime authority.
 
-Portfolio and Scanner/Exhaustive may share audited market/TWD data semantics, but Portfolio ledger behavior remains path-dependent Portfolio domain logic.
+Portfolio and Scanner/Exhaustive may share audited market/TWD data semantics, but Portfolio ledger behavior remains path-dependent Portfolio domain logic. Cash, debt, exposure-reset trades and portfolio performance must be represented by this ledger rather than by a second performance engine.
 
 ## 2. Valuation and ledger semantics
 
@@ -27,9 +27,10 @@ For each valuation interval, the economic ordering is:
 2. asset price return and distribution treatment;
 3. borrowing interest;
 4. ending external cashflow;
-5. periodic and/or drift-threshold rebalance plus transaction costs;
-6. maintenance-margin evaluation and any forced liquidation;
-7. record equity, cash, debt, gross exposure, allocation and audit events.
+5. maintenance-margin/non-positive-equity guard before voluntary trades;
+6. periodic/drift-threshold asset-allocation rebalance **or**, when no allocation rebalance fires, the required daily gross-exposure reset;
+7. post-trade maintenance-margin/non-positive-equity guard;
+8. record equity, cash, debt, gross/net exposure, allocation and audit events.
 
 External deposits/withdrawals must not be misclassified as investment performance. Beginning and ending cashflows are handled consistently with time-weighted-return semantics.
 
@@ -39,19 +40,56 @@ External deposits/withdrawals must not be misclassified as investment performanc
 - Cash-retained distributions use price-return economics and add the distribution to cash/income.
 - On the distribution date, reinvest and cash-retention policies must not double count value; subsequent paths may diverge because retained cash does not receive the asset's later market return.
 
+### Weight-defined cash and gross exposure
+
+The Portfolio domain interprets asset weights as **equity-relative target exposures**. The current domain gross-exposure bound is `(0, 500%]`; exact numeric limits remain authoritative in code/tests.
+
+The ledger semantics are:
+
+```text
+sum(asset weights) < 100%  -> residual ledger cash
+sum(asset weights) = 100%  -> fully invested
+sum(asset weights) > 100%  -> financed gross exposure / ledger debt
+```
+
+These rules are ledger economics, not a synthetic return transformation:
+
+- Residual cash is explicit ledger cash and does not receive an invented asset return.
+- Leveraged gross exposure is explicit asset market value financed by explicit debt.
+- `target_allocation` preserves the raw equity-relative exposure weights.
+- `target_asset_mix` is the normalized asset-only composition.
+- The ledger records target/realized gross exposure, net exposure, cash, debt and `exposure_reset` events.
+- Any non-100% target gross exposure is reset at each close to its configured gross-exposure ratio. This reset is separate from asset-allocation rebalance.
+- For an underinvested target, the close reset recomputes both asset gross exposure and residual cash from post-cost equity; it does not create debt merely to preserve an old cash amount.
+- A pure daily gross-exposure reset **preserves the current asset mix**. It must not silently restore each asset to its original raw target weight.
+- Example: a portfolio entered as `VT 100% + QQQ 50%` has 150% target gross exposure. Daily close reset restores total gross exposure to 150%, while VT/QQQ may drift relative to each other. Their internal mix returns to the original target only when the configured periodic or drift-threshold asset-allocation rebalance independently fires.
+- Example: a single-asset 50% Portfolio restores asset exposure to 50% of post-cost equity and residual cash to 50% at each close.
+- If an allocation rebalance fires on the same close, that single rebalance restores target asset mix and target gross exposure; a redundant exposure-reset trade must not be added afterward.
+- Allocation-threshold logic compares normalized asset mix. Gross/cash drift is handled by the independent daily exposure reset and must not by itself masquerade as internal allocation drift.
+- `exposure_reset_count` counts close resets that actually trade non-zero notional; it is not a count of elapsed valuation dates where the target happened to already be satisfied.
+- Transaction costs for reset/rebalance trades are solved inside the ledger against post-cost equity. The implementation must not approximate this contract as `daily return × leverage`.
+- Borrowing interest remains an explicit ledger cost.
+
+Initial exposure is subject to the same maintenance-margin/non-positive-equity guard before the first state is recorded. An input that starts already outside the configured margin constraint fails honestly rather than emitting an impossible day-zero ledger state.
+
 ### Rebalancing and costs
 
 - Supported periodic policies and threshold rebalancing are domain configuration, not UI-only behavior.
-- A drift threshold may independently trigger rebalancing.
+- A drift threshold may independently trigger asset-allocation rebalancing.
+- Asset-allocation rebalance and daily gross-exposure reset are distinct concepts and distinct ledger event semantics.
+- A 100% total target has no weight-defined cash/leverage exposure-reset requirement; its asset allocation follows the configured rebalance policy.
+- A non-100% total target has daily gross-exposure reset in addition to the independently configured asset-allocation policy.
 - Transaction costs are based on traded notional and reduce portfolio equity; trades/costs remain auditable.
 - Periodic logic must not invent economically meaningless terminal trades solely because the requested range ends.
 
-### Leverage and liquidation
+### Legacy leverage compatibility and liquidation
 
-- Fixed-ratio leverage maintains the configured gross-exposure relationship when flows/rebalances require adjustment.
+- Existing fixed-ratio leverage is adapted into the **same daily gross-exposure reset authority**; it is not a second calculation engine.
 - Fixed-debt leverage preserves debt principal except where the domain operation explicitly changes it.
+- A non-100% weight-defined exposure combined with an explicit legacy leverage overlay is ambiguous and fails closed rather than multiplying leverage twice.
 - Borrowing interest accrues through the ledger rather than being hidden in asset returns.
-- Maintenance-margin breach is represented as a `margin_liquidation` ledger event/result state; it is not converted into a generic API failure.
+- Maintenance-margin/non-positive-equity failures are represented by explicit ledger liquidation state/events rather than being silently ignored or approximated.
+- Existing direct `PortfolioLedger(...)` construction and the Walk-Forward OOS weight-vector `_rebalance(...)` call remain compatibility adapters into this same Portfolio authority; Walk-Forward does not reimplement Portfolio math.
 
 ## 3. Core metrics
 
@@ -92,11 +130,31 @@ Requests are typed and strict:
 - unknown fields are rejected rather than ignored;
 - symbols are canonicalized by current shared Portfolio/data rules;
 - portfolio names/symbols must satisfy uniqueness constraints;
-- weights must satisfy the current 100% tolerance contract;
+- public Portfolio asset weights are equity-relative target exposures and may total below, equal to, or above 100% within the current Portfolio domain gross-exposure bound;
+- the public API derives its maximum exposure admission from the Portfolio domain authority rather than maintaining a second hard-coded leverage cap;
+- a request with non-100% weight-defined exposure and explicit legacy leverage fails closed as ambiguous;
+- existing 100% / no-leverage requests remain the compatibility baseline;
+- Portfolio result serialization exposes the ledger's cash/debt/gross/net exposure diagnostics, target gross/cash/mix truth and `exposure_reset_count` rather than recalculating them in the API layer;
 - portfolio/asset/request-size resource caps are enforced by current models/Edge tests;
 - TWD is the supported Portfolio valuation currency;
 - future/invalid date ranges are rejected;
 - cashflow, distribution, rebalancing, transaction-cost, leverage and analytics configuration is converted into domain models rather than reimplemented in the browser.
+
+### Browser exposure UX
+
+The browser consumes the same API/ledger contract instead of introducing a second leverage engine or a second gross-exposure limit authority:
+
+- each percentage cell is an equity-relative asset exposure; the sum of one Portfolio column is that Portfolio's target gross exposure;
+- the browser accepts non-negative exposure entries above 100% and does **not** hard-code the domain maximum; final admission remains the API/domain responsibility;
+- totals below 100% are presented as asset exposure plus residual cash, 100% as fully invested, and totals above 100% as gross multiple plus financed exposure;
+- a non-100% summary explicitly states that total exposure resets daily while internal asset proportions follow the configured allocation-rebalance policy;
+- `100% 等權` and `縮放至 100%` are explicit editing actions; the browser must not silently normalize a non-100% Portfolio merely because its total is not 100%;
+- borrowing annual interest and maintenance-margin assumptions remain configurable while legacy leverage mode is `none`, because weight-defined gross exposure uses those financing assumptions;
+- legacy `fixed_ratio` / `fixed_debt` controls remain available only as compatibility controls and are demoted from the normal weight-defined workflow;
+- legacy leverage combined with a non-100% active Portfolio is rejected before submission rather than multiplying two leverage definitions;
+- desktop and mobile editors preserve the same exposure semantics.
+
+The browser may present status/formatting helpers, but exact domain limits and ledger calculations remain server-authoritative. Generated production assets under `public/portfolio/` must be rebuilt and committed from the same browser source; CI rejects source/build drift.
 
 Exact numeric caps and schema/version strings must be read from current implementation/tests so this document does not preserve stale migration-era values.
 
@@ -109,7 +167,7 @@ Failure isolation is mandatory:
 - one asset failure only invalidates dependent portfolios;
 - one portfolio failure does not erase independent successful siblings;
 - benchmark failure does not erase valid core portfolio results;
-- optional analytics/provider failure degrades to structured warning/unavailable evidence rather than destroying the core ledger result when the core result remains valid;
+- optional analytics/provider failure degrades to structured warning/unavailable evidence rather than destroying the core Portfolio result when the core result remains valid;
 - failure/retryability information remains explicit instead of silently deleting a symbol or shortening a period.
 
 ## 7. Analytics semantics
@@ -148,16 +206,36 @@ The durable behaviors above are directly exercised by current runtime-facing tes
 
 - `tests/test_portfolio_ledger.py`
 - `tests/test_portfolio_ledger_contract.py`
+- `tests/test_portfolio_weight_defined_exposure.py`
+- `tests/test_portfolio_ledger_compatibility.py`
 - `tests/test_portfolio_metrics.py`
 - `tests/test_portfolio_api_models.py`
 - `tests/test_portfolio_api_service.py`
 - `tests/test_portfolio_analytics.py`
 - `tests/test_portfolio_v3_api.py`
 - `tests/test_portfolio_v3_edge_route.mjs`
+- `tests/e2e/portfolio_exposure_ux.spec.mjs`
 - Portfolio common-window, runtime-cutover, smoke-readiness and web-contract regressions.
 
 A future change that intentionally alters an externally observable semantic must update implementation, direct regression tests, exposed version/schema where applicable, and this contract in the same functional batch.
 
-## 10. Historical migration boundary
+## 10. Staged rollout boundary
+
+The weight-defined exposure feature is organized as three authority-preserving batches:
+
+1. **L1 Ledger Authority** — domain/ledger semantics and compatibility regressions.
+2. **L2 API Contract** — public admission and serialized ledger truth.
+3. **L3 UX** — direct weight-defined exposure editing/display, financing settings, legacy-control demotion and browser regression coverage.
+
+Verification evidence before final R3 merge review:
+
+- L1 original exact-head CI #834 passed; the later underinvested daily-reset correction and generic `exposure_reset` naming each passed focused + full Python regression.
+- L2 exact-head CI #856 passed the complete repository gate; its Git Integration preview was blocked by Vercel `build-rate-limit`, while the underlying corrected product implementation had successful preview evidence.
+- L3 exact-head CI #863 at `7edb503fa8d75fd1aee1896440611a14134c24af` passed Python, JavaScript, Worker, Portfolio type/build/source contracts, committed production assets, browser E2E, Vercel configuration validation, local D1 migration and Cloudflare bundle.
+- The two preceding L3 browser failures were isolated to Playwright locator scope against hidden/visible responsive DOM; diagnostics showed the expected mobile exposure UI was already rendered, and no production source change was required to resolve them.
+
+L3 consumes L1/L2 rather than reproducing leverage calculations or domain admission limits in the browser. Until the final R3 PR is merged and production-verified, the feature remains a branch candidate rather than production truth.
+
+## 11. Historical migration boundary
 
 The original Portfolio migration source, intermediate capability matrix, legacy request/response-shape fixtures and PR rollout documents are historical development evidence. They are recoverable from Git history and are not required in the active tree once the durable semantics are preserved here and by current runtime-facing tests.
