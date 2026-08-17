@@ -102,6 +102,7 @@ export function ResearchLibraryPanel({
   const [showCapability, setShowCapability] = useState(false);
   const [newRecoveryCode, setNewRecoveryCode] = useState(false);
   const activeController = useRef<AbortController | null>(null);
+  const operationVersion = useRef(0);
   const namePlaceholder = useMemo(() => suggestedRunName(request), [request]);
 
   useEffect(() => {
@@ -130,7 +131,10 @@ export function ResearchLibraryPanel({
     return () => controller.abort();
   }, [capability]);
 
-  useEffect(() => () => activeController.current?.abort(), []);
+  useEffect(() => () => {
+    operationVersion.current += 1;
+    activeController.current?.abort();
+  }, []);
 
   async function runWorkspaceOperation<T>(
     nextAction: Exclude<LibraryAction, "connect" | "refresh" | null>,
@@ -138,20 +142,25 @@ export function ResearchLibraryPanel({
   ): Promise<T | null> {
     activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++operationVersion.current;
     activeController.current = controller;
     setAction(nextAction);
     setError("");
     setMessage("");
     onBusyChange(true);
     try {
-      return await operation(controller.signal);
+      const response = await operation(controller.signal);
+      if (version !== operationVersion.current || activeController.current !== controller) return null;
+      return response;
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
       return null;
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setAction((current) => current === nextAction ? null : current);
-      onBusyChange(false);
+      if (version === operationVersion.current && activeController.current === controller) {
+        activeController.current = null;
+        setAction((current) => current === nextAction ? null : current);
+        onBusyChange(false);
+      }
     }
   }
 
@@ -245,6 +254,7 @@ export function ResearchLibraryPanel({
   }
 
   function cancelOperation() {
+    operationVersion.current += 1;
     activeController.current?.abort();
     activeController.current = null;
     setAction(null);
@@ -253,6 +263,7 @@ export function ResearchLibraryPanel({
   }
 
   function forgetDeviceCredential() {
+    operationVersion.current += 1;
     activeController.current?.abort();
     activeController.current = null;
     persistCapability(null);
@@ -381,7 +392,7 @@ export function ResearchLibraryPanel({
               <div>
                 <strong>{run.name}</strong>
                 <span>{run.createdAt || "剛建立"} · {run.decisionCount} Decision</span>
-                <small>job {shortHash(run.jobHash)}{run.sourceRunId ? ` · rerun of ${shortHash(run.sourceRunId)}` : ""}</small>
+                <small>run {shortHash(run.runId)} · job {shortHash(run.jobHash)}{run.sourceRunId ? ` · rerun of ${shortHash(run.sourceRunId)}` : ""}</small>
               </div>
               <div className="research-run-actions">
                 <button type="button" className="secondary" disabled={disabled || Boolean(action)} onClick={() => void openRun(run)}>{action === "load" ? "讀取中…" : "查看保存結果"}</button>
