@@ -274,7 +274,7 @@ export function WalkForwardWorkspace() {
           <p>每一期只使用 Decision 當時可知的 Universe 與 Training 證據完成選股，決策凍結後才讀取 Evaluation / OOS。這裡的設定直接對應既有 Walk-Forward v1 API，不建立第二套選股或績效計算。</p>
         </div>
         <div className="wf-hero-actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => replaceModel(createExampleWalkForwardModel(), "已載入三期因果範例。 ")}>載入三期範例</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => replaceModel(createExampleWalkForwardModel(), "已載入單期因果範例。 ")}>載入單期範例</button>
           <button type="button" className="secondary danger-text" disabled={busy} onClick={() => replaceModel(createDefaultWalkForwardModel(), "已重設 Walk-Forward 設定。 ")}>重設</button>
         </div>
       </section>

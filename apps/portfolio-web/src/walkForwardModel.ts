@@ -1,4 +1,5 @@
 import type {
+  WalkForwardAdmissionResponse,
   WalkForwardApiRequest,
   WalkForwardPeriodDraft,
   WalkForwardValidationIssue,
@@ -55,30 +56,48 @@ export function createDefaultWalkForwardModel(): WalkForwardWorkspaceModel {
   const latestComplete = latestCompleteUtcDate();
   return {
     schemaVersion: 1,
-    universe: "sp500",
+    // SOXX / 5 is the fail-safe fallback when admission has not loaded yet.
+    // Live D1 admission replaces the date with exact causal evidence before first execution.
+    universe: "soxx",
     benchmark: "SPY",
-    holdingCount: 10,
+    holdingCount: 5,
     initialAmountTwd: 100000,
     transitionCostBps: 5,
-    periods: [createPeriodFromOffsets("period-1", latestComplete, -180, 0)],
+    periods: [createPeriodFromOffsets("period-1", latestComplete, -3, 0)],
+  };
+}
+
+export function createWalkForwardModelFromAdmission(
+  admission: WalkForwardAdmissionResponse,
+): WalkForwardWorkspaceModel | null {
+  const recommendation = admission.recommended;
+  if (!recommendation) return null;
+  const decisionDate = recommendation.decisionDate;
+  return {
+    schemaVersion: 1,
+    universe: recommendation.universe,
+    benchmark: "SPY",
+    holdingCount: recommendation.holdingCount,
+    initialAmountTwd: 100000,
+    transitionCostBps: 5,
+    periods: [
+      {
+        id: uid("walk-forward-period"),
+        periodId: "period-1",
+        trainingStart: shiftUtcDays(decisionDate, -730),
+        trainingEnd: decisionDate,
+        decisionDate,
+        evaluationStart: shiftUtcDays(decisionDate, 1),
+        evaluationEnd: admission.asOfDate,
+      },
+    ],
   };
 }
 
 export function createExampleWalkForwardModel(): WalkForwardWorkspaceModel {
-  const latestComplete = latestCompleteUtcDate();
-  return {
-    schemaVersion: 1,
-    universe: "sp500",
-    benchmark: "SPY",
-    holdingCount: 10,
-    initialAmountTwd: 100000,
-    transitionCostBps: 5,
-    periods: [
-      createPeriodFromOffsets("period-1", latestComplete, -270, -181),
-      createPeriodFromOffsets("period-2", latestComplete, -180, -91),
-      createPeriodFromOffsets("period-3", latestComplete, -90, 0),
-    ],
-  };
+  // Until the PIT archive has enough historical depth for multiple independent
+  // OOS segments, examples must remain executable rather than fabricate history.
+  return createDefaultWalkForwardModel();
 }
 
 export function createBlankWalkForwardPeriod(index: number): WalkForwardPeriodDraft {
