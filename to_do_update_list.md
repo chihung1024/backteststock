@@ -1,5 +1,85 @@
 # BacktestStock — Live Project Status & Handoff
 
+
+## 0. Current Operational Truth — 2026-08-17 (4A-7 Research Memory)
+
+> This block supersedes older operational snapshots below where they conflict. Historical sections remain intentionally preserved. Re-query mutable remote truth before important writes.
+
+### Production baseline
+
+```text
+main@5182170fcbee40f044fb0f4a3231cf1fff4e22a9
+PR #164 squash-merged
+recovery: backup-post-pr164-5182170fcbee
+```
+
+Production is unchanged during 4A-7. Re-verified baseline: main CI #872 SUCCESS, Vercel production SUCCESS, Cloudflare deploy #78 SUCCESS, and prior real production Walk-Forward acceptance SUCCESS.
+
+### Primary Goal / Current Batch
+
+**4A-7 — ResearchRun / Research Memory** converts authoritative one-off Walk-Forward results into a durable Research Library without creating a second calculation or research authority.
+
+Status: **4A-7A RELIABILITY + 4A-7B PRODUCT UX INTERNALLY VERIFIED / FORMAL PR GATES NEXT**.
+
+```text
+internal-4a7-research-memory-finalize@93c85c5c5de46384b1c1078345638cd5aaf1dc92
+Internal Research Library Product Verify #3
+run 31998851073: SUCCESS
+```
+
+Delivered candidate scope:
+- read-only `GET /api/v1/research/runs/health` D1/schema probe;
+- structured 503 for unexpected ResearchRun durable-store/runtime failures;
+- D1-backed create/list/detail/rerun with saved-request lineage;
+- `執行並保存`, history/detail, run identity, source lineage and jobHash UX;
+- existing `WalkForwardResults` remains Decision/selected/OOS result renderer and calculation authority;
+- recovery code first-create presentation, copy/export/import, device-only forget semantics;
+- localStorage limited to capability/workspace convenience, never ResearchRun truth;
+- pending-operation locks, cancel/error/credential-invalid handling, stale-response guard and 390px mobile containment.
+
+### Authority / Architecture Notes
+
+- D1 is durable ResearchRun authority; `run_id` is run identity and `jobHash` remains immutable completed-result identity.
+- Browser never submits completed result evidence/jobHash/decisionHash/ledger for persistence.
+- Raw capability is never durable; D1 stores only SHA-256 hash material, and Worker does not forward the credential to Vercel/backend.
+- First library creation occurs only after authoritative Walk-Forward success.
+- Rerun uses D1-saved `execution_request_json`, accepts no replacement request, and creates a new run with `source_run_id` lineage.
+- `research_runs.library_id` uses `ON DELETE CASCADE`, so production acceptance can use an isolated library and fully clean it afterward.
+
+### Root Cause Log — 4A-7
+
+1. Test harness initially assumed `fetch(Request)` only; production correctly uses standard `fetch(URL, init)`. Fixed only in test normalization.
+2. `vite.config.ts` imported `@vitejs/plugin-react` but package manifest/lock omitted it. Root fix declares/locks `@vitejs/plugin-react` 6.0.4; clean production build now succeeds.
+3. AbortController alone could not reject a late success when transport ignored AbortSignal. Root fix adds operation generation/version authority; regression reproduces the ignored-AbortSignal race.
+4. Concurrent internal writers advanced one branch during verification. Unknown-changes protection rejected the stale push; no force/reset occurred. Final candidate verification was isolated.
+
+### Verification
+
+Exact internal gate `31998851073` SUCCESS:
+- clean `npm ci`;
+- JavaScript + score regressions;
+- Worker authority/security 118 / 118 PASS;
+- D1 migrations 0001 → 0005 from empty state + ResearchRun schema checks;
+- Portfolio TypeScript + production Vite build;
+- Cloudflare Wrangler dry-run;
+- 15 targeted Walk-Forward/Research Library browser cases including mobile, concurrency and stale-response race;
+- temporary product verifier/scripts removed from final tree.
+
+### NOW
+
+`formal feat/4a7-research-memory → Draft PR → exact-head CI + intended Vercel Preview → independent R3 exact-head review → merge only with no BLOCKER and green required gates`.
+
+### NEXT — only after merge
+
+`re-query main → remote D1 0005 → main CI/Vercel/Cloudflare exact-SHA verification → production health + isolated create/list/detail/rerun-lineage acceptance → delete isolated test library → stable recovery checkpoint → 4A-7 CLOSED`.
+
+### BACKLOG / REJECT
+
+- BACKLOG: clean install reports one high-severity npm audit finding; do evidence-based security triage separately and promote immediately if production reachability/exploitability makes it Critical. Do not auto-fix by unrelated dependency churn inside 4A-7.
+- REJECT: localStorage result authority, browser-submitted completed evidence, second Walk-Forward calculation, rerun request mutation, pre-merge production migration, CI bypass/weakened tests, force-push over unknown changes, unrelated refactor.
+
+---
+
 > Repository-internal live handoff. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must be re-queried before important writes. Durable methodology belongs in versioned contracts under `docs/`. Closed execution history must remain in this handoff or an explicit archived section; Git/PR/Actions are supporting evidence, not a substitute for preserving project decisions.
 
 Last updated: **2026-08-17**
