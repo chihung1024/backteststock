@@ -1,3 +1,3 @@
 # Operational release retrigger marker.
-# Change only through a reviewed recovery PR when a validated main push is missed by Vercel.
-4a7-recovery-2026-08-17
+# Change only through a reviewed release/recovery PR when an exact-main production cycle must be re-emitted.
+4a7-closeout-2026-08-17
