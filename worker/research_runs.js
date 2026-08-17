@@ -3,7 +3,12 @@ const RESEARCH_RUN_MEMORY_CONTRACT_VERSION = "research-run-memory-2026-08-17.1";
 const CAPABILITY_HASH_VERSION = "sha256-v1";
 const CAPABILITY_PREFIX = "rrl_";
 const CREATE_REQUEST_MAX_BYTES = 160 * 1024;
-const STORED_RESULT_MAX_BYTES = 4 * 1024 * 1024;
+// D1 currently caps an individual string/BLOB or complete table row at 2,000,000 bytes.
+// Keep the completed result below that platform ceiling after reserving the full request budget
+// plus conservative space for identifiers, hashes, names, timestamps and row encoding overhead.
+const D1_MAX_ROW_BYTES = 2_000_000;
+const D1_ROW_SAFETY_RESERVE_BYTES = 64 * 1024;
+const STORED_RESULT_MAX_BYTES = D1_MAX_ROW_BYTES - CREATE_REQUEST_MAX_BYTES - D1_ROW_SAFETY_RESERVE_BYTES;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 100;
 

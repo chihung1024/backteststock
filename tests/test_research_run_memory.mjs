@@ -260,6 +260,32 @@ test("failed Walk-Forward execution creates neither empty library nor partial ru
   assert.equal(db.runs.size, 0);
 });
 
+test("completed result larger than the safe D1 row budget fails before persistence", async () => {
+  const db = new FakeD1();
+  await withBackend(async (backendRequest) => {
+    const body = await backendRequest.json();
+    return Response.json({
+      ...successfulResult(body),
+      padding: "x".repeat(1_850_000),
+    });
+  }, async () => {
+    const response = await router.fetch(
+      new Request("https://edge.example/api/v1/research/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Too large for one D1 row", request: sampleRequest() }),
+      }),
+      { DB: db, BACKEND_ORIGIN: "https://backend.example" },
+      {},
+    );
+    assert.equal(response.status, 413);
+    const payload = await response.json();
+    assert.match(payload.error, /超過 ResearchRun V1 可保存大小/u);
+  });
+  assert.equal(db.libraries.size, 0);
+  assert.equal(db.runs.size, 0);
+});
+
 test("browser cannot submit completed result evidence for persistence", async () => {
   const db = new FakeD1();
   let backendCalls = 0;

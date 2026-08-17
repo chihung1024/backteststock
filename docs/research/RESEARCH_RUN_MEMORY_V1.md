@@ -114,7 +114,7 @@ Fail closed when:
 - the capability is malformed or unknown;
 - request JSON/name is invalid or over bounds;
 - Walk-Forward execution fails or does not return `completed` with a valid `jobHash`;
-- the completed result exceeds the V1 persistence payload bound;
+- the completed result exceeds the V1 persistence payload bound, which is conservatively below D1's 2,000,000-byte row/string ceiling after reserving the full request budget and row metadata;
 - durable insertion fails.
 
 A failed Walk-Forward execution must not create an empty library or a partial durable run.

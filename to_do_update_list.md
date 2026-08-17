@@ -52,6 +52,7 @@ Delivered candidate scope:
 2. `vite.config.ts` imported `@vitejs/plugin-react` but package manifest/lock omitted it. Root fix declares/locks `@vitejs/plugin-react` 6.0.4; clean production build now succeeds.
 3. AbortController alone could not reject a late success when transport ignored AbortSignal. Root fix adds operation generation/version authority; regression reproduces the ignored-AbortSignal race.
 4. Concurrent internal writers advanced one branch during verification. Unknown-changes protection rejected the stale push; no force/reset occurred. Final candidate verification was isolated.
+5. Exact-PR self-review found the initial 4 MiB result guard exceeded Cloudflare D1's 2,000,000-byte string/row limit. Root fix budgets the full request plus a 64 KiB row reserve and rejects oversized completed evidence with 413 before any D1 write.
 
 ### Verification
 
