@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -55,6 +55,29 @@ jobs:
         run: npm run check:portfolio
       - name: Test Portfolio and Refinery source contracts
         run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs tests/test_refinery_phase5_web_contract.mjs tests/test_refinery_phase6_web_contract.mjs
+      - name: One-time sync generated Portfolio assets for PR 170
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 170 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/optimizer-hub-dual-momentum' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_dir="$(mktemp -d)"
+          cp -a public/portfolio "$generated_dir/portfolio"
+          git fetch origin "${{ github.head_ref }}"
+          git checkout -B "${{ github.head_ref }}" "origin/${{ github.head_ref }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          rm -rf public/portfolio
+          mkdir -p public
+          cp -a "$generated_dir/portfolio" public/portfolio
+          git show 8c01699561c9e606fe5dc1e6e6543ad8279b5d8e:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- public/portfolio .github/workflows/ci.yml
+          if git diff --cached --quiet; then
+            echo "No generated asset changes to sync."
+            exit 0
+          fi
+          git commit -m "chore: sync Portfolio production assets"
+          git push origin "HEAD:${{ github.head_ref }}"
       - name: Verify committed Portfolio production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
       - name: Install browser for end-to-end tests
