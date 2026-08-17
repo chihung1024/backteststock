@@ -24,6 +24,18 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Fix test fetch mock boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_research_run_memory.mjs")
+          text = path.read_text(encoding="utf-8")
+          old = "  globalThis.fetch = handler;"
+          new = "  globalThis.fetch = (input, init) => handler(input instanceof Request ? input : new Request(input, init));"
+          if old not in text:
+              raise SystemExit("fetch mock anchor not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - run: npm ci
       - name: Check JavaScript
         run: npm run check
@@ -36,11 +48,12 @@ jobs:
           npx wrangler d1 execute backteststock-universe --local --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('research_libraries','research_runs') ORDER BY name;"
       - name: Validate Cloudflare bundle
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
-      - name: Remove temporary verifier
+      - name: Commit test fix and remove temporary verifier
         if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- tests/test_research_run_memory.mjs
           git rm -- .github/workflows/internal-4a7a-research-memory-verify.yml
-          git commit -m "chore: remove ResearchRun verifier"
+          git commit -m "test: normalize ResearchRun backend fetch mock"
           git push origin HEAD:internal-4a7-research-memory
