@@ -1,0 +1,279 @@
+from pathlib import Path
+
+
+def replace_once(text, before, after, label):
+    if text.count(before) != 1:
+        raise SystemExit(f"{label} anchor mismatch: {text.count(before)}")
+    return text.replace(before, after, 1)
+
+
+router = Path("worker/walk_forward_router.js")
+text = router.read_text(encoding="utf-8")
+before = '''function executeTrustedWalkForward(executionRequest, env) {
+  const request = new Request(`https://research-run.internal${WALK_FORWARD_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    body: JSON.stringify(executionRequest),
+  });
+  return proxyWalkForward(request, env);
+}'''
+after = '''function executeTrustedWalkForward(executionRequest, env, sourceRequest) {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  // Preserve only Cloudflare's trusted client identity so the existing backend
+  // rate-limit authority remains per client. Never propagate browser credentials.
+  const clientIp = sourceRequest?.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("cf-connecting-ip", clientIp);
+  const request = new Request(`https://research-run.internal${WALK_FORWARD_PATH}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(executionRequest),
+  });
+  return proxyWalkForward(request, env);
+}'''
+text = replace_once(text, before, after, "trusted execution")
+text = replace_once(
+    text,
+    "      (executionRequest) => executeTrustedWalkForward(executionRequest, env),",
+    "      (executionRequest) => executeTrustedWalkForward(executionRequest, env, request),",
+    "trusted execution source request",
+)
+router.write_text(text, encoding="utf-8")
+
+panel = Path("apps/portfolio-web/src/ResearchLibraryPanel.tsx")
+text = panel.read_text(encoding="utf-8")
+before = '''  useEffect(() => {
+    if (!capability) return;
+    const controller = new AbortController();
+    setAction("refresh");
+    setError("");
+    listResearchRuns(capability, controller.signal)
+      .then((response) => {
+        setLibraryId(response.libraryId);
+        setRuns(response.runs);
+      })
+      .catch((caught) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setError(libraryErrorText(caught));
+      })
+      .finally(() => setAction((current) => current === "refresh" ? null : current));
+    return () => controller.abort();
+  }, [capability]);'''
+after = '''  useEffect(() => {
+    if (!capability) return;
+    activeController.current?.abort();
+    const controller = new AbortController();
+    const version = ++operationVersion.current;
+    activeController.current = controller;
+    setAction("refresh");
+    setError("");
+    listResearchRuns(capability, controller.signal)
+      .then((response) => {
+        if (version !== operationVersion.current || activeController.current !== controller) return;
+        setLibraryId(response.libraryId);
+        setRuns(response.runs);
+      })
+      .catch((caught) => {
+        if (version !== operationVersion.current || activeController.current !== controller) return;
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setError(libraryErrorText(caught));
+      })
+      .finally(() => {
+        if (version === operationVersion.current && activeController.current === controller) {
+          activeController.current = null;
+          setAction((current) => current === "refresh" ? null : current);
+        }
+      });
+    return () => {
+      if (activeController.current === controller) {
+        operationVersion.current += 1;
+        activeController.current = null;
+      }
+      controller.abort();
+    };
+  }, [capability]);'''
+text = replace_once(text, before, after, "capability refresh effect")
+
+before = '''  useEffect(() => () => {
+    operationVersion.current += 1;
+    activeController.current?.abort();
+  }, []);'''
+after = '''  useEffect(() => () => {
+    operationVersion.current += 1;
+    const controller = activeController.current;
+    activeController.current = null;
+    controller?.abort();
+  }, []);'''
+text = replace_once(text, before, after, "unmount invalidation")
+
+before = '''  async function connectLibrary() {
+    const nextCapability = candidateCapability.trim();
+    if (!isResearchLibraryCapability(nextCapability)) {
+      setError("復原碼格式無效。請貼上完整的 rrl_… 復原碼。 ");
+      return;
+    }
+    const controller = new AbortController();
+    activeController.current?.abort();
+    activeController.current = controller;
+    setAction("connect");
+    setError("");
+    setMessage("");
+    try {
+      const response = await listResearchRuns(nextCapability, controller.signal);
+      persistCapability(nextCapability);
+      setCapability(nextCapability);
+      setCandidateCapability("");
+      setLibraryId(response.libraryId);
+      setRuns(response.runs);
+      setNewRecoveryCode(false);
+      setShowCapability(false);
+      setMessage(`已連結研究庫，共 ${response.runs.length} 筆最近研究。`);
+    } catch (caught) {
+      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
+    } finally {
+      if (activeController.current === controller) activeController.current = null;
+      setAction((current) => current === "connect" ? null : current);
+    }
+  }'''
+after = '''  async function connectLibrary() {
+    const nextCapability = candidateCapability.trim();
+    if (!isResearchLibraryCapability(nextCapability)) {
+      setError("復原碼格式無效。請貼上完整的 rrl_… 復原碼。 ");
+      return;
+    }
+    activeController.current?.abort();
+    const controller = new AbortController();
+    const version = ++operationVersion.current;
+    activeController.current = controller;
+    setAction("connect");
+    setError("");
+    setMessage("");
+    try {
+      const response = await listResearchRuns(nextCapability, controller.signal);
+      if (version !== operationVersion.current || activeController.current !== controller) return;
+      persistCapability(nextCapability);
+      setCapability(nextCapability);
+      setCandidateCapability("");
+      setLibraryId(response.libraryId);
+      setRuns(response.runs);
+      setNewRecoveryCode(false);
+      setShowCapability(false);
+      setMessage(`已連結研究庫，共 ${response.runs.length} 筆最近研究。`);
+    } catch (caught) {
+      if (version !== operationVersion.current || activeController.current !== controller) return;
+      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
+    } finally {
+      if (version === operationVersion.current && activeController.current === controller) {
+        activeController.current = null;
+        setAction((current) => current === "connect" ? null : current);
+      }
+    }
+  }'''
+text = replace_once(text, before, after, "connect generation guard")
+
+before = '''  async function refreshLibrary() {
+    if (!capability || action) return;
+    const controller = new AbortController();
+    activeController.current = controller;
+    setAction("refresh");
+    setError("");
+    try {
+      const response = await listResearchRuns(capability, controller.signal);
+      setLibraryId(response.libraryId);
+      setRuns(response.runs);
+      setMessage(`研究庫已重新整理，共 ${response.runs.length} 筆最近研究。`);
+    } catch (caught) {
+      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
+    } finally {
+      if (activeController.current === controller) activeController.current = null;
+      setAction((current) => current === "refresh" ? null : current);
+    }
+  }'''
+after = '''  async function refreshLibrary() {
+    if (!capability || action) return;
+    activeController.current?.abort();
+    const controller = new AbortController();
+    const version = ++operationVersion.current;
+    activeController.current = controller;
+    setAction("refresh");
+    setError("");
+    try {
+      const response = await listResearchRuns(capability, controller.signal);
+      if (version !== operationVersion.current || activeController.current !== controller) return;
+      setLibraryId(response.libraryId);
+      setRuns(response.runs);
+      setMessage(`研究庫已重新整理，共 ${response.runs.length} 筆最近研究。`);
+    } catch (caught) {
+      if (version !== operationVersion.current || activeController.current !== controller) return;
+      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
+    } finally {
+      if (version === operationVersion.current && activeController.current === controller) {
+        activeController.current = null;
+        setAction((current) => current === "refresh" ? null : current);
+      }
+    }
+  }'''
+text = replace_once(text, before, after, "refresh generation guard")
+panel.write_text(text, encoding="utf-8")
+
+worker_test = Path("tests/test_research_run_memory.mjs")
+text = worker_test.read_text(encoding="utf-8")
+marker = 'test("trusted ResearchRun execution preserves Cloudflare client identity without forwarding browser credentials"'
+if marker not in text:
+    anchor = 'test("failed Walk-Forward execution creates neither empty library nor partial run", async () => {'
+    insert = '''test("trusted ResearchRun execution preserves Cloudflare client identity without forwarding browser credentials", async () => {\n  const db = new FakeD1();\n  const first = await createLibraryRun(db);\n  assert.equal(first.response.status, 201);\n  let forwardedHeaders;\n  await withBackend(async (backendRequest) => {\n    forwardedHeaders = new Headers(backendRequest.headers);\n    const body = await backendRequest.json();\n    return Response.json(successfulResult(body, JOB_HASH_B));\n  }, async () => {\n    const response = await router.fetch(\n      new Request("https://edge.example/api/v1/research/runs", {\n        method: "POST",\n        headers: {\n          "content-type": "application/json",\n          authorization: `Bearer ${first.payload.libraryCapability}`,\n          cookie: "browser=secret",\n          "cf-connecting-ip": "203.0.113.24",\n          "x-forwarded-for": "198.51.100.99",\n        },\n        body: JSON.stringify({ name: "Per-client limiter context", request: sampleRequest("smh") }),\n      }),\n      { DB: db, BACKEND_ORIGIN: "https://backend.example" },\n      {},\n    );\n    assert.equal(response.status, 201);\n  });\n  assert.equal(forwardedHeaders.get("x-forwarded-for"), "203.0.113.24");\n  assert.equal(forwardedHeaders.get("authorization"), null);\n  assert.equal(forwardedHeaders.get("cookie"), null);\n});\n\n'''
+    if text.count(anchor) != 1:
+        raise SystemExit("worker test insertion anchor mismatch")
+    worker_test.write_text(text.replace(anchor, insert + anchor, 1), encoding="utf-8")
+
+stale = Path("tests/e2e/research_library_stale.spec.mjs")
+text = stale.read_text(encoding="utf-8")
+marker = 'test("late Research Library connect cannot persist a credential after workspace unmount"'
+if marker not in text:
+    text += r'''
+
+test("late Research Library connect cannot persist a credential after workspace unmount", async ({ page }) => {
+  await mockBase(page);
+  await page.addInitScript(({ activeKey }) => {
+    localStorage.setItem(activeKey, "walk-forward");
+    const realFetch = window.fetch.bind(window);
+    window.__resolveLateLibraryConnect = null;
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/v1/research/runs?limit=100")) {
+        return new Promise((resolve) => {
+          window.__resolveLateLibraryConnect = () => resolve(new Response(JSON.stringify({
+            contractVersion: "research-run-memory-2026-08-17.1",
+            libraryId: "lib_late_connect",
+            runs: [],
+          }), { status: 200, headers: { "content-type": "application/json" } }));
+        });
+      }
+      return realFetch(input, init);
+    };
+  }, { activeKey: ACTIVE_WORKSPACE_KEY });
+
+  await page.goto("/portfolio/");
+  await expect(page.getByRole("heading", { name: "Research Library" })).toBeVisible();
+  await expect(page.getByText("Durable memory 正常")).toBeVisible();
+
+  await page.getByLabel("匯入 Research Library 復原碼").fill(CAPABILITY);
+  await page.getByRole("button", { name: "連結研究庫", exact: true }).click();
+  await expect(page.getByRole("button", { name: "驗證復原碼…", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /投資組合回測/u }).click();
+  await expect(page.getByRole("heading", { name: "Research Library" })).toHaveCount(0);
+  await page.evaluate(() => window.__resolveLateLibraryConnect?.());
+  await page.waitForTimeout(150);
+
+  expect(await page.evaluate((key) => localStorage.getItem(key), CAPABILITY_KEY)).toBeNull();
+
+  await page.getByRole("button", { name: /因果樣本外研究/u }).click();
+  await expect(page.getByRole("heading", { name: "Research Library" })).toBeVisible();
+  await expect(page.getByLabel("匯入 Research Library 復原碼")).toBeVisible();
+  await expect(page.getByText(/尚未連結 Research Library/u)).toBeVisible();
+});
+'''
+    stale.write_text(text, encoding="utf-8")
