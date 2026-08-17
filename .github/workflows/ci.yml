@@ -69,6 +69,8 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            public/portfolio/
+            package-lock.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Validate Vercel configuration
