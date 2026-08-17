@@ -23,6 +23,7 @@
     "@playwright/test": "1.62.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
     "typescript": "5.9.2",
     "vite": "8.1.5",
     "wrangler": "4.120.1"
