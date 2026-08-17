@@ -1,6 +1,6 @@
 # BacktestStock
 
-BacktestStock 是一個以 **TWD 統一估值**為核心的多市場投資研究平台，包含 Universe / Scanner、Exhaustive historical search、Portfolio v3 與 Portfolio Refinery。
+BacktestStock 是一個以 **TWD 統一估值**為核心的多市場投資研究平台，包含 Universe / Scanner、Exhaustive historical search、Portfolio v3、Portfolio Refinery 與 Walk-Forward research workspace。
 
 > **文件權威**：本 README 回答「專案是什麼、怎麼跑、怎麼測、怎麼部署」。目前 Phase / Batch / PR / blocker / exact resume point 以 [`to_do_update_list.md`](to_do_update_list.md) 為 repository 內的 live handoff；GitHub / Vercel / Cloudflare 的即時遠端狀態是 operational truth。文件分類與衝突處理見 [`docs/PROJECT_DOCUMENTATION_POLICY.md`](docs/PROJECT_DOCUMENTATION_POLICY.md)，完整索引見 [`docs/README.md`](docs/README.md)。
 
@@ -13,12 +13,13 @@ Browser
   +-- Exhaustive historical search
   +-- Portfolio v3
   +-- Portfolio Refinery
+  +-- Walk-Forward Research
         |
         v
 Cloudflare Worker + Static Assets
   |
   +-- public/                     Scanner / Exhaustive static frontend
-  +-- public/portfolio/           Portfolio + Refinery production bundle
+  +-- public/portfolio/           Portfolio / Refinery / Walk-Forward production bundle
   +-- D1 Universe DB              versioned membership / last-good pointer
   +-- request guards / allowlists
   +-- same-origin API proxy
@@ -27,6 +28,7 @@ Cloudflare Worker + Static Assets
 Vercel Python Functions
   |
   +-- Flask compatibility routes
+  +-- FastAPI Walk-Forward v1     api/walk_forward_v1.py
   +-- FastAPI Portfolio v3        api/portfolio_v3.py
   +-- FastAPI Refinery v1         api/refinery_v1.py
         |
@@ -34,7 +36,7 @@ Vercel Python Functions
 apps/api/app/
   +-- data/       TWD market-data / FX / return authority
   +-- portfolio/  path-dependent Portfolio ledger / analytics
-  +-- research/   reproducible ResearchDataset / research data
+  +-- research/   reproducible ResearchDataset / Walk-Forward research authority
   +-- quant/      pure validated quantitative primitives
   +-- refinery/   read-only research composition / evidence policy
 ```
@@ -43,13 +45,13 @@ apps/api/app/
 
 - **Cloudflare Static Assets / Worker**：瀏覽器前端、D1 Universe、request/body/method guard、固定 route allowlist、Vercel proxy。
 - **Cloudflare D1**：版本化 Universe、來源日期/metadata、checksum 與 current/last-good pointer。
-- **Vercel Python Functions**：相容 API、Exhaustive、Portfolio v3、Refinery v1 Python runtime。
+- **Vercel Python Functions**：相容 API、Exhaustive、Walk-Forward v1、Portfolio v3、Refinery v1 Python runtime。
 - **`apps/api/app/data/`**：市場資料、FX、TWD 估值、return components 的共享權威。
 - **`apps/api/app/portfolio/`**：Portfolio v3 ledger 與 path-dependent analytics 權威。
-- **`apps/api/app/research/`**：ResearchDataset 與共享 research-data adapter；不得演化成第二套 candidate-price downloader。
+- **`apps/api/app/research/`**：ResearchDataset、Walk-Forward causal orchestration 與共享 research-data adapter；不得演化成第二套 candidate-price downloader 或 Portfolio performance engine。
 - **`apps/api/app/quant/`**：pure math primitives；不得承擔 API/UI/selection/sizing side effects。
 - **`apps/api/app/refinery/`**：Refinery request/service/evidence boundary；不得吸收 Portfolio ledger 或未驗證選股政策。
-- **`apps/portfolio-web/`**：Portfolio / Refinery React + TypeScript full-page workspace source；production build 發布到 `/portfolio/`。
+- **`apps/portfolio-web/`**：Portfolio / Refinery / Walk-Forward React + TypeScript full-page workspace source；production build 發布到 `/portfolio/`。
 - **GitHub Actions**：CI、Release backup、Universe 更新、部署 orchestration；不是應用程式 runtime。
 
 Durable runtime/quant architecture decision 見 [`docs/adr/0001-runtime-and-quant-authority.md`](docs/adr/0001-runtime-and-quant-authority.md)。已完成的早期 phase-governance 快照由 Git history 保存，不再作為 live-tree authority。

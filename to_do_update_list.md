@@ -2,7 +2,7 @@
 
 > Repository-internal live handoff. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must be re-queried before important writes. Durable methodology belongs in versioned contracts under `docs/`. Closed execution history must remain in this handoff or an explicit archived section; Git/PR/Actions are supporting evidence, not a substitute for preserving project decisions.
 
-Last updated: **2026-08-16**
+Last updated: **2026-08-17**
 
 ## 1. North Star
 
@@ -21,6 +21,132 @@ Priority order:
 7. Scale / performance
 
 Functionality, quantitative correctness, data integrity, causal validity and user experience outrank optional infrastructure/process work.
+
+## 2. Current Production Baseline
+
+Current verified production candidate:
+
+```text
+main@1c3d8aea4c59aa866c1454d1879a28bb841fe76c
+feat: add weight-defined Portfolio exposure semantics (#162)
+```
+
+PR #162 is **CLOSED / SQUASH-MERGED / POST-MAIN VERIFIED / PRODUCTION EXACT-SHA VERIFIED**.
+
+Current post-main recovery:
+
+```text
+backup-post-pr162-1c3d8aea4c59
+```
+
+Verification already completed on exact main:
+
+- main CI #868 SUCCESS;
+- Vercel production SUCCESS;
+- Cloudflare deployment #76 SUCCESS;
+- production Russell 2000, Portfolio v3, Walk-Forward routing and Refinery smoke SUCCESS.
+
+Do not reopen the Portfolio weight-defined exposure batch unless new runtime evidence violates its locked ledger/API/UX semantics.
+
+## 3. Primary Active Work — Batch 4A-6 Walk-Forward User-Facing UX
+
+Status: **INTERNAL PRODUCT CANDIDATE VERIFIED / FINAL RELEASE CANDIDATE NOT YET CREATED**.
+
+Development branch:
+
+```text
+internal-4a6a-walk-forward-ux
+```
+
+This branch intentionally matches `vercel.json` `internal-*` deployment exclusion, so iterative development does not consume Vercel Preview deployment quota. Vercel Preview should be triggered only after one squashed `feat/*` final candidate is created.
+
+Implemented and internally verified:
+
+- **4A-6A — Research settings UX:** third research workspace, Universe / benchmark / holding count / initial TWD / transition cost inputs, explicit Training / Decision / Evaluation period editing, causal browser pre-validation and normalized request preview;
+- **4A-6B — Execution UX:** direct existing public Walk-Forward POST, synchronous progress, cancellation, stale/late-response invalidation, no retry loop, explicit 429/422/409/502 failure context;
+- **4A-6C — OOS results:** backend-authoritative final balance / CAGR / Sortino / MDD / transaction cost / observations, direct continuous ledger equity and return-index charts, JSON result export;
+- **4A-6D — Causal evidence UX:** PIT requested/source/evidence dates, authoritative/proxy truth, Training/authority/Decision/Evaluation identities and selector provenance;
+- **4A-6E — Responsive UX:** 390px settings + results remain usable with no page-level horizontal overflow; wide charts scroll only inside bounded cards.
+
+Locked UI authority rules:
+
+- browser pre-validation is not final research authority;
+- UI does not resolve PIT membership or silently truncate large universes;
+- UI does not recompute Portfolio/metric mathematics;
+- UI does not fabricate a continuous OOS benchmark series absent from the V1 response;
+- local workspace persistence is convenience only and is not ResearchRun persistence.
+
+Internal verification evidence:
+
+- 4A-6A TypeScript/Vite + targeted browser gate SUCCESS;
+- 4A-6B final verifier run `31990938539` SUCCESS after one locator-scope-only test repair;
+- 4A-6C/D/E final verifier run `31991377258` SUCCESS after one locator-scope-only provenance assertion repair;
+- generated `public/portfolio` assets synchronized from the same source;
+- all temporary verifier workflows self-removed;
+- no Vercel Preview deployments were consumed by the `internal-*` iteration path.
+
+Canonical UI contract:
+
+```text
+docs/research/WALK_FORWARD_UI_V1.md
+```
+
+## 4. NOW / NEXT / BACKLOG / REJECT
+
+### NOW
+
+Close Batch 4A-6 without expanding methodology:
+
+```text
+final docs/handoff consistency
+→ self-review main..internal diff
+→ create one squashed feat/4a6-walk-forward-ux candidate from current main
+→ one Vercel Preview + full repository CI
+→ exact-head independent review
+→ merge only with release gates green
+→ post-main recovery + production verification
+```
+
+### NEXT
+
+**ResearchRun / research memory** — durable named runs, normalized request/result identity, reruns, comparisons and history. This is the next Phase A product milestone and the prerequisite for durable AI research memory.
+
+### BACKLOG
+
+- PIT fundamentals / large-universe causal narrowing;
+- PIT factor / regime evidence;
+- AI research automation / Autopilot;
+- strategy robustness / sensitivity research;
+- distributed scale/performance after research contracts stabilize.
+
+### REJECT FOR CURRENT BATCH
+
+- new selector / ranking / score mathematics;
+- browser-side Portfolio or metric recomputation;
+- browser-generated OOS benchmark history;
+- persistent ResearchRun storage inside 4A-6;
+- automatic schedule generation / AI strategy design;
+- distributed background jobs;
+- reactivating frozen PR #147;
+- unrelated refactors.
+
+## 5. Exact Resume Point
+
+On resume:
+
+1. re-query `main` and `internal-4a6a-walk-forward-ux`; remote truth outranks this snapshot;
+2. read `AI_PROJECT_PLAYBOOK.md`, `README.md`, this file, `docs/research/WALK_FORWARD_API_ORCHESTRATION_V1.md` and `docs/research/WALK_FORWARD_UI_V1.md`;
+3. verify there is no temporary verifier workflow in the internal diff;
+4. verify the internal branch remains based on `main@1c3d8aea4c59aa866c1454d1879a28bb841fe76c` unless main has legitimately moved;
+5. run final diff self-review and contract/source/test consistency checks;
+6. create a **single squashed final candidate** on `feat/4a6-walk-forward-ux`, intentionally allowing only that final candidate to consume Vercel Preview quota;
+7. require full repository CI, Vercel Preview and risk-proportional independent review before merge;
+8. after production verification, move NEXT to ResearchRun / research memory.
+
+---
+
+<details>
+<summary>Archived PR #162 implementation record (historical, not current operational authority)</summary>
 
 ## 2. Verified Production Baseline
 
@@ -539,3 +665,5 @@ It also locked these acceptance rules before implementation began:
 7. audit all download/cache/fallback paths for the same defect class, not only VFLO.
 
 Those constraints remain the reason PR #161 is treated as P0 / R2 and are not superseded by the shorter current-status sections above.
+
+</details>

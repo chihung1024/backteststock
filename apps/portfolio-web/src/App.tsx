@@ -15,7 +15,8 @@ import {
 import { RefineryWorkspace } from "./RefineryWorkspace";
 import { ResultsDashboard } from "./ResultsDashboard";
 import { SettingsPanels } from "./SettingsPanels";
-import type { WorkspaceKind } from "./refineryTypes";
+import { WalkForwardWorkspace } from "./WalkForwardWorkspace";
+import type { WorkspaceKind } from "./workspaceTypes";
 import type {
   BacktestResponse,
   Locale,
@@ -65,9 +66,8 @@ function loadInitialWorkspaceKind(): WorkspaceKind {
   const parameters = new URLSearchParams(window.location.search);
   if (parameters.has("model") || parameters.has("handoff")) return "portfolio";
   try {
-    return window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY) === "refinery"
-      ? "refinery"
-      : "portfolio";
+    const saved = window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+    return saved === "refinery" || saved === "walk-forward" ? saved : "portfolio";
   } catch {
     return "portfolio";
   }
@@ -349,7 +349,7 @@ export default function App() {
         <div className="header-inner">
           <a className="brand" href="/" aria-label="返回 BacktestStock 個股研究">
             <span className="brand-mark">B</span>
-            <span><strong>BacktestStock</strong><small>Portfolio Research</small></span>
+            <span><strong>BacktestStock</strong><small>Investment Research</small></span>
           </a>
           <nav className="header-actions" aria-label="研究工作區操作">
             {workspaceKind === "portfolio" && <span className={`service-state ${health}`}><i />{health === "online" ? "服務正常" : health === "checking" ? "檢查服務" : "服務離線"}</span>}
@@ -383,6 +383,15 @@ export default function App() {
           >
             <span>Holding Refinery</span>
             <strong>持股精煉診斷</strong>
+          </button>
+          <button
+            type="button"
+            className={workspaceKind === "walk-forward" ? "active" : ""}
+            aria-current={workspaceKind === "walk-forward" ? "page" : undefined}
+            onClick={() => setWorkspaceKind("walk-forward")}
+          >
+            <span>Walk-Forward Research</span>
+            <strong>因果樣本外研究</strong>
           </button>
         </nav>
 
@@ -425,8 +434,10 @@ export default function App() {
               {response && <ResultsDashboard response={response} preflight={preflight} onExportJson={() => downloadFile("portfolio-results.json", JSON.stringify(response, null, 2), "application/json;charset=utf-8")} onExportCsv={() => downloadFile("portfolio-results.csv", resultsCsv(response), "text/csv;charset=utf-8")} />}
             </div>
           </>
-        ) : (
+        ) : workspaceKind === "refinery" ? (
           <RefineryWorkspace />
+        ) : (
+          <WalkForwardWorkspace />
         )}
       </main>
 
