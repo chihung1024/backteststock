@@ -25,17 +25,10 @@ jobs:
 
           workspace = Path("apps/portfolio-web/src/WalkForwardWorkspace.tsx")
           text = workspace.read_text(encoding="utf-8")
-          old = '''  useEffect(() => {
-            onBusyChange?.(workspaceBusy);
-            return () => onBusyChange?.(false);
-          }, [onBusyChange, workspaceBusy]);'''
-          new = '''  useEffect(() => {
-            onBusyChange?.(workspaceBusy);
-          }, [onBusyChange, workspaceBusy]);
-
-          useEffect(() => () => onBusyChange?.(false), [onBusyChange]);'''
-          if old not in text:
-              raise SystemExit("busy propagation anchor not found")
+          old = '    onBusyChange?.(workspaceBusy);\n    return () => onBusyChange?.(false);\n  }, [onBusyChange, workspaceBusy]);'
+          new = '    onBusyChange?.(workspaceBusy);\n  }, [onBusyChange, workspaceBusy]);\n\n  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);'
+          if text.count(old) != 1:
+              raise SystemExit(f"busy propagation anchor count={text.count(old)}")
           workspace.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           panel = Path("apps/portfolio-web/src/ResearchLibraryPanel.tsx")
@@ -49,7 +42,8 @@ jobs:
               ('disabled={disabled || workspaceAction} onClick={() => void rerun(run)}', 'disabled={disabled || Boolean(action)} onClick={() => void rerun(run)}'),
           ]
           for old, new in replacements:
-              if old not in panel_text:
+              count = panel_text.count(old)
+              if count < 1:
                   raise SystemExit(f"panel anchor not found: {old[:55]}")
               panel_text = panel_text.replace(old, new)
           panel.write_text(panel_text, encoding="utf-8")
