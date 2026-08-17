@@ -11,11 +11,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any, Iterable, Mapping
+from typing import Any, ClassVar, Iterable, Mapping
 
 WALK_FORWARD_TEMPORAL_CONTRACT_VERSION = "walk-forward-temporal-2026-08-15.1"
+CONFIGURED_RESEARCH_UNIVERSE_CONTRACT_VERSION = (
+    "configured-research-universe-2026-08-17.1"
+)
+CONFIGURED_DECISION_CONTRACT_VERSION = "walk-forward-configured-decision-2026-08-17.1"
 WALK_FORWARD_DECISION_HASH_ALGORITHM = "sha256-canonical-json-v1"
 DECISION_TIMING_AFTER_CLOSE = "after_close"
 
@@ -132,11 +136,46 @@ class ResolvedPITUniverse:
 
 
 @dataclass(frozen=True, slots=True)
+class ConfiguredResearchUniverse:
+    """Explicit request-defined membership with no fabricated PIT provenance.
+
+    A fixed configured universe is causal because its complete canonical membership
+    is part of the request before Training selection executes. It is not historical
+    index-membership evidence and therefore must never masquerade as a PIT source.
+    """
+
+    members: tuple[str, ...]
+    universe_hash: str = field(init=False)
+    contract_version: ClassVar[str] = CONFIGURED_RESEARCH_UNIVERSE_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        members = _normalized_symbols(self.members, label="configured universe members")
+        if not members:
+            raise ValueError("configured research universe requires at least one member")
+        object.__setattr__(self, "members", members)
+        object.__setattr__(self, "universe_hash", _canonical_hash(self._identity_payload()))
+
+    def _identity_payload(self) -> dict[str, Any]:
+        return {
+            "contractVersion": self.contract_version,
+            "provenanceType": "configured-request",
+            "members": list(self.members),
+        }
+
+    def export_payload(self) -> dict[str, Any]:
+        payload = self._identity_payload()
+        current = _canonical_hash(payload)
+        if current != self.universe_hash:
+            raise ValueError("configured research universe identity mismatch")
+        return {**payload, "universeHash": self.universe_hash}
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionSnapshot:
     """Immutable selection decision created before any OOS data is consumed."""
 
     period: WalkForwardPeriod
-    pit_universe: ResolvedPITUniverse
+    pit_universe: ResolvedPITUniverse | None
     training_dataset_hash: str
     training_effective_start: date
     training_effective_end: date
@@ -147,7 +186,15 @@ class DecisionSnapshot:
     selected_constituents: tuple[str, ...]
     weights: tuple[float, ...]
     decision_hash: str
+    configured_universe: ConfiguredResearchUniverse | None = None
+    selection_evidence: _FrozenMapping | None = None
     contract_version: str = WALK_FORWARD_TEMPORAL_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if (self.pit_universe is None) == (self.configured_universe is None):
+            raise ValueError(
+                "decision snapshot requires exactly one PIT or configured universe provenance"
+            )
 
     def export_payload(self) -> dict[str, Any]:
         payload = _decision_payload(self, include_hash=False)
@@ -171,10 +218,141 @@ def create_decision_snapshot(
     selected_constituents: Iterable[str],
     weights: Iterable[float],
 ) -> DecisionSnapshot:
-    """Validate and freeze one decision before OOS evaluation is possible."""
+    """Validate and freeze one PIT decision before OOS evaluation is possible."""
 
     if pit_universe.requested_as_of != period.decision_date:
         raise ValueError("PIT requested_as_of must equal the walk-forward decision_date")
+    common = _validated_decision_inputs(
+        period=period,
+        training_dataset_hash=training_dataset_hash,
+        training_effective_start=training_effective_start,
+        training_effective_end=training_effective_end,
+        selector_contract_version=selector_contract_version,
+        selector_rule=selector_rule,
+        selector_parameters=selector_parameters,
+        eligible_candidates=eligible_candidates,
+        selected_constituents=selected_constituents,
+        weights=weights,
+    )
+    if not set(common["eligible"]).issubset(set(pit_universe.members)):
+        raise ValueError("eligible candidates must be a subset of the exact PIT membership")
+
+    provisional = DecisionSnapshot(
+        period=period,
+        pit_universe=pit_universe,
+        training_dataset_hash=common["dataset_hash"],
+        training_effective_start=training_effective_start,
+        training_effective_end=training_effective_end,
+        selector_contract_version=common["selector_version"],
+        selector_rule=common["selector_rule"],
+        selector_parameters=common["parameters"],
+        eligible_candidates=common["eligible"],
+        selected_constituents=common["selected"],
+        weights=common["weights"],
+        decision_hash="",
+    )
+    decision_hash = _canonical_hash(_decision_payload(provisional, include_hash=False))
+    return DecisionSnapshot(
+        period=provisional.period,
+        pit_universe=provisional.pit_universe,
+        training_dataset_hash=provisional.training_dataset_hash,
+        training_effective_start=provisional.training_effective_start,
+        training_effective_end=provisional.training_effective_end,
+        selector_contract_version=provisional.selector_contract_version,
+        selector_rule=provisional.selector_rule,
+        selector_parameters=provisional.selector_parameters,
+        eligible_candidates=provisional.eligible_candidates,
+        selected_constituents=provisional.selected_constituents,
+        weights=provisional.weights,
+        decision_hash=decision_hash,
+    )
+
+
+def create_configured_decision_snapshot(
+    *,
+    period: WalkForwardPeriod,
+    configured_universe: ConfiguredResearchUniverse,
+    training_dataset_hash: str,
+    training_effective_start: date,
+    training_effective_end: date,
+    selector_contract_version: str,
+    selector_rule: str,
+    selector_parameters: Mapping[str, Any] | None,
+    selection_evidence: Mapping[str, Any] | None,
+    eligible_candidates: Iterable[str],
+    selected_constituents: Iterable[str],
+    weights: Iterable[float],
+) -> DecisionSnapshot:
+    """Freeze one request-configured decision without inventing PIT provenance."""
+
+    configured_universe.export_payload()
+    common = _validated_decision_inputs(
+        period=period,
+        training_dataset_hash=training_dataset_hash,
+        training_effective_start=training_effective_start,
+        training_effective_end=training_effective_end,
+        selector_contract_version=selector_contract_version,
+        selector_rule=selector_rule,
+        selector_parameters=selector_parameters,
+        eligible_candidates=eligible_candidates,
+        selected_constituents=selected_constituents,
+        weights=weights,
+    )
+    if not set(common["eligible"]).issubset(set(configured_universe.members)):
+        raise ValueError(
+            "eligible candidates must be a subset of the configured research universe"
+        )
+    frozen_evidence = _freeze_mapping(selection_evidence or {})
+    provisional = DecisionSnapshot(
+        period=period,
+        pit_universe=None,
+        training_dataset_hash=common["dataset_hash"],
+        training_effective_start=training_effective_start,
+        training_effective_end=training_effective_end,
+        selector_contract_version=common["selector_version"],
+        selector_rule=common["selector_rule"],
+        selector_parameters=common["parameters"],
+        eligible_candidates=common["eligible"],
+        selected_constituents=common["selected"],
+        weights=common["weights"],
+        decision_hash="",
+        configured_universe=configured_universe,
+        selection_evidence=frozen_evidence,
+        contract_version=CONFIGURED_DECISION_CONTRACT_VERSION,
+    )
+    decision_hash = _canonical_hash(_decision_payload(provisional, include_hash=False))
+    return DecisionSnapshot(
+        period=provisional.period,
+        pit_universe=None,
+        training_dataset_hash=provisional.training_dataset_hash,
+        training_effective_start=provisional.training_effective_start,
+        training_effective_end=provisional.training_effective_end,
+        selector_contract_version=provisional.selector_contract_version,
+        selector_rule=provisional.selector_rule,
+        selector_parameters=provisional.selector_parameters,
+        eligible_candidates=provisional.eligible_candidates,
+        selected_constituents=provisional.selected_constituents,
+        weights=provisional.weights,
+        decision_hash=decision_hash,
+        configured_universe=provisional.configured_universe,
+        selection_evidence=provisional.selection_evidence,
+        contract_version=provisional.contract_version,
+    )
+
+
+def _validated_decision_inputs(
+    *,
+    period: WalkForwardPeriod,
+    training_dataset_hash: str,
+    training_effective_start: date,
+    training_effective_end: date,
+    selector_contract_version: str,
+    selector_rule: str,
+    selector_parameters: Mapping[str, Any] | None,
+    eligible_candidates: Iterable[str],
+    selected_constituents: Iterable[str],
+    weights: Iterable[float],
+) -> dict[str, Any]:
     if training_effective_start < period.training_start:
         raise ValueError("training effective data starts before the requested training window")
     if training_effective_end > period.training_end:
@@ -196,8 +374,6 @@ def create_decision_snapshot(
         raise ValueError("at least one selected constituent is required")
     if not set(selected).issubset(set(eligible)):
         raise ValueError("selected constituents must be a subset of eligible candidates")
-    if not set(eligible).issubset(set(pit_universe.members)):
-        raise ValueError("eligible candidates must be a subset of the exact PIT membership")
 
     normalized_weights = tuple(float(value) for value in weights)
     if len(normalized_weights) != len(selected):
@@ -209,36 +385,15 @@ def create_decision_snapshot(
     ):
         raise ValueError("weights must be finite positive fractions summing to one")
 
-    frozen_parameters = _freeze_mapping(selector_parameters or {})
-    provisional = DecisionSnapshot(
-        period=period,
-        pit_universe=pit_universe,
-        training_dataset_hash=dataset_hash,
-        training_effective_start=training_effective_start,
-        training_effective_end=training_effective_end,
-        selector_contract_version=selector_version,
-        selector_rule=selector_rule_value,
-        selector_parameters=frozen_parameters,
-        eligible_candidates=eligible,
-        selected_constituents=selected,
-        weights=normalized_weights,
-        decision_hash="",
-    )
-    decision_hash = _canonical_hash(_decision_payload(provisional, include_hash=False))
-    return DecisionSnapshot(
-        period=provisional.period,
-        pit_universe=provisional.pit_universe,
-        training_dataset_hash=provisional.training_dataset_hash,
-        training_effective_start=provisional.training_effective_start,
-        training_effective_end=provisional.training_effective_end,
-        selector_contract_version=provisional.selector_contract_version,
-        selector_rule=provisional.selector_rule,
-        selector_parameters=provisional.selector_parameters,
-        eligible_candidates=provisional.eligible_candidates,
-        selected_constituents=provisional.selected_constituents,
-        weights=provisional.weights,
-        decision_hash=decision_hash,
-    )
+    return {
+        "dataset_hash": dataset_hash,
+        "selector_version": selector_version,
+        "selector_rule": selector_rule_value,
+        "parameters": _freeze_mapping(selector_parameters or {}),
+        "eligible": eligible,
+        "selected": selected,
+        "weights": normalized_weights,
+    }
 
 
 def validate_period_schedule(
@@ -328,7 +483,6 @@ def _thaw_value(value: _FROZEN_VALUE) -> Any:
 
 def _decision_payload(snapshot: DecisionSnapshot, *, include_hash: bool) -> dict[str, Any]:
     period = snapshot.period
-    universe = snapshot.pit_universe
     payload: dict[str, Any] = {
         "contractVersion": snapshot.contract_version,
         "hashAlgorithm": WALK_FORWARD_DECISION_HASH_ALGORITHM,
@@ -341,7 +495,10 @@ def _decision_payload(snapshot: DecisionSnapshot, *, include_hash: bool) -> dict
             "evaluationStart": period.evaluation_start.isoformat(),
             "evaluationEnd": period.evaluation_end.isoformat(),
         },
-        "pitUniverse": {
+    }
+    if snapshot.pit_universe is not None:
+        universe = snapshot.pit_universe
+        payload["pitUniverse"] = {
             "universeId": universe.universe_id,
             "requestedAsOf": universe.requested_as_of.isoformat(),
             "sourceAsOf": universe.source_as_of.isoformat(),
@@ -355,21 +512,33 @@ def _decision_payload(snapshot: DecisionSnapshot, *, include_hash: bool) -> dict
             "sourceLabel": universe.source_label,
             "sourceUrl": universe.source_url,
             "sourceIsProxy": universe.source_is_proxy,
-        },
-        "trainingDataset": {
-            "datasetHash": snapshot.training_dataset_hash,
-            "effectiveStart": snapshot.training_effective_start.isoformat(),
-            "effectiveEnd": snapshot.training_effective_end.isoformat(),
-        },
-        "selector": {
-            "contractVersion": snapshot.selector_contract_version,
-            "rule": snapshot.selector_rule,
-            "parameters": _thaw_value(snapshot.selector_parameters),
-        },
-        "eligibleCandidates": list(snapshot.eligible_candidates),
-        "selectedConstituents": list(snapshot.selected_constituents),
-        "weights": list(snapshot.weights),
-    }
+        }
+    elif snapshot.configured_universe is not None:
+        payload["configuredUniverse"] = snapshot.configured_universe.export_payload()
+    else:
+        raise ValueError("decision snapshot is missing universe provenance")
+
+    payload.update(
+        {
+            "trainingDataset": {
+                "datasetHash": snapshot.training_dataset_hash,
+                "effectiveStart": snapshot.training_effective_start.isoformat(),
+                "effectiveEnd": snapshot.training_effective_end.isoformat(),
+            },
+            "selector": {
+                "contractVersion": snapshot.selector_contract_version,
+                "rule": snapshot.selector_rule,
+                "parameters": _thaw_value(snapshot.selector_parameters),
+            },
+            "eligibleCandidates": list(snapshot.eligible_candidates),
+            "selectedConstituents": list(snapshot.selected_constituents),
+            "weights": list(snapshot.weights),
+        }
+    )
+    if snapshot.configured_universe is not None:
+        payload["selectionEvidence"] = _thaw_value(
+            snapshot.selection_evidence or _FrozenMapping(items=())
+        )
     if include_hash:
         payload["decisionHash"] = snapshot.decision_hash
     return payload
