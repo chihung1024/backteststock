@@ -1,32 +1,36 @@
 """Causal selection orchestration for walk-forward research.
 
-Batch 4A-2 keeps selection physically separated from Evaluation/OOS data. A
-selector receives one exact-window training ResearchDataset plus immutable PIT
-membership/accounting, and the result is frozen through the Batch 4A-1
-DecisionSnapshot contract before any evaluation dataset may be consumed.
+Selection stays physically separated from Evaluation/OOS data. A selector sees
+one exact-window Training ResearchDataset plus one immutable membership
+provenance. Historical PIT membership remains the existing Exhaustive path;
+request-configured membership is a distinct provenance type for strategy
+research and never impersonates PIT evidence.
 """
 
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Mapping, Protocol
 
 from apps.api.app.research.dataset import ResearchDataset
 from apps.api.app.research.walk_forward import (
+    ConfiguredResearchUniverse,
     DecisionSnapshot,
     ResolvedPITUniverse,
     WalkForwardPeriod,
+    create_configured_decision_snapshot,
     create_decision_snapshot,
 )
 
 WALK_FORWARD_SELECTION_CONTRACT_VERSION = "walk-forward-selection-2026-08-15.1"
+CONFIGURED_SELECTION_CONTRACT_VERSION = "walk-forward-configured-selection-2026-08-17.1"
 CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION = "configured-equal-weight-reference-2026-08-15.1"
 
 
 @dataclass(frozen=True, slots=True)
 class UnavailableCandidate:
-    """One PIT member with an explicit training-history failure."""
+    """One requested member with an explicit training-history failure."""
 
     symbol: str
     stage: str
@@ -43,23 +47,31 @@ class SelectionContext:
     """
 
     period: WalkForwardPeriod
-    pit_universe: ResolvedPITUniverse
+    pit_universe: ResolvedPITUniverse | None
     training_dataset: ResearchDataset
     eligible_candidates: tuple[str, ...]
     unavailable_candidates: tuple[UnavailableCandidate, ...]
+    configured_universe: ConfiguredResearchUniverse | None = None
     contract_version: ClassVar[str] = WALK_FORWARD_SELECTION_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if (self.pit_universe is None) == (self.configured_universe is None):
+            raise ValueError(
+                "selection context requires exactly one PIT or configured universe provenance"
+            )
 
 
 @dataclass(frozen=True, slots=True)
 class SelectionResult:
-    """Pure portfolio choice returned by a selector before OOS evaluation."""
+    """Pure portfolio choice plus deterministic Training-only decision evidence."""
 
     selected_constituents: tuple[str, ...]
     weights: tuple[float, ...]
+    evidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 class SelectionEngine(Protocol):
-    """Framework-neutral selector boundary for later adapters."""
+    """Framework-neutral selector boundary for strategy adapters."""
 
     contract_version: str
     rule: str
@@ -74,11 +86,7 @@ class SelectionEngine(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ConfiguredEqualWeightSelectionEngine:
-    """Reference engine used to verify orchestration, not an investment strategy.
-
-    It makes no ranking claim and intentionally reads no price series. Batch
-    4A-3 will adapt the existing Exhaustive authority behind SelectionEngine.
-    """
+    """Reference engine used to verify orchestration, not an investment strategy."""
 
     selected_symbols: tuple[str, ...]
     contract_version: ClassVar[str] = CONFIGURED_EQUAL_WEIGHT_ENGINE_VERSION
@@ -122,7 +130,7 @@ def build_selection_context(
     pit_universe: ResolvedPITUniverse,
     training_dataset: ResearchDataset,
 ) -> SelectionContext:
-    """Validate the exact training/PIT accounting visible to a selector."""
+    """Validate the existing exact Training/PIT accounting visible to a selector."""
 
     if pit_universe.requested_as_of != period.decision_date:
         raise ValueError("PIT requested_as_of must equal the walk-forward decision_date")
@@ -135,6 +143,62 @@ def build_selection_context(
             "training dataset requested symbols must exactly match PIT membership order"
         )
 
+    eligible, unavailable = _validate_training_accounting(
+        training_dataset=training_dataset,
+        period=period,
+        requested_members=pit_universe.members,
+        outcome_label="PIT member",
+    )
+    return SelectionContext(
+        period=period,
+        pit_universe=pit_universe,
+        training_dataset=training_dataset,
+        eligible_candidates=eligible,
+        unavailable_candidates=unavailable,
+    )
+
+
+def build_configured_selection_context(
+    *,
+    period: WalkForwardPeriod,
+    configured_universe: ConfiguredResearchUniverse,
+    training_dataset: ResearchDataset,
+) -> SelectionContext:
+    """Validate exact Training accounting for one request-configured universe."""
+
+    configured_universe.export_payload()
+    if training_dataset.requested_start != period.training_start:
+        raise ValueError("training dataset requested_start must equal training_start")
+    if training_dataset.requested_end != period.training_end:
+        raise ValueError("training dataset requested_end must equal training_end")
+    if tuple(training_dataset.requested_symbols) != tuple(configured_universe.members):
+        raise ValueError(
+            "training dataset requested symbols must exactly match configured universe order"
+        )
+
+    eligible, unavailable = _validate_training_accounting(
+        training_dataset=training_dataset,
+        period=period,
+        requested_members=configured_universe.members,
+        outcome_label="configured universe member",
+    )
+    return SelectionContext(
+        period=period,
+        pit_universe=None,
+        training_dataset=training_dataset,
+        eligible_candidates=eligible,
+        unavailable_candidates=unavailable,
+        configured_universe=configured_universe,
+    )
+
+
+def _validate_training_accounting(
+    *,
+    training_dataset: ResearchDataset,
+    period: WalkForwardPeriod,
+    requested_members: tuple[str, ...],
+    outcome_label: str,
+) -> tuple[tuple[str, ...], tuple[UnavailableCandidate, ...]]:
     _assert_dataset_identity(training_dataset, label="training")
 
     effective_start = training_dataset.effective_start
@@ -149,6 +213,8 @@ def build_selection_context(
     requested = tuple(training_dataset.requested_symbols)
     resolved = tuple(training_dataset.resolved_symbols)
     failure_symbols = tuple(training_dataset.failures)
+    if requested != tuple(requested_members):
+        raise ValueError("training dataset requested membership changed during validation")
     if len(set(requested)) != len(requested):
         raise ValueError("training dataset requested symbols must be unique")
     if any(symbol != symbol.strip().upper() for symbol in requested):
@@ -160,7 +226,7 @@ def build_selection_context(
     if set(resolved).intersection(failure_symbols):
         raise ValueError("training candidate cannot be both resolved and failed")
     if set(resolved).union(failure_symbols) != set(requested):
-        raise ValueError("every PIT member must have an explicit training outcome")
+        raise ValueError(f"every {outcome_label} must have an explicit training outcome")
 
     resolved_set = set(resolved)
     eligible = tuple(symbol for symbol in requested if symbol in resolved_set)
@@ -176,14 +242,7 @@ def build_selection_context(
     )
     if not eligible:
         raise ValueError("selection requires at least one eligible training candidate")
-
-    return SelectionContext(
-        period=period,
-        pit_universe=pit_universe,
-        training_dataset=training_dataset,
-        eligible_candidates=eligible,
-        unavailable_candidates=unavailable,
-    )
+    return eligible, unavailable
 
 
 def run_selection(
@@ -193,40 +252,25 @@ def run_selection(
     training_dataset: ResearchDataset,
     engine: SelectionEngine,
 ) -> DecisionSnapshot:
-    """Run one selector with no Evaluation/OOS dataset in scope and freeze it."""
+    """Run the existing PIT selector path and preserve its decision identity schema."""
 
     context = build_selection_context(
         period=period,
         pit_universe=pit_universe,
         training_dataset=training_dataset,
     )
-    training_hash = training_dataset.dataset_hash
-
-    engine_contract_version = _required_text(
-        getattr(engine, "contract_version", None),
-        label="selector contract_version",
+    result, training_hash, selector_contract_version, selector_rule, selector_parameters = (
+        _execute_selection_engine(
+            context=context,
+            training_dataset=training_dataset,
+            engine=engine,
+            core_contract_version=WALK_FORWARD_SELECTION_CONTRACT_VERSION,
+        )
     )
-    selector_contract_version = (
-        f"{WALK_FORWARD_SELECTION_CONTRACT_VERSION}+{engine_contract_version}"
-    )
-    selector_rule = _required_text(
-        getattr(engine, "rule", None),
-        label="selector rule",
-    )
-    raw_parameters = getattr(engine, "parameters", None)
-    if not isinstance(raw_parameters, Mapping):
-        raise TypeError("selector parameters must be a mapping")
-    selector_parameters = copy.deepcopy(dict(raw_parameters))
-
-    result = engine.select(context)
-    if not isinstance(result, SelectionResult):
-        raise TypeError("selector must return SelectionResult")
-
-    _assert_same_dataset_identity(
-        training_dataset,
-        expected_hash=training_hash,
-        label="training",
-    )
+    if result.evidence:
+        raise ValueError(
+            "existing PIT selection contract does not accept derived selection evidence"
+        )
     if training_dataset.effective_start is None or training_dataset.effective_end is None:
         raise ValueError("training dataset lost its effective observations")
 
@@ -242,6 +286,89 @@ def run_selection(
         eligible_candidates=context.eligible_candidates,
         selected_constituents=result.selected_constituents,
         weights=result.weights,
+    )
+
+
+def run_configured_selection(
+    *,
+    period: WalkForwardPeriod,
+    configured_universe: ConfiguredResearchUniverse,
+    training_dataset: ResearchDataset,
+    engine: SelectionEngine,
+) -> DecisionSnapshot:
+    """Run a configured-universe selector with no Evaluation/OOS data in scope."""
+
+    context = build_configured_selection_context(
+        period=period,
+        configured_universe=configured_universe,
+        training_dataset=training_dataset,
+    )
+    result, training_hash, selector_contract_version, selector_rule, selector_parameters = (
+        _execute_selection_engine(
+            context=context,
+            training_dataset=training_dataset,
+            engine=engine,
+            core_contract_version=CONFIGURED_SELECTION_CONTRACT_VERSION,
+        )
+    )
+    if not isinstance(result.evidence, Mapping):
+        raise TypeError("selector evidence must be a mapping")
+    evidence = copy.deepcopy(dict(result.evidence))
+    if training_dataset.effective_start is None or training_dataset.effective_end is None:
+        raise ValueError("training dataset lost its effective observations")
+
+    return create_configured_decision_snapshot(
+        period=period,
+        configured_universe=configured_universe,
+        training_dataset_hash=training_hash,
+        training_effective_start=training_dataset.effective_start,
+        training_effective_end=training_dataset.effective_end,
+        selector_contract_version=selector_contract_version,
+        selector_rule=selector_rule,
+        selector_parameters=selector_parameters,
+        selection_evidence=evidence,
+        eligible_candidates=context.eligible_candidates,
+        selected_constituents=result.selected_constituents,
+        weights=result.weights,
+    )
+
+
+def _execute_selection_engine(
+    *,
+    context: SelectionContext,
+    training_dataset: ResearchDataset,
+    engine: SelectionEngine,
+    core_contract_version: str,
+) -> tuple[SelectionResult, str, str, str, dict[str, Any]]:
+    training_hash = training_dataset.dataset_hash
+    engine_contract_version = _required_text(
+        getattr(engine, "contract_version", None),
+        label="selector contract_version",
+    )
+    selector_contract_version = f"{core_contract_version}+{engine_contract_version}"
+    selector_rule = _required_text(
+        getattr(engine, "rule", None),
+        label="selector rule",
+    )
+    raw_parameters = getattr(engine, "parameters", None)
+    if not isinstance(raw_parameters, Mapping):
+        raise TypeError("selector parameters must be a mapping")
+    selector_parameters = copy.deepcopy(dict(raw_parameters))
+
+    result = engine.select(context)
+    if not isinstance(result, SelectionResult):
+        raise TypeError("selector must return SelectionResult")
+    _assert_same_dataset_identity(
+        training_dataset,
+        expected_hash=training_hash,
+        label="training",
+    )
+    return (
+        result,
+        training_hash,
+        selector_contract_version,
+        selector_rule,
+        selector_parameters,
     )
 
 

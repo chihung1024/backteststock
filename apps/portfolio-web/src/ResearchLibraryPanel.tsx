@@ -56,7 +56,10 @@ function libraryErrorText(error: unknown): string {
 function suggestedRunName(request: WalkForwardApiRequest | null): string {
   if (!request) return "Walk-Forward research";
   const decision = request.periods[0]?.decisionDate || "research";
-  return `${request.selector.universe.toUpperCase()} · ${decision}`;
+  if ("universe" in request.selector) {
+    return `${request.selector.universe.toUpperCase()} · ${decision}`;
+  }
+  return `Dual Momentum ${request.selector.topK}/${request.selector.riskySymbols.length} · ${decision}`;
 }
 
 function mergeRun(runs: ResearchRunSummary[], next: ResearchRunSummary): ResearchRunSummary[] {

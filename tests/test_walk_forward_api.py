@@ -42,6 +42,7 @@ def test_walk_forward_api_normalizes_boundary_input_and_returns_job_headers(monk
             return SimpleNamespace(
                 job_hash="a" * 64,
                 as_of_date=date(2024, 5, 10),
+                contract_version=module.WALK_FORWARD_JOB_CONTRACT_VERSION,
                 export_payload=lambda: {"status": "completed", "jobHash": "a" * 64},
             )
 

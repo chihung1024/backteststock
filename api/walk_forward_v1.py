@@ -10,19 +10,22 @@ import time
 from collections import defaultdict, deque
 from datetime import date
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api import date_policy
 from apps.api.app.research.pit_client import PITResolverError
 from apps.api.app.research.walk_forward import WalkForwardPeriod
 from apps.api.app.research.walk_forward_job import (
+    DUAL_MOMENTUM_JOB_CONTRACT_VERSION,
+    MAX_CONFIGURED_STRATEGY_SYMBOLS,
     MAX_WALK_FORWARD_PERIODS,
     WALK_FORWARD_JOB_CONTRACT_VERSION,
+    DualMomentumSelectorSpec,
     WalkForwardExecutionSpec,
     WalkForwardJobService,
     WalkForwardJobSpec,
@@ -32,7 +35,7 @@ from apps.api.app.research.walk_forward_job import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-15.1"
+WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-17.2"
 WALK_FORWARD_PATH = "/api/v1/research/walk-forward"
 WALK_FORWARD_HEALTH_PATH = f"{WALK_FORWARD_PATH}/health"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -82,19 +85,81 @@ class PeriodRequest(StrictModel):
 
 
 class SelectorRequest(StrictModel):
-    universe: Annotated[str, Field(min_length=1, max_length=64)]
+    """Backward-compatible tagged selector request.
+
+    Requests saved before 4B-1 omit ``strategy`` and therefore keep the existing
+    Exhaustive behavior. New Dual Momentum requests must opt in explicitly.
+    """
+
+    strategy: Literal["exhaustive", "dual_momentum"] = "exhaustive"
+    universe: Annotated[str | None, Field(min_length=1, max_length=64)] = None
     benchmark: Annotated[str, Field(min_length=1, max_length=20)] = "SPY"
     holding_count: Annotated[int, Field(alias="holdingCount", ge=1, le=20)] = 10
+    risky_symbols: list[str] = Field(
+        default_factory=list,
+        alias="riskySymbols",
+        max_length=MAX_CONFIGURED_STRATEGY_SYMBOLS,
+    )
+    defensive_symbols: list[str] = Field(
+        default_factory=list,
+        alias="defensiveSymbols",
+        max_length=MAX_CONFIGURED_STRATEGY_SYMBOLS,
+    )
+    lookback_months: Annotated[int, Field(alias="lookbackMonths", ge=1, le=60)] = 12
+    top_k: Annotated[int, Field(alias="topK", ge=1, le=20)] = 1
+    absolute_threshold: float = Field(alias="absoluteThreshold", default=0.0)
 
     @field_validator("universe")
     @classmethod
-    def clean_universe(cls, value: str) -> str:
-        return value.strip().lower()
+    def clean_universe(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        return cleaned or None
 
     @field_validator("benchmark")
     @classmethod
     def clean_benchmark(cls, value: str) -> str:
         return value.strip().upper()
+
+    @field_validator("risky_symbols", "defensive_symbols")
+    @classmethod
+    def clean_configured_symbols(cls, values: list[str]) -> list[str]:
+        canonical = [str(value).strip().upper() for value in values]
+        if any(not symbol for symbol in canonical):
+            raise ValueError("configured strategy symbols must be non-empty")
+        if len(set(canonical)) != len(canonical):
+            raise ValueError("configured strategy symbols must be unique within each role")
+        return canonical
+
+    @model_validator(mode="after")
+    def validate_strategy_fields(self) -> "SelectorRequest":
+        if self.strategy == "exhaustive":
+            if not self.universe:
+                raise ValueError("universe is required for exhaustive selection")
+            if self.risky_symbols or self.defensive_symbols:
+                raise ValueError(
+                    "riskySymbols/defensiveSymbols require strategy=dual_momentum"
+                )
+            return self
+
+        if self.universe is not None:
+            raise ValueError(
+                "Dual Momentum uses explicit risky/defensive symbols, not a PIT universe id"
+            )
+        if not self.risky_symbols or not self.defensive_symbols:
+            raise ValueError(
+                "Dual Momentum requires non-empty riskySymbols and defensiveSymbols"
+            )
+        if set(self.risky_symbols).intersection(self.defensive_symbols):
+            raise ValueError("Dual Momentum risky and defensive symbols must not overlap")
+        if len(self.risky_symbols) + len(self.defensive_symbols) > MAX_CONFIGURED_STRATEGY_SYMBOLS:
+            raise ValueError(
+                f"Dual Momentum supports at most {MAX_CONFIGURED_STRATEGY_SYMBOLS} total symbols"
+            )
+        if self.top_k > len(self.risky_symbols):
+            raise ValueError("Dual Momentum topK cannot exceed riskySymbols count")
+        return self
 
 
 class ExecutionRequest(StrictModel):
@@ -137,18 +202,16 @@ app.add_middleware(
 )
 
 
-@lru_cache
-def get_service() -> WalkForwardJobService:
-    return WalkForwardJobService()
-
-
 def _secure_response(response: Response) -> Response:
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["X-Walk-Forward-API-Contract-Version"] = WALK_FORWARD_API_CONTRACT_VERSION
-    response.headers["X-Walk-Forward-Job-Contract-Version"] = WALK_FORWARD_JOB_CONTRACT_VERSION
+    if "X-Walk-Forward-Job-Contract-Version" not in response.headers:
+        response.headers["X-Walk-Forward-Job-Contract-Version"] = (
+            WALK_FORWARD_JOB_CONTRACT_VERSION
+        )
     deployment_sha = os.getenv("VERCEL_GIT_COMMIT_SHA", "").strip()
     if deployment_sha:
         response.headers["X-Deployment-Sha"] = deployment_sha
@@ -192,6 +255,11 @@ async def request_guard(request: Request, call_next):  # type: ignore[no-untyped
     return _secure_response(await call_next(request))
 
 
+@lru_cache
+def get_service() -> WalkForwardJobService:
+    return WalkForwardJobService()
+
+
 @app.get(WALK_FORWARD_HEALTH_PATH)
 def health() -> dict[str, str]:
     return {
@@ -199,6 +267,7 @@ def health() -> dict[str, str]:
         "service": "backteststock-walk-forward-v1",
         "api_contract_version": WALK_FORWARD_API_CONTRACT_VERSION,
         "job_contract_version": WALK_FORWARD_JOB_CONTRACT_VERSION,
+        "dual_momentum_job_contract_version": DUAL_MOMENTUM_JOB_CONTRACT_VERSION,
         "deployment_sha": os.getenv("VERCEL_GIT_COMMIT_SHA", ""),
     }
 
@@ -209,6 +278,7 @@ async def run_walk_forward(payload: WalkForwardRequest, response: Response) -> d
         spec = _domain_spec(payload)
         result = await asyncio.to_thread(get_service().run, spec)
         response.headers["X-Walk-Forward-Job-Hash"] = result.job_hash
+        response.headers["X-Walk-Forward-Job-Contract-Version"] = result.contract_version
         response.headers["X-As-Of-Date"] = result.as_of_date.isoformat()
         response.headers["X-As-Of-Policy"] = date_policy.AS_OF_POLICY
         return result.export_payload()
@@ -239,13 +309,26 @@ def _domain_spec(payload: WalkForwardRequest) -> WalkForwardJobSpec:
         )
         for item in payload.periods
     )
-    return WalkForwardJobSpec(
-        periods=periods,
-        selector=WalkForwardSelectorSpec(
+    selector: WalkForwardSelectorSpec | DualMomentumSelectorSpec
+    if payload.selector.strategy == "exhaustive":
+        if payload.selector.universe is None:
+            raise ValueError("universe is required for exhaustive selection")
+        selector = WalkForwardSelectorSpec(
             universe_id=payload.selector.universe,
             benchmark_symbol=payload.selector.benchmark,
             holding_count=payload.selector.holding_count,
-        ),
+        )
+    else:
+        selector = DualMomentumSelectorSpec(
+            risky_symbols=tuple(payload.selector.risky_symbols),
+            defensive_symbols=tuple(payload.selector.defensive_symbols),
+            lookback_months=payload.selector.lookback_months,
+            top_k=payload.selector.top_k,
+            absolute_threshold=payload.selector.absolute_threshold,
+        )
+    return WalkForwardJobSpec(
+        periods=periods,
+        selector=selector,
         execution=WalkForwardExecutionSpec(
             initial_amount=payload.execution.initial_amount_twd,
             transition_cost_bps=payload.execution.transition_cost_bps,

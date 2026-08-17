@@ -2,6 +2,7 @@ import { LineChart } from "./charts";
 import type {
   WalkForwardDecisionResponse,
   WalkForwardMetricValue,
+  WalkForwardMomentumRankingEvidence,
   WalkForwardOosPeriodResponse,
   WalkForwardPeriodAuditResponse,
   WalkForwardResultResponse,
@@ -31,7 +32,8 @@ function formatInteger(value: number | undefined): string {
   return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 }).format(value);
 }
 
-function shortHash(value: string): string {
+function shortHash(value: string | undefined): string {
+  if (!value) return "—";
   return value.length > 20 ? `${value.slice(0, 10)}…${value.slice(-8)}` : value;
 }
 
@@ -54,6 +56,40 @@ function weightLabel(symbols: string[], weights: number[]): string {
   }).join(" · ");
 }
 
+function MomentumRanking({
+  title,
+  rows,
+  showAbsolute,
+}: {
+  title: string;
+  rows: WalkForwardMomentumRankingEvidence[];
+  showAbsolute: boolean;
+}) {
+  return (
+    <div className="wf-momentum-ranking">
+      <h4>{title}</h4>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Rank</th><th>Symbol</th><th>Trailing return</th>{showAbsolute && <th>Absolute</th>}<th>Evidence window</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${title}-${row.symbol}`}>
+                <td>{row.relativeRank}</td>
+                <td><strong>{row.symbol}</strong></td>
+                <td>{formatPercent(row.totalReturn)}</td>
+                {showAbsolute && <td>{row.absolutePass ? "PASS" : "FAIL"}</td>}
+                <td>{row.baselineDate} → {row.endDate}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function DecisionEvidence({
   decision,
   audit,
@@ -63,6 +99,14 @@ function DecisionEvidence({
   audit: WalkForwardPeriodAuditResponse | undefined;
   oosPeriod: WalkForwardOosPeriodResponse | undefined;
 }) {
+  const pit = decision.pitUniverse;
+  const configured = decision.configuredUniverse;
+  const signal = decision.selectionEvidence;
+  const provenanceMemberCount = pit?.members.length ?? configured?.members.length ?? decision.eligibleCandidates.length;
+  const provenanceLabel = pit ? `${provenanceMemberCount} PIT members` : `${provenanceMemberCount} configured members`;
+  const riskyRanking = Array.isArray(signal?.riskyRanking) ? signal.riskyRanking : [];
+  const defensiveRanking = Array.isArray(signal?.defensiveRanking) ? signal.defensiveRanking : [];
+
   return (
     <article className="wf-evidence-card">
       <div className="wf-decision-heading">
@@ -83,7 +127,7 @@ function DecisionEvidence({
         <div>
           <span>Decision</span>
           <strong>{decision.period.decisionDate}</strong>
-          <small>{decision.pitUniverse.members.length} PIT members · {decision.eligibleCandidates.length} eligible</small>
+          <small>{provenanceLabel} · {decision.eligibleCandidates.length} eligible</small>
         </div>
         <i aria-hidden="true">→</i>
         <div>
@@ -95,30 +139,70 @@ function DecisionEvidence({
 
       <p className="wf-selected-assets">{weightLabel(decision.selectedConstituents, decision.weights)}</p>
 
-      <dl className="wf-provenance-grid">
-        <div><dt>PIT requested</dt><dd>{decision.pitUniverse.requestedAsOf}</dd></div>
-        <div><dt>PIT source</dt><dd>{decision.pitUniverse.sourceAsOf}</dd></div>
-        <div><dt>Evidence available</dt><dd>{decision.pitUniverse.evidenceAvailableAsOf}</dd></div>
-        <div><dt>Membership</dt><dd>{decision.pitUniverse.membershipAuthoritative && !decision.pitUniverse.sourceIsProxy ? "Authoritative" : "Non-authoritative"}</dd></div>
-        <div><dt>Training hash</dt><dd title={decision.trainingDataset.datasetHash}>{shortHash(decision.trainingDataset.datasetHash)}</dd></div>
-        <div><dt>Decision hash</dt><dd title={decision.decisionHash}>{shortHash(decision.decisionHash)}</dd></div>
-        <div><dt>Evaluation hash</dt><dd title={audit?.evaluation_dataset_hash}>{audit ? shortHash(audit.evaluation_dataset_hash) : "—"}</dd></div>
-        <div><dt>Combinations</dt><dd>{formatInteger(audit?.exhaustive_combination_count)}</dd></div>
-      </dl>
+      {pit ? (
+        <>
+          <dl className="wf-provenance-grid">
+            <div><dt>PIT requested</dt><dd>{pit.requestedAsOf}</dd></div>
+            <div><dt>PIT source</dt><dd>{pit.sourceAsOf}</dd></div>
+            <div><dt>Evidence available</dt><dd>{pit.evidenceAvailableAsOf}</dd></div>
+            <div><dt>Membership</dt><dd>{pit.membershipAuthoritative && !pit.sourceIsProxy ? "Authoritative" : "Non-authoritative"}</dd></div>
+            <div><dt>Training hash</dt><dd title={decision.trainingDataset.datasetHash}>{shortHash(decision.trainingDataset.datasetHash)}</dd></div>
+            <div><dt>Decision hash</dt><dd title={decision.decisionHash}>{shortHash(decision.decisionHash)}</dd></div>
+            <div><dt>Evaluation hash</dt><dd title={audit?.evaluation_dataset_hash}>{shortHash(audit?.evaluation_dataset_hash)}</dd></div>
+            <div><dt>Combinations</dt><dd>{formatInteger(audit?.exhaustive_combination_count)}</dd></div>
+          </dl>
 
-      <details className="wf-evidence-details">
-        <summary>查看完整 provenance</summary>
-        <div className="wf-provenance-detail-grid">
-          <p><strong>PIT version</strong><span>{decision.pitUniverse.version}</span></p>
-          <p><strong>PIT checksum</strong><span>{decision.pitUniverse.checksum}</span></p>
-          <p><strong>Membership policy</strong><span>{decision.pitUniverse.membershipPolicy}</span></p>
-          <p><strong>Fetched at</strong><span>{decision.pitUniverse.fetchedAt}</span></p>
-          <p><strong>Source</strong><span>{decision.pitUniverse.sourceLabel}</span></p>
-          <p><strong>Selector contract</strong><span>{decision.selector.contractVersion}</span></p>
-          <p><strong>Authority dataset hash</strong><span>{audit?.authority_dataset_hash ?? "—"}</span></p>
-          <p><strong>Evaluation dataset hash</strong><span>{audit?.evaluation_dataset_hash ?? "—"}</span></p>
-        </div>
-      </details>
+          <details className="wf-evidence-details">
+            <summary>查看完整 provenance</summary>
+            <div className="wf-provenance-detail-grid">
+              <p><strong>PIT version</strong><span>{pit.version}</span></p>
+              <p><strong>PIT checksum</strong><span>{pit.checksum}</span></p>
+              <p><strong>Membership policy</strong><span>{pit.membershipPolicy}</span></p>
+              <p><strong>Fetched at</strong><span>{pit.fetchedAt}</span></p>
+              <p><strong>Source</strong><span>{pit.sourceLabel}</span></p>
+              <p><strong>Selector contract</strong><span>{decision.selector.contractVersion}</span></p>
+              <p><strong>Authority dataset hash</strong><span>{audit?.authority_dataset_hash ?? "—"}</span></p>
+              <p><strong>Evaluation dataset hash</strong><span>{audit?.evaluation_dataset_hash ?? "—"}</span></p>
+            </div>
+          </details>
+        </>
+      ) : configured ? (
+        <>
+          <dl className="wf-provenance-grid">
+            <div><dt>Universe provenance</dt><dd>Configured request</dd></div>
+            <div><dt>Configured members</dt><dd>{configured.members.length}</dd></div>
+            <div><dt>Signal regime</dt><dd>{signal?.regime ?? "—"}</dd></div>
+            <div><dt>Signal as-of</dt><dd>{signal?.signalAsOf ?? "—"}</dd></div>
+            <div><dt>Training hash</dt><dd title={decision.trainingDataset.datasetHash}>{shortHash(decision.trainingDataset.datasetHash)}</dd></div>
+            <div><dt>Decision hash</dt><dd title={decision.decisionHash}>{shortHash(decision.decisionHash)}</dd></div>
+            <div><dt>Evaluation hash</dt><dd title={audit?.evaluation_dataset_hash}>{shortHash(audit?.evaluation_dataset_hash)}</dd></div>
+            <div><dt>Universe hash</dt><dd title={configured.universeHash}>{shortHash(configured.universeHash)}</dd></div>
+          </dl>
+
+          {(riskyRanking.length > 0 || defensiveRanking.length > 0) && (
+            <div className="wf-momentum-evidence">
+              {riskyRanking.length > 0 && <MomentumRanking title="Risky relative momentum" rows={riskyRanking} showAbsolute />}
+              {defensiveRanking.length > 0 && <MomentumRanking title="Defensive relative momentum" rows={defensiveRanking} showAbsolute={false} />}
+            </div>
+          )}
+
+          <details className="wf-evidence-details">
+            <summary>查看完整 provenance</summary>
+            <div className="wf-provenance-detail-grid">
+              <p><strong>Configured contract</strong><span>{configured.contractVersion}</span></p>
+              <p><strong>Configured universe hash</strong><span>{configured.universeHash}</span></p>
+              <p><strong>Members</strong><span>{configured.members.join(", ")}</span></p>
+              <p><strong>Selector contract</strong><span>{decision.selector.contractVersion}</span></p>
+              <p><strong>Signal contract</strong><span>{signal?.contractVersion ?? "—"}</span></p>
+              <p><strong>Signal authority</strong><span>{signal?.signalAuthority ?? "—"}</span></p>
+              <p><strong>Fallback reason</strong><span>{signal?.fallbackReason ?? "—"}</span></p>
+              <p><strong>Evaluation dataset hash</strong><span>{audit?.evaluation_dataset_hash ?? "—"}</span></p>
+            </div>
+          </details>
+        </>
+      ) : (
+        <div className="notice error"><strong>Decision provenance 不完整</strong><p>此結果缺少 PIT 或 configured universe provenance，無法作為可稽核研究證據。</p></div>
+      )}
     </article>
   );
 }
@@ -127,6 +211,7 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
   const metrics = result.oos.metrics.metrics;
   const auditByDecision = new Map(result.periods.map((period) => [period.decision_hash, period]));
   const oosByDecision = new Map(result.oos.periods.map((period) => [period.decision_hash, period]));
+  const isDualMomentum = result.selectorPolicy === "dual-momentum-configured-monthly-v1";
 
   return (
     <section className="workspace-card wf-result-card" aria-labelledby="wf-result-title">
@@ -174,10 +259,17 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
         </article>
       </div>
 
-      <div className="notice info wf-benchmark-boundary">
-        <strong>Benchmark 證據邊界</strong>
-        <p>目前 Walk-Forward v1 response 沒有獨立的 continuous OOS benchmark series，因此此工作區不會用瀏覽器自行下載或拼接 benchmark 曲線。等後端正式提供同一 OOS contract 的 benchmark authority 後再加入比較。</p>
-      </div>
+      {isDualMomentum ? (
+        <div className="notice info wf-benchmark-boundary">
+          <strong>Dual Momentum authority boundary</strong>
+          <p>Momentum ranking、absolute filter 與 frozen selection 由後端 Training evidence 產生；4B-1 allocation 固定等權。瀏覽器不自行重算 signal 或績效。</p>
+        </div>
+      ) : (
+        <div className="notice info wf-benchmark-boundary">
+          <strong>Benchmark 證據邊界</strong>
+          <p>目前 Walk-Forward v1 response 沒有獨立的 continuous OOS benchmark series，因此此工作區不會用瀏覽器自行下載或拼接 benchmark 曲線。等後端正式提供同一 OOS contract 的 benchmark authority 後再加入比較。</p>
+        </div>
+      )}
 
       {result.oos.ledger.warnings.length > 0 && (
         <div className="notice warning"><strong>OOS ledger 提醒</strong><ul>{result.oos.ledger.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>
@@ -188,7 +280,7 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
           <span className="section-index">6</span>
           <div>
             <h2>Decision 與因果證據</h2>
-            <p>每張卡片把 Training、PIT Decision 與 Evaluation 串在一起，並保留 dataset / decision identity。</p>
+            <p>每張卡片把 Training、frozen Decision 與 Evaluation 串在一起，並保留 universe、dataset、signal 與 decision identity。</p>
           </div>
         </div>
       </div>

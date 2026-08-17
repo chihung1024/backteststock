@@ -1,8 +1,8 @@
 """Request-scoped Walk-Forward orchestration over the existing research authorities.
 
-Batch 4A-5 wires together the already-versioned PIT, Training selection and OOS
-ledger contracts.  It intentionally does not persist jobs or create another
-market-data, optimizer or portfolio implementation.
+The original PIT + Exhaustive route remains unchanged. Optimizer Hub strategy
+selectors are additive dispatch paths that reuse the same ResearchDataset,
+DecisionSnapshot, Evaluation and Portfolio v3 OOS authorities.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from apps.api.app.research.exhaustive_selection import (
     ExhaustiveAuthorityRunner,
     ExhaustiveSelectionEngine,
 )
+from apps.api.app.research.momentum import DualMomentumSelectionEngine
 from apps.api.app.research.oos_ledger import (
     WALK_FORWARD_OOS_LEDGER_CONTRACT_VERSION,
     WalkForwardEvaluation,
@@ -32,26 +33,36 @@ from apps.api.app.research.oos_ledger import (
     run_continuous_oos_ledger,
 )
 from apps.api.app.research.pit_client import PITUniverseClient, PITUniverseResolver
-from apps.api.app.research.selection import run_selection, validate_evaluation_dataset
+from apps.api.app.research.selection import (
+    run_configured_selection,
+    run_selection,
+    validate_evaluation_dataset,
+)
 from apps.api.app.research.walk_forward import (
+    ConfiguredResearchUniverse,
     DecisionSnapshot,
     WalkForwardPeriod,
     validate_period_schedule,
 )
 
 WALK_FORWARD_JOB_CONTRACT_VERSION = "walk-forward-job-2026-08-15.1"
+DUAL_MOMENTUM_JOB_CONTRACT_VERSION = "walk-forward-dual-momentum-job-2026-08-17.1"
 WALK_FORWARD_JOB_HASH_ALGORITHM = "sha256-canonical-json-v1"
 WALK_FORWARD_PUBLIC_SELECTOR_POLICY = "exhaustive-gross-buy-and-hold-v1"
+WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY = "dual-momentum-configured-monthly-v1"
 WALK_FORWARD_PUBLIC_OOS_POLICY = "decision-transition-cost-only-v1"
 MAX_WALK_FORWARD_PERIODS = 24
 MAX_SERVER_EXHAUSTIVE_CANDIDATES = 100
 MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD = 500_000
 MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB = 2_000_000
 MAX_PUBLIC_HOLDING_COUNT = 20
+MAX_CONFIGURED_STRATEGY_SYMBOLS = 50
 
 
 @dataclass(frozen=True, slots=True)
 class WalkForwardSelectorSpec:
+    """Existing PIT + Exhaustive public selector specification."""
+
     universe_id: str
     benchmark_symbol: str
     holding_count: int
@@ -59,8 +70,13 @@ class WalkForwardSelectorSpec:
     def __post_init__(self) -> None:
         universe = str(self.universe_id or "").strip().lower()
         benchmark = str(self.benchmark_symbol or "").strip().upper()
-        if not universe or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in universe):
-            raise ValueError("universe_id must contain only lowercase letters, digits or hyphens")
+        if not universe or any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
+            for character in universe
+        ):
+            raise ValueError(
+                "universe_id must contain only lowercase letters, digits or hyphens"
+            )
         if not benchmark or benchmark != benchmark.strip().upper():
             raise ValueError("benchmark_symbol must be canonical")
         if not isinstance(self.holding_count, int) or isinstance(self.holding_count, bool):
@@ -71,6 +87,56 @@ class WalkForwardSelectorSpec:
             )
         object.__setattr__(self, "universe_id", universe)
         object.__setattr__(self, "benchmark_symbol", benchmark)
+
+
+@dataclass(frozen=True, slots=True)
+class DualMomentumSelectorSpec:
+    """Configured-universe Dual Momentum methodology for Optimizer Hub 4B-1."""
+
+    risky_symbols: tuple[str, ...]
+    defensive_symbols: tuple[str, ...]
+    lookback_months: int = 12
+    top_k: int = 1
+    absolute_threshold: float = 0.0
+
+    def __post_init__(self) -> None:
+        risky = _canonical_symbols(self.risky_symbols, label="risky_symbols")
+        defensive = _canonical_symbols(
+            self.defensive_symbols, label="defensive_symbols"
+        )
+        if set(risky).intersection(defensive):
+            raise ValueError("risky and defensive symbols must not overlap")
+        if len(risky) + len(defensive) > MAX_CONFIGURED_STRATEGY_SYMBOLS:
+            raise ValueError(
+                f"configured strategy supports at most {MAX_CONFIGURED_STRATEGY_SYMBOLS} total symbols"
+            )
+        if (
+            not isinstance(self.lookback_months, int)
+            or isinstance(self.lookback_months, bool)
+            or not 1 <= self.lookback_months <= 60
+        ):
+            raise ValueError("lookback_months must be an integer between 1 and 60")
+        if (
+            not isinstance(self.top_k, int)
+            or isinstance(self.top_k, bool)
+            or not 1 <= self.top_k <= len(risky)
+        ):
+            raise ValueError("top_k must be between 1 and the risky universe size")
+        threshold = float(self.absolute_threshold)
+        if not math.isfinite(threshold):
+            raise ValueError("absolute_threshold must be finite")
+        object.__setattr__(self, "risky_symbols", risky)
+        object.__setattr__(self, "defensive_symbols", defensive)
+        object.__setattr__(
+            self, "absolute_threshold", 0.0 if threshold == 0.0 else threshold
+        )
+
+    @property
+    def configured_members(self) -> tuple[str, ...]:
+        return (*self.risky_symbols, *self.defensive_symbols)
+
+
+SelectorSpec = WalkForwardSelectorSpec | DualMomentumSelectorSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +158,7 @@ class WalkForwardExecutionSpec:
 @dataclass(frozen=True, slots=True)
 class WalkForwardJobSpec:
     periods: tuple[WalkForwardPeriod, ...]
-    selector: WalkForwardSelectorSpec
+    selector: SelectorSpec
     execution: WalkForwardExecutionSpec = WalkForwardExecutionSpec()
 
     def __post_init__(self) -> None:
@@ -101,6 +167,8 @@ class WalkForwardJobSpec:
             raise ValueError(
                 f"walk-forward request supports at most {MAX_WALK_FORWARD_PERIODS} periods"
             )
+        if isinstance(self.selector, DualMomentumSelectorSpec):
+            _validate_dual_momentum_schedule(periods, self.selector)
         object.__setattr__(self, "periods", periods)
 
 
@@ -116,14 +184,27 @@ class WalkForwardJobPeriodAudit:
 
 
 @dataclass(frozen=True, slots=True)
+class DualMomentumJobPeriodAudit:
+    period_id: str
+    configured_member_count: int
+    training_dataset_hash: str
+    decision_hash: str
+    evaluation_dataset_hash: str
+
+
+PeriodAudit = WalkForwardJobPeriodAudit | DualMomentumJobPeriodAudit
+
+
+@dataclass(frozen=True, slots=True)
 class WalkForwardJobResult:
     job_hash: str
     spec: WalkForwardJobSpec
     as_of_date: date
     decisions: tuple[DecisionSnapshot, ...]
-    period_audits: tuple[WalkForwardJobPeriodAudit, ...]
+    period_audits: tuple[PeriodAudit, ...]
     oos: WalkForwardOOSResult
     contract_version: str = WALK_FORWARD_JOB_CONTRACT_VERSION
+    selector_policy: str = WALK_FORWARD_PUBLIC_SELECTOR_POLICY
 
     def export_payload(self) -> dict[str, Any]:
         return {
@@ -133,7 +214,7 @@ class WalkForwardJobResult:
             "status": "completed",
             "asOfDate": self.as_of_date.isoformat(),
             "asOfPolicy": date_policy.AS_OF_POLICY,
-            "selectorPolicy": WALK_FORWARD_PUBLIC_SELECTOR_POLICY,
+            "selectorPolicy": self.selector_policy,
             "oosPolicy": WALK_FORWARD_PUBLIC_OOS_POLICY,
             "request": _spec_payload(self.spec),
             "periods": [asdict(item) for item in self.period_audits],
@@ -155,7 +236,9 @@ class WalkForwardJobService:
         self._pit_resolver = pit_resolver or PITUniverseClient()
         self._history_service = history_service or TWDHistoryService()
         self._dataset_service = ResearchDatasetService(history_service=self._history_service)
-        self._authority_runner_factory = authority_runner_factory or HttpExhaustiveAuthorityRunner
+        self._authority_runner_factory = (
+            authority_runner_factory or HttpExhaustiveAuthorityRunner
+        )
 
     def run(self, spec: WalkForwardJobSpec) -> WalkForwardJobResult:
         periods = validate_period_schedule(spec.periods)
@@ -163,82 +246,140 @@ class WalkForwardJobService:
             pd.Timestamp(min(period.training_start for period in periods)),
             pd.Timestamp(max(period.evaluation_end for period in periods) + timedelta(days=1)),
         )
-        runner = self._authority_runner_factory()
         evaluations: list[WalkForwardEvaluation] = []
         decisions: list[DecisionSnapshot] = []
-        audits: list[WalkForwardJobPeriodAudit] = []
+        audits: list[PeriodAudit] = []
         total_combinations = 0
 
+        exhaustive_selector = (
+            spec.selector if isinstance(spec.selector, WalkForwardSelectorSpec) else None
+        )
+        dual_selector = (
+            spec.selector if isinstance(spec.selector, DualMomentumSelectorSpec) else None
+        )
+        runner = self._authority_runner_factory() if exhaustive_selector is not None else None
+        configured_universe = (
+            ConfiguredResearchUniverse(dual_selector.configured_members)
+            if dual_selector is not None
+            else None
+        )
+
         for period in periods:
-            pit = self._pit_resolver.resolve(spec.selector.universe_id, period.decision_date)
-            if not pit.membership_authoritative or pit.source_is_proxy:
-                raise ValueError(
-                    "public Walk-Forward v1 requires authoritative PIT membership; "
-                    f"{pit.universe_id} at {period.decision_date.isoformat()} is proxy/non-authoritative"
+            if exhaustive_selector is not None:
+                pit = self._pit_resolver.resolve(
+                    exhaustive_selector.universe_id, period.decision_date
                 )
-            candidate_count = len(pit.members)
-            if candidate_count < exhaustive_optimizer.MIN_SOURCE_TICKERS:
-                raise ValueError(
-                    f"PIT universe contains only {candidate_count} candidates; Exhaustive requires at least "
-                    f"{exhaustive_optimizer.MIN_SOURCE_TICKERS}"
-                )
-            if candidate_count > MAX_SERVER_EXHAUSTIVE_CANDIDATES:
-                raise ValueError(
-                    f"PIT universe contains {candidate_count} members, but causal Walk-Forward v1 supports "
-                    f"at most {MAX_SERVER_EXHAUSTIVE_CANDIDATES} Exhaustive candidates. The service will not "
-                    "silently truncate membership or use current fundamentals as a historical prefilter."
-                )
-            if spec.selector.holding_count > candidate_count:
-                raise ValueError("holding_count cannot exceed PIT candidate count")
-            if spec.selector.benchmark_symbol in pit.members:
-                raise ValueError("benchmark_symbol cannot also be a PIT candidate")
+                if not pit.membership_authoritative or pit.source_is_proxy:
+                    raise ValueError(
+                        "public Walk-Forward v1 requires authoritative PIT membership; "
+                        f"{pit.universe_id} at {period.decision_date.isoformat()} is proxy/non-authoritative"
+                    )
+                candidate_count = len(pit.members)
+                if candidate_count < exhaustive_optimizer.MIN_SOURCE_TICKERS:
+                    raise ValueError(
+                        f"PIT universe contains only {candidate_count} candidates; Exhaustive requires at least "
+                        f"{exhaustive_optimizer.MIN_SOURCE_TICKERS}"
+                    )
+                if candidate_count > MAX_SERVER_EXHAUSTIVE_CANDIDATES:
+                    raise ValueError(
+                        f"PIT universe contains {candidate_count} members, but causal Walk-Forward v1 supports "
+                        f"at most {MAX_SERVER_EXHAUSTIVE_CANDIDATES} Exhaustive candidates. The service will not "
+                        "silently truncate membership or use current fundamentals as a historical prefilter."
+                    )
+                if exhaustive_selector.holding_count > candidate_count:
+                    raise ValueError("holding_count cannot exceed PIT candidate count")
+                if exhaustive_selector.benchmark_symbol in pit.members:
+                    raise ValueError("benchmark_symbol cannot also be a PIT candidate")
 
-            combinations = math.comb(candidate_count, spec.selector.holding_count)
-            if combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD:
-                raise ValueError(
-                    f"period {period.period_id} requires {combinations} Exhaustive combinations, exceeding "
-                    f"the synchronous server budget {MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD}"
-                )
-            total_combinations += combinations
-            if total_combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB:
-                raise ValueError(
-                    f"walk-forward job exceeds the total synchronous Exhaustive budget "
-                    f"{MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB} combinations"
-                )
+                combinations = math.comb(candidate_count, exhaustive_selector.holding_count)
+                if combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD:
+                    raise ValueError(
+                        f"period {period.period_id} requires {combinations} Exhaustive combinations, exceeding "
+                        f"the synchronous server budget {MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD}"
+                    )
+                total_combinations += combinations
+                if total_combinations > MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB:
+                    raise ValueError(
+                        "walk-forward job exceeds the total synchronous Exhaustive budget "
+                        f"{MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB} combinations"
+                    )
 
-            training_requested = (*pit.members, spec.selector.benchmark_symbol)
-            training_batch = self._history_service.histories_partial(
-                list(training_requested),
-                period.training_start,
-                period.training_end,
-            )
-            training_dataset = build_research_dataset(
-                _subset_histories(training_batch, pit.members),
-                start=period.training_start,
-                end=period.training_end,
-            )
-            authority_dataset = build_research_dataset(
-                _subset_histories(training_batch, training_requested),
-                start=period.training_start,
-                end=period.training_end,
-            )
-
-            engine = ExhaustiveSelectionEngine(
-                authority_dataset=authority_dataset,
-                benchmark_symbol=spec.selector.benchmark_symbol,
-                holding_count=spec.selector.holding_count,
-                rebalance_mode="never",
-                band_ratio=0.20,
-                transaction_cost_bps=0.0,
-                execution_delay_trading_days=1,
-                runner=runner,
-            )
-            decision = run_selection(
-                period=period,
-                pit_universe=pit,
-                training_dataset=training_dataset,
-                engine=engine,
-            )
+                training_requested = (*pit.members, exhaustive_selector.benchmark_symbol)
+                training_batch = self._history_service.histories_partial(
+                    list(training_requested),
+                    period.training_start,
+                    period.training_end,
+                )
+                training_dataset = build_research_dataset(
+                    _subset_histories(training_batch, pit.members),
+                    start=period.training_start,
+                    end=period.training_end,
+                )
+                authority_dataset = build_research_dataset(
+                    _subset_histories(training_batch, training_requested),
+                    start=period.training_start,
+                    end=period.training_end,
+                )
+                if runner is None:
+                    raise RuntimeError("Exhaustive authority runner was not initialized")
+                engine = ExhaustiveSelectionEngine(
+                    authority_dataset=authority_dataset,
+                    benchmark_symbol=exhaustive_selector.benchmark_symbol,
+                    holding_count=exhaustive_selector.holding_count,
+                    rebalance_mode="never",
+                    band_ratio=0.20,
+                    transaction_cost_bps=0.0,
+                    execution_delay_trading_days=1,
+                    runner=runner,
+                )
+                decision = run_selection(
+                    period=period,
+                    pit_universe=pit,
+                    training_dataset=training_dataset,
+                    engine=engine,
+                )
+                audit_factory: PeriodAudit = WalkForwardJobPeriodAudit(
+                    period_id=period.period_id,
+                    pit_member_count=candidate_count,
+                    exhaustive_combination_count=combinations,
+                    training_dataset_hash=training_dataset.dataset_hash,
+                    authority_dataset_hash=authority_dataset.dataset_hash,
+                    decision_hash=decision.decision_hash,
+                    evaluation_dataset_hash="",
+                )
+            elif dual_selector is not None and configured_universe is not None:
+                training_batch = self._history_service.histories_partial(
+                    list(configured_universe.members),
+                    period.training_start,
+                    period.training_end,
+                )
+                training_dataset = build_research_dataset(
+                    training_batch,
+                    start=period.training_start,
+                    end=period.training_end,
+                )
+                engine = DualMomentumSelectionEngine(
+                    risky_symbols=dual_selector.risky_symbols,
+                    defensive_symbols=dual_selector.defensive_symbols,
+                    lookback_months=dual_selector.lookback_months,
+                    top_k=dual_selector.top_k,
+                    absolute_threshold=dual_selector.absolute_threshold,
+                )
+                decision = run_configured_selection(
+                    period=period,
+                    configured_universe=configured_universe,
+                    training_dataset=training_dataset,
+                    engine=engine,
+                )
+                audit_factory = DualMomentumJobPeriodAudit(
+                    period_id=period.period_id,
+                    configured_member_count=len(configured_universe.members),
+                    training_dataset_hash=training_dataset.dataset_hash,
+                    decision_hash=decision.decision_hash,
+                    evaluation_dataset_hash="",
+                )
+            else:
+                raise TypeError("unsupported Walk-Forward selector specification")
 
             evaluation_batch = self._history_service.histories_partial(
                 list(decision.selected_constituents),
@@ -261,17 +402,28 @@ class WalkForwardJobService:
                 )
             )
             decisions.append(decision)
-            audits.append(
-                WalkForwardJobPeriodAudit(
-                    period_id=period.period_id,
-                    pit_member_count=candidate_count,
-                    exhaustive_combination_count=combinations,
-                    training_dataset_hash=training_dataset.dataset_hash,
-                    authority_dataset_hash=authority_dataset.dataset_hash,
-                    decision_hash=decision.decision_hash,
-                    evaluation_dataset_hash=evaluation_dataset.dataset_hash,
+            if isinstance(audit_factory, WalkForwardJobPeriodAudit):
+                audits.append(
+                    WalkForwardJobPeriodAudit(
+                        period_id=audit_factory.period_id,
+                        pit_member_count=audit_factory.pit_member_count,
+                        exhaustive_combination_count=audit_factory.exhaustive_combination_count,
+                        training_dataset_hash=audit_factory.training_dataset_hash,
+                        authority_dataset_hash=audit_factory.authority_dataset_hash,
+                        decision_hash=audit_factory.decision_hash,
+                        evaluation_dataset_hash=evaluation_dataset.dataset_hash,
+                    )
                 )
-            )
+            else:
+                audits.append(
+                    DualMomentumJobPeriodAudit(
+                        period_id=audit_factory.period_id,
+                        configured_member_count=audit_factory.configured_member_count,
+                        training_dataset_hash=audit_factory.training_dataset_hash,
+                        decision_hash=audit_factory.decision_hash,
+                        evaluation_dataset_hash=evaluation_dataset.dataset_hash,
+                    )
+                )
 
         risk_free_rate = float(exhaustive_optimizer.legacy.RISK_FREE_RATE)
         oos_config = SimulationConfig(
@@ -281,7 +433,15 @@ class WalkForwardJobService:
             risk_free_rate=risk_free_rate,
         )
         oos = run_continuous_oos_ledger(evaluations, oos_config)
-        job_hash = _job_hash(spec, complete.as_of_date, audits, oos)
+        contract_version = _job_contract_version(spec.selector)
+        selector_policy = _selector_policy(spec.selector)
+        job_hash = _job_hash(
+            spec,
+            complete.as_of_date,
+            audits,
+            oos,
+            contract_version=contract_version,
+        )
         return WalkForwardJobResult(
             job_hash=job_hash,
             spec=spec,
@@ -289,7 +449,59 @@ class WalkForwardJobService:
             decisions=tuple(decisions),
             period_audits=tuple(audits),
             oos=oos,
+            contract_version=contract_version,
+            selector_policy=selector_policy,
         )
+
+
+def _canonical_symbols(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:
+    symbols = tuple(str(value) for value in values)
+    if not symbols:
+        raise ValueError(f"{label} requires at least one symbol")
+    if any(not symbol or symbol != symbol.strip().upper() for symbol in symbols):
+        raise ValueError(f"{label} must contain canonical symbols")
+    if len(set(symbols)) != len(symbols):
+        raise ValueError(f"{label} must contain unique symbols")
+    return symbols
+
+
+def _validate_dual_momentum_schedule(
+    periods: tuple[WalkForwardPeriod, ...],
+    selector: DualMomentumSelectorSpec,
+) -> None:
+    for period in periods:
+        if period.training_end != period.decision_date:
+            raise ValueError(
+                "Dual Momentum monthly decisions require training_end == decision_date"
+            )
+        if period.evaluation_start != period.decision_date + timedelta(days=1):
+            raise ValueError(
+                "Dual Momentum monthly Evaluation must start the calendar day after Decision"
+            )
+        if (period.evaluation_end - period.decision_date).days > 35:
+            raise ValueError(
+                "Dual Momentum v1 Evaluation windows may span at most 35 calendar days"
+            )
+        requested_signal_start = (
+            pd.Timestamp(period.decision_date)
+            - pd.DateOffset(months=selector.lookback_months)
+        ).date()
+        if period.training_start > requested_signal_start:
+            raise ValueError(
+                "Dual Momentum training_start must cover the full configured momentum lookback"
+            )
+
+    for previous, current in zip(periods, periods[1:]):
+        previous_month = previous.decision_date.year * 12 + previous.decision_date.month
+        current_month = current.decision_date.year * 12 + current.decision_date.month
+        if current_month != previous_month + 1:
+            raise ValueError(
+                "Dual Momentum v1 requires one Decision in each consecutive calendar month"
+            )
+        if previous.evaluation_end != current.decision_date:
+            raise ValueError(
+                "Dual Momentum monthly periods must hand off at the next Decision date without an OOS gap"
+            )
 
 
 def _subset_histories(
@@ -324,7 +536,48 @@ def _subset_histories(
     )
 
 
+def _selector_policy(selector: SelectorSpec) -> str:
+    if isinstance(selector, WalkForwardSelectorSpec):
+        return WALK_FORWARD_PUBLIC_SELECTOR_POLICY
+    if isinstance(selector, DualMomentumSelectorSpec):
+        return WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY
+    raise TypeError("unsupported Walk-Forward selector specification")
+
+
+def _job_contract_version(selector: SelectorSpec) -> str:
+    if isinstance(selector, WalkForwardSelectorSpec):
+        return WALK_FORWARD_JOB_CONTRACT_VERSION
+    if isinstance(selector, DualMomentumSelectorSpec):
+        return DUAL_MOMENTUM_JOB_CONTRACT_VERSION
+    raise TypeError("unsupported Walk-Forward selector specification")
+
+
 def _spec_payload(spec: WalkForwardJobSpec) -> dict[str, Any]:
+    selector = spec.selector
+    if isinstance(selector, WalkForwardSelectorSpec):
+        selector_payload: dict[str, Any] = {
+            "universe": selector.universe_id,
+            "benchmark": selector.benchmark_symbol,
+            "holdingCount": selector.holding_count,
+            "rebalanceMode": "never",
+            "trainingTransactionCostBps": 0.0,
+            "executionDelayTradingDays": 1,
+        }
+    elif isinstance(selector, DualMomentumSelectorSpec):
+        selector_payload = {
+            "strategy": "dual_momentum",
+            "riskySymbols": list(selector.risky_symbols),
+            "defensiveSymbols": list(selector.defensive_symbols),
+            "lookbackMonths": selector.lookback_months,
+            "topK": selector.top_k,
+            "absoluteThreshold": selector.absolute_threshold,
+            "rebalanceFrequency": "monthly",
+            "weighting": "equal",
+            "signalAuthority": "ResearchDataset.daily_levels_twd",
+        }
+    else:
+        raise TypeError("unsupported Walk-Forward selector specification")
+
     return {
         "periods": [
             {
@@ -338,14 +591,7 @@ def _spec_payload(spec: WalkForwardJobSpec) -> dict[str, Any]:
             }
             for period in spec.periods
         ],
-        "selector": {
-            "universe": spec.selector.universe_id,
-            "benchmark": spec.selector.benchmark_symbol,
-            "holdingCount": spec.selector.holding_count,
-            "rebalanceMode": "never",
-            "trainingTransactionCostBps": 0.0,
-            "executionDelayTradingDays": 1,
-        },
+        "selector": selector_payload,
         "execution": {
             "initialAmountTwd": spec.execution.initial_amount,
             "transitionCostBps": spec.execution.transition_cost_bps,
@@ -398,11 +644,13 @@ def _oos_payload(result: WalkForwardOOSResult) -> dict[str, Any]:
 def _job_hash(
     spec: WalkForwardJobSpec,
     as_of_date: date,
-    audits: list[WalkForwardJobPeriodAudit],
+    audits: list[PeriodAudit],
     oos: WalkForwardOOSResult,
+    *,
+    contract_version: str,
 ) -> str:
     payload = {
-        "contractVersion": WALK_FORWARD_JOB_CONTRACT_VERSION,
+        "contractVersion": contract_version,
         "asOfDate": as_of_date.isoformat(),
         "asOfPolicy": date_policy.AS_OF_POLICY,
         "request": _spec_payload(spec),

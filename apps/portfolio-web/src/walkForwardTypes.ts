@@ -1,3 +1,5 @@
+export type WalkForwardStrategy = "exhaustive" | "dual_momentum";
+
 export interface WalkForwardPeriodDraft {
   id: string;
   periodId: string;
@@ -9,10 +11,16 @@ export interface WalkForwardPeriodDraft {
 }
 
 export interface WalkForwardWorkspaceModel {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  strategy: WalkForwardStrategy;
   universe: string;
   benchmark: string;
   holdingCount: number;
+  riskySymbolsText: string;
+  defensiveSymbolsText: string;
+  lookbackMonths: number;
+  topK: number;
+  absoluteThresholdPct: number;
   initialAmountTwd: number;
   transitionCostBps: number;
   periods: WalkForwardPeriodDraft[];
@@ -32,13 +40,28 @@ export interface WalkForwardApiPeriod {
   evaluationEnd: string;
 }
 
+export interface WalkForwardExhaustiveSelectorRequest {
+  universe: string;
+  benchmark: string;
+  holdingCount: number;
+}
+
+export interface WalkForwardDualMomentumSelectorRequest {
+  strategy: "dual_momentum";
+  riskySymbols: string[];
+  defensiveSymbols: string[];
+  lookbackMonths: number;
+  topK: number;
+  absoluteThreshold: number;
+}
+
+export type WalkForwardApiSelectorRequest =
+  | WalkForwardExhaustiveSelectorRequest
+  | WalkForwardDualMomentumSelectorRequest;
+
 export interface WalkForwardApiRequest {
   periods: WalkForwardApiPeriod[];
-  selector: {
-    universe: string;
-    benchmark: string;
-    holdingCount: number;
-  };
+  selector: WalkForwardApiSelectorRequest;
   execution: {
     initialAmountTwd: number;
     transitionCostBps: number;
@@ -50,6 +73,7 @@ export interface WalkForwardHealthResponse {
   service: string;
   api_contract_version: string;
   job_contract_version: string;
+  dual_momentum_job_contract_version?: string;
   deployment_sha: string;
 }
 
@@ -93,6 +117,57 @@ export interface WalkForwardAdmissionResponse {
 
 export type WalkForwardMetricValue = number | string | null;
 
+export interface WalkForwardPitUniverseResponse {
+  universeId: string;
+  requestedAsOf: string;
+  sourceAsOf: string;
+  evidenceAvailableAsOf: string;
+  fetchedAt: string;
+  version: string;
+  checksum: string;
+  members: string[];
+  membershipPolicy: string;
+  membershipAuthoritative: boolean;
+  sourceLabel: string;
+  sourceUrl: string;
+  sourceIsProxy: boolean;
+}
+
+export interface WalkForwardConfiguredUniverseResponse {
+  contractVersion: string;
+  provenanceType: "configured-request" | string;
+  members: string[];
+  universeHash: string;
+}
+
+export interface WalkForwardMomentumRankingEvidence {
+  symbol: string;
+  lookbackMonths: number;
+  requestedStart: string;
+  baselineDate: string;
+  endDate: string;
+  baselineLevelTwd: number;
+  endLevelTwd: number;
+  totalReturn: number;
+  relativeRank: number;
+  absolutePass?: boolean;
+}
+
+export interface WalkForwardSelectionEvidence {
+  contractVersion?: string;
+  signalAsOf?: string;
+  lookbackMonths?: number;
+  absoluteThreshold?: number;
+  boundaryToleranceCalendarDays?: number;
+  signalAuthority?: string;
+  regime?: "risk_on" | "defensive" | string;
+  fallbackReason?: string | null;
+  riskyRanking?: WalkForwardMomentumRankingEvidence[];
+  defensiveRanking?: WalkForwardMomentumRankingEvidence[];
+  selected?: string[];
+  [key: string]: unknown;
+}
+
 export interface WalkForwardDecisionResponse {
   contractVersion: string;
   period: {
@@ -104,21 +179,9 @@ export interface WalkForwardDecisionResponse {
     evaluationStart: string;
     evaluationEnd: string;
   };
-  pitUniverse: {
-    universeId: string;
-    requestedAsOf: string;
-    sourceAsOf: string;
-    evidenceAvailableAsOf: string;
-    fetchedAt: string;
-    version: string;
-    checksum: string;
-    members: string[];
-    membershipPolicy: string;
-    membershipAuthoritative: boolean;
-    sourceLabel: string;
-    sourceUrl: string;
-    sourceIsProxy: boolean;
-  };
+  pitUniverse?: WalkForwardPitUniverseResponse;
+  configuredUniverse?: WalkForwardConfiguredUniverseResponse;
+  selectionEvidence?: WalkForwardSelectionEvidence;
   trainingDataset: {
     datasetHash: string;
     effectiveStart: string;
@@ -137,10 +200,11 @@ export interface WalkForwardDecisionResponse {
 
 export interface WalkForwardPeriodAuditResponse {
   period_id: string;
-  pit_member_count: number;
-  exhaustive_combination_count: number;
+  pit_member_count?: number;
+  configured_member_count?: number;
+  exhaustive_combination_count?: number;
   training_dataset_hash: string;
-  authority_dataset_hash: string;
+  authority_dataset_hash?: string;
   decision_hash: string;
   evaluation_dataset_hash: string;
 }
