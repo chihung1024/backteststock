@@ -1,0 +1,32 @@
+name: Internal 4A-7 Closeout Truth Normalize
+
+on:
+  push:
+    branches:
+      - internal-4a7-closeout-handoff
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Normalize durable closeout truth
+        run: python scripts/internal_normalize_4a7_closeout_truth.py
+
+      - name: Remove temporary updater and publish normalized handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          rm -- .github/workflows/internal-4a7-closeout-normalize.yml scripts/internal_normalize_4a7_closeout_truth.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- to_do_update_list.md .github/workflows/internal-4a7-closeout-normalize.yml scripts/internal_normalize_4a7_closeout_truth.py
+          git commit -m "docs: make 4A-7 closeout truth descendant-safe"
+          git push origin HEAD:internal-4a7-closeout-handoff
