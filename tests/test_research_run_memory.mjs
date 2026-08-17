@@ -242,6 +242,38 @@ test("first successful run creates a durable library, returns capability once, a
   assert.equal(detail.result.jobHash, JOB_HASH_A);
 });
 
+test("trusted ResearchRun execution preserves Cloudflare client identity without forwarding browser credentials", async () => {
+  const db = new FakeD1();
+  const first = await createLibraryRun(db);
+  assert.equal(first.response.status, 201);
+  let forwardedHeaders;
+  await withBackend(async (backendRequest) => {
+    forwardedHeaders = new Headers(backendRequest.headers);
+    const body = await backendRequest.json();
+    return Response.json(successfulResult(body, JOB_HASH_B));
+  }, async () => {
+    const response = await router.fetch(
+      new Request("https://edge.example/api/v1/research/runs", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${first.payload.libraryCapability}`,
+          cookie: "browser=secret",
+          "cf-connecting-ip": "203.0.113.24",
+          "x-forwarded-for": "198.51.100.99",
+        },
+        body: JSON.stringify({ name: "Per-client limiter context", request: sampleRequest("smh") }),
+      }),
+      { DB: db, BACKEND_ORIGIN: "https://backend.example" },
+      {},
+    );
+    assert.equal(response.status, 201);
+  });
+  assert.equal(forwardedHeaders.get("x-forwarded-for"), "203.0.113.24");
+  assert.equal(forwardedHeaders.get("authorization"), null);
+  assert.equal(forwardedHeaders.get("cookie"), null);
+});
+
 test("failed Walk-Forward execution creates neither empty library nor partial run", async () => {
   const db = new FakeD1();
   await withBackend(async () => Response.json({ error: "causal evidence unavailable" }, { status: 422 }), async () => {

@@ -146,10 +146,18 @@ async function proxyWalkForward(request, env) {
   }
 }
 
-function executeTrustedWalkForward(executionRequest, env) {
+function executeTrustedWalkForward(executionRequest, env, sourceRequest) {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  // Preserve only Cloudflare's trusted client identity so the existing backend
+  // rate-limit authority remains per client. Never propagate browser credentials.
+  const clientIp = sourceRequest?.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("cf-connecting-ip", clientIp);
   const request = new Request(`https://research-run.internal${WALK_FORWARD_PATH}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    headers,
     body: JSON.stringify(executionRequest),
   });
   return proxyWalkForward(request, env);
@@ -168,7 +176,7 @@ async function routeResearchRun(request, env) {
     return await handleResearchRunRequest(
       request,
       env,
-      (executionRequest) => executeTrustedWalkForward(executionRequest, env),
+      (executionRequest) => executeTrustedWalkForward(executionRequest, env, request),
     );
   } catch (error) {
     const requestId = crypto.randomUUID();

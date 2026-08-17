@@ -115,25 +115,43 @@ export function ResearchLibraryPanel({
 
   useEffect(() => {
     if (!capability) return;
+    activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++operationVersion.current;
+    activeController.current = controller;
     setAction("refresh");
     setError("");
     listResearchRuns(capability, controller.signal)
       .then((response) => {
+        if (version !== operationVersion.current || activeController.current !== controller) return;
         setLibraryId(response.libraryId);
         setRuns(response.runs);
       })
       .catch((caught) => {
+        if (version !== operationVersion.current || activeController.current !== controller) return;
         if (caught instanceof DOMException && caught.name === "AbortError") return;
         setError(libraryErrorText(caught));
       })
-      .finally(() => setAction((current) => current === "refresh" ? null : current));
-    return () => controller.abort();
+      .finally(() => {
+        if (version === operationVersion.current && activeController.current === controller) {
+          activeController.current = null;
+          setAction((current) => current === "refresh" ? null : current);
+        }
+      });
+    return () => {
+      if (activeController.current === controller) {
+        operationVersion.current += 1;
+        activeController.current = null;
+      }
+      controller.abort();
+    };
   }, [capability]);
 
   useEffect(() => () => {
     operationVersion.current += 1;
-    activeController.current?.abort();
+    const controller = activeController.current;
+    activeController.current = null;
+    controller?.abort();
   }, []);
 
   async function runWorkspaceOperation<T>(
@@ -210,14 +228,16 @@ export function ResearchLibraryPanel({
       setError("復原碼格式無效。請貼上完整的 rrl_… 復原碼。 ");
       return;
     }
-    const controller = new AbortController();
     activeController.current?.abort();
+    const controller = new AbortController();
+    const version = ++operationVersion.current;
     activeController.current = controller;
     setAction("connect");
     setError("");
     setMessage("");
     try {
       const response = await listResearchRuns(nextCapability, controller.signal);
+      if (version !== operationVersion.current || activeController.current !== controller) return;
       persistCapability(nextCapability);
       setCapability(nextCapability);
       setCandidateCapability("");
@@ -227,29 +247,38 @@ export function ResearchLibraryPanel({
       setShowCapability(false);
       setMessage(`已連結研究庫，共 ${response.runs.length} 筆最近研究。`);
     } catch (caught) {
+      if (version !== operationVersion.current || activeController.current !== controller) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setAction((current) => current === "connect" ? null : current);
+      if (version === operationVersion.current && activeController.current === controller) {
+        activeController.current = null;
+        setAction((current) => current === "connect" ? null : current);
+      }
     }
   }
 
   async function refreshLibrary() {
     if (!capability || action) return;
+    activeController.current?.abort();
     const controller = new AbortController();
+    const version = ++operationVersion.current;
     activeController.current = controller;
     setAction("refresh");
     setError("");
     try {
       const response = await listResearchRuns(capability, controller.signal);
+      if (version !== operationVersion.current || activeController.current !== controller) return;
       setLibraryId(response.libraryId);
       setRuns(response.runs);
       setMessage(`研究庫已重新整理，共 ${response.runs.length} 筆最近研究。`);
     } catch (caught) {
+      if (version !== operationVersion.current || activeController.current !== controller) return;
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(libraryErrorText(caught));
     } finally {
-      if (activeController.current === controller) activeController.current = null;
-      setAction((current) => current === "refresh" ? null : current);
+      if (version === operationVersion.current && activeController.current === controller) {
+        activeController.current = null;
+        setAction((current) => current === "refresh" ? null : current);
+      }
     }
   }
 
