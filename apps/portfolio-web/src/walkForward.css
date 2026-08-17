@@ -1,0 +1,339 @@
+.workspace-switch {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.walk-forward-workspace {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 28px;
+}
+
+.wf-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.wf-hero h1 {
+  margin: 0.2rem 0 0.7rem;
+  font-size: clamp(2rem, 4vw, 3.45rem);
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+.wf-hero p:not(.eyebrow) {
+  max-width: 940px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.wf-hero-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.65rem;
+}
+
+.wf-service-state {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.wf-service-state i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.wf-service-state.online i {
+  background: var(--positive);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--positive) 16%, transparent);
+}
+
+.wf-service-state.offline i {
+  background: var(--negative);
+}
+
+.wf-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(175px, 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.wf-settings-grid .field small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.wf-period-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.wf-period-list.busy {
+  opacity: 0.78;
+}
+
+.wf-period-card {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+.wf-period-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.wf-period-header > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.wf-period-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.wf-period-header p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.wf-period-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.wf-period-id {
+  width: min(360px, 100%);
+  margin-top: 0.9rem;
+}
+
+.wf-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(150px, 0.65fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.55rem;
+  margin: 1rem 0;
+}
+
+.wf-timeline > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-elevated);
+}
+
+.wf-timeline > div strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wf-timeline > div span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.wf-timeline .training strong { color: var(--info); }
+.wf-timeline .decision strong { color: var(--warning); }
+.wf-timeline .evaluation strong { color: var(--positive); }
+
+.wf-timeline > i {
+  align-self: center;
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 850;
+}
+
+.wf-date-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
+  gap: 0.8rem;
+}
+
+.wf-request-preview {
+  margin-top: 0.9rem;
+}
+
+.wf-request-preview summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 750;
+}
+
+.wf-request-preview pre {
+  margin-top: 0.65rem;
+  max-height: 520px;
+}
+
+.wf-run-card {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+
+.wf-run-actions .primary {
+  min-width: 145px;
+}
+
+.wf-run-guidance {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.wf-run-guidance span {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-elevated);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.wf-run-guidance strong {
+  color: var(--text);
+}
+
+.wf-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--info) 38%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--info) 8%, var(--surface));
+  color: var(--muted);
+}
+
+.wf-progress i {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--info) 30%, transparent);
+  border-top-color: var(--info);
+  border-radius: 50%;
+  animation: wf-spin 0.9s linear infinite;
+}
+
+@keyframes wf-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wf-metric-grid {
+  margin-bottom: 1rem;
+}
+
+.wf-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.8rem;
+}
+
+.wf-decision-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.wf-decision-heading h3 {
+  margin: 0;
+}
+
+.wf-decision-heading p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.wf-selected-assets {
+  margin: 0.8rem 0;
+  color: var(--text);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.wf-decision-grid small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1180px) {
+  .wf-settings-grid { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
+  .wf-date-grid { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
+}
+
+@media (max-width: 820px) {
+  .workspace-switch {
+    grid-template-columns: repeat(3, minmax(175px, 1fr));
+    overflow-x: auto;
+  }
+
+  .wf-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wf-hero-actions {
+    width: 100%;
+  }
+
+  .wf-hero-actions button {
+    flex: 1;
+  }
+
+  .wf-settings-grid,
+  .wf-date-grid,
+  .wf-run-guidance {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wf-timeline {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-timeline > i {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .wf-hero h1 { font-size: 2.15rem; }
+  .wf-hero-actions { flex-direction: column; }
+  .wf-settings-grid, .wf-date-grid, .wf-run-guidance { grid-template-columns: 1fr; }
+  .wf-period-card { padding: 0.8rem; }
+  .wf-period-header { flex-direction: column; }
+  .wf-period-header button { width: 100%; }
+  .wf-run-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .wf-run-actions button:only-child { grid-column: 1 / -1; }
+}

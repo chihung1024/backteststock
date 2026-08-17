@@ -6,6 +6,8 @@ import "./styles.css";
 import "./refinery.css";
 import "./refineryPhase5.css";
 import "./refineryPhase6.css";
+import "./walkForward.css";
+import "./walkForwardResults.css";
 import "./handoff.css";
 
 const root = document.getElementById("root");
