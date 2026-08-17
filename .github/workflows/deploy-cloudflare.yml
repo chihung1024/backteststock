@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-cloudflare.yml"
+      - ".vercel-redeploy-trigger"
       - "worker/**"
       - "public/**"
       - "migrations/**"
