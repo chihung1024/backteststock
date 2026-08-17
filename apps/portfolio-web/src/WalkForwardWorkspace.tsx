@@ -173,8 +173,9 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
 
   useEffect(() => {
     onBusyChange?.(workspaceBusy);
-    return () => onBusyChange?.(false);
   }, [onBusyChange, workspaceBusy]);
+
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
   function invalidateExecution() {
     requestVersion.current += 1;

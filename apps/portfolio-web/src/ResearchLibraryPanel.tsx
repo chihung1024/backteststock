@@ -156,7 +156,7 @@ export function ResearchLibraryPanel({
   }
 
   async function saveResearch() {
-    if (!request || disabled) return;
+    if (!request || disabled || action) return;
     const name = runName.trim() || namePlaceholder;
     const response = await runWorkspaceOperation("save", (signal) =>
       createResearchRun(name, request, capability, signal),
@@ -179,7 +179,7 @@ export function ResearchLibraryPanel({
   }
 
   async function openRun(run: ResearchRunSummary) {
-    if (!capability || disabled) return;
+    if (!capability || disabled || action) return;
     const response = await runWorkspaceOperation("load", (signal) => getResearchRun(run.runId, capability, signal));
     if (!response) return;
     setMessage(`已從 D1 讀取「${response.run.name}」；畫面直接使用保存的 completed result，沒有重新計算。`);
@@ -187,7 +187,7 @@ export function ResearchLibraryPanel({
   }
 
   async function rerun(run: ResearchRunSummary) {
-    if (!capability || disabled) return;
+    if (!capability || disabled || action) return;
     const response = await runWorkspaceOperation("rerun", (signal) => rerunResearchRun(run.runId, capability, signal));
     if (!response) return;
     setRuns((current) => mergeRun(current, response.run));
@@ -321,7 +321,7 @@ export function ResearchLibraryPanel({
             <button
               type="button"
               className="primary"
-              disabled={disabled || workspaceAction || !request || health !== "online"}
+              disabled={disabled || Boolean(action) || !request || health !== "online"}
               onClick={() => void saveResearch()}
             >
               {action === "save" ? "執行並保存中…" : "執行並保存"}
@@ -341,7 +341,7 @@ export function ResearchLibraryPanel({
               <div className="section-actions research-library-actions compact">
                 <button type="button" className="secondary" onClick={() => void copyCapability()}>複製復原碼</button>
                 <button type="button" className="secondary" onClick={() => downloadRecoveryCode(capability)}>匯出復原碼</button>
-                <button type="button" className="secondary danger-text" disabled={workspaceAction} onClick={forgetDeviceCredential}>忘記此裝置</button>
+                <button type="button" className="secondary danger-text" disabled={Boolean(action)} onClick={forgetDeviceCredential}>忘記此裝置</button>
               </div>
             </>
           ) : (
@@ -384,8 +384,8 @@ export function ResearchLibraryPanel({
                 <small>job {shortHash(run.jobHash)}{run.sourceRunId ? ` · rerun of ${shortHash(run.sourceRunId)}` : ""}</small>
               </div>
               <div className="research-run-actions">
-                <button type="button" className="secondary" disabled={disabled || workspaceAction} onClick={() => void openRun(run)}>{action === "load" ? "讀取中…" : "查看保存結果"}</button>
-                <button type="button" className="secondary" disabled={disabled || workspaceAction} onClick={() => void rerun(run)}>{action === "rerun" ? "重跑中…" : "用原 Request 重跑"}</button>
+                <button type="button" className="secondary" disabled={disabled || Boolean(action)} onClick={() => void openRun(run)}>{action === "load" ? "讀取中…" : "查看保存結果"}</button>
+                <button type="button" className="secondary" disabled={disabled || Boolean(action)} onClick={() => void rerun(run)}>{action === "rerun" ? "重跑中…" : "用原 Request 重跑"}</button>
               </div>
             </article>
           ))}
