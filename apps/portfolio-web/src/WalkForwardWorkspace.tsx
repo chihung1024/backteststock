@@ -17,6 +17,7 @@ import {
 import { ResearchLibraryPanel } from "./ResearchLibraryPanel";
 import { WalkForwardResults } from "./WalkForwardResults";
 import type {
+  WalkForwardAllocationMethod,
   WalkForwardPeriodDraft,
   WalkForwardResultResponse,
   WalkForwardStrategy,
@@ -337,6 +338,7 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
             <span>Strategy <strong>Dual Momentum</strong></span>
             <span>Risky <strong>{riskyCount}</strong> · Defensive <strong>{defensiveCount}</strong></span>
             <span>Top K <strong>{model.topK}</strong></span>
+            <span>Allocation <strong>{model.allocationMethod === "equal" ? "Equal" : model.allocationMethod === "inverse_volatility" ? "Inverse Vol" : "Risk Parity / ERC"}</strong></span>
           </>
         ) : (
           <>
@@ -436,7 +438,21 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
               <label className="field">
                 <span>Top K</span>
                 <input type="number" aria-label="Dual Momentum Top K" min={1} max={Math.max(1, riskyCount)} step={1} value={model.topK} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, topK: numericValue(event.target.value, 0) }))} />
-                <small>先通過 absolute filter，再按 relative momentum 排名前 K；4B-1 固定等權。</small>
+                <small>先通過 absolute filter，再按 relative momentum 排名前 K；Allocation 只對 frozen selection 決定權重。</small>
+              </label>
+              <label className="field">
+                <span>Allocation / Weighting</span>
+                <select
+                  aria-label="Dual Momentum Allocation Method"
+                  value={model.allocationMethod}
+                  disabled={workspaceBusy}
+                  onChange={(event) => mutateModel((current) => ({ ...current, allocationMethod: event.target.value as WalkForwardAllocationMethod }))}
+                >
+                  <option value="equal">Equal Weight</option>
+                  <option value="inverse_volatility">Inverse Volatility</option>
+                  <option value="risk_parity_erc">Risk Parity / ERC</option>
+                </select>
+                <small>Risk-based allocation 只讀 Training 的 TWD daily returns，需至少 60 個完整共同觀察值；Ledoit-Wolf covariance 與 ERC risk contribution 均由後端 Risk Mathematics authority 計算。</small>
               </label>
               <label className="field">
                 <span>Absolute Threshold</span>
@@ -518,7 +534,7 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
         {request ? (
           <>
             <div className="notice info"><strong>瀏覽器因果檢查通過</strong><p>{model.strategy === "dual_momentum"
-              ? "這代表 configured universe、Momentum 參數與月度日期結構可送出；Training history、signal boundary 與 OOS execution 仍以後端實際證據為準。"
+              ? "這代表 configured universe、Momentum / Allocation 參數與月度日期結構可送出；Training history、signal boundary、risk allocation evidence 與 OOS execution 仍以後端實際證據為準。"
               : "這代表 request 結構可送出；PIT membership、候選數、行情與 Exhaustive capacity 仍以後端實際證據為準。"}</p></div>
             <details className="wf-request-preview">
               <summary>查看標準化 API Request</summary>

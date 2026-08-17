@@ -21,6 +21,7 @@ from api import date_policy
 from apps.api.app.research.pit_client import PITResolverError
 from apps.api.app.research.walk_forward import WalkForwardPeriod
 from apps.api.app.research.walk_forward_job import (
+    DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION,
     DUAL_MOMENTUM_JOB_CONTRACT_VERSION,
     MAX_CONFIGURED_STRATEGY_SYMBOLS,
     MAX_WALK_FORWARD_PERIODS,
@@ -35,7 +36,7 @@ from apps.api.app.research.walk_forward_job import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-17.2"
+WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-17.3"
 WALK_FORWARD_PATH = "/api/v1/research/walk-forward"
 WALK_FORWARD_HEALTH_PATH = f"{WALK_FORWARD_PATH}/health"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -108,6 +109,9 @@ class SelectorRequest(StrictModel):
     lookback_months: Annotated[int, Field(alias="lookbackMonths", ge=1, le=60)] = 12
     top_k: Annotated[int, Field(alias="topK", ge=1, le=20)] = 1
     absolute_threshold: float = Field(alias="absoluteThreshold", default=0.0)
+    allocation_method: Literal[
+        "equal", "inverse_volatility", "risk_parity_erc"
+    ] | None = Field(alias="allocationMethod", default=None)
 
     @field_validator("universe")
     @classmethod
@@ -140,6 +144,10 @@ class SelectorRequest(StrictModel):
             if self.risky_symbols or self.defensive_symbols:
                 raise ValueError(
                     "riskySymbols/defensiveSymbols require strategy=dual_momentum"
+                )
+            if self.allocation_method is not None:
+                raise ValueError(
+                    "allocationMethod requires strategy=dual_momentum"
                 )
             return self
 
@@ -268,6 +276,9 @@ def health() -> dict[str, str]:
         "api_contract_version": WALK_FORWARD_API_CONTRACT_VERSION,
         "job_contract_version": WALK_FORWARD_JOB_CONTRACT_VERSION,
         "dual_momentum_job_contract_version": DUAL_MOMENTUM_JOB_CONTRACT_VERSION,
+        "dual_momentum_allocation_job_contract_version": (
+            DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION
+        ),
         "deployment_sha": os.getenv("VERCEL_GIT_COMMIT_SHA", ""),
     }
 
@@ -325,6 +336,7 @@ def _domain_spec(payload: WalkForwardRequest) -> WalkForwardJobSpec:
             lookback_months=payload.selector.lookback_months,
             top_k=payload.selector.top_k,
             absolute_threshold=payload.selector.absolute_threshold,
+            allocation_method=payload.selector.allocation_method,
         )
     return WalkForwardJobSpec(
         periods=periods,

@@ -9,9 +9,10 @@ async function mockHealth(page) {
       json: {
         status: "ok",
         service: "backteststock-walk-forward-v1",
-        api_contract_version: "walk-forward-api-2026-08-17.2",
+        api_contract_version: "walk-forward-api-2026-08-17.3",
         job_contract_version: "walk-forward-job-2026-08-15.1",
         dual_momentum_job_contract_version: "walk-forward-dual-momentum-job-2026-08-17.1",
+        dual_momentum_allocation_job_contract_version: "walk-forward-dual-momentum-allocation-job-2026-08-17.1",
         deployment_sha: "test",
       },
     }),
@@ -45,15 +46,48 @@ function dualMomentumResult(request) {
     relativeRank: index + 1,
   }));
   const selected = request.selector.riskySymbols.slice(0, request.selector.topK);
-  const weights = selected.map(() => 1 / selected.length);
+  const weights = request.selector.allocationMethod === "risk_parity_erc"
+    ? [0.45, 0.33, 0.22].slice(0, selected.length)
+    : selected.map(() => 1 / selected.length);
+  const allocation = {
+    contractVersion: "optimizer-hub-allocation-twd-2026-08-17.1",
+    riskMathContractVersion: "risk-math-twd-2026-08-09.1",
+    method: request.selector.allocationMethod,
+    symbols: selected,
+    weights,
+    status: "ok",
+    inputObservations: 252,
+    completeCaseObservations: 251,
+    minimumCompleteCaseObservations: 60,
+    returnFrequency: "daily",
+    valuationCurrency: "TWD",
+    covariance: request.selector.allocationMethod === "equal" ? null : {
+      method: "ledoit-wolf-mle-spherical-target",
+      annualization: 252,
+      shrinkage: 0.12,
+      isPsd: true,
+      numericalRank: selected.length,
+      conditionNumber: 3.1,
+    },
+    portfolioVolatility: request.selector.allocationMethod === "equal" ? null : 0.18,
+    componentRisk: request.selector.allocationMethod === "risk_parity_erc" ? selected.map(() => 0.06) : null,
+    riskBudgetShares: request.selector.allocationMethod === "risk_parity_erc" ? selected.map(() => 1 / selected.length) : null,
+    solver: request.selector.allocationMethod === "risk_parity_erc" ? {
+      algorithm: "canonical-cyclic-coordinate-risk-budgeting-v1",
+      iterations: 12,
+      maxAbsRiskBudgetError: 1e-10,
+      tolerance: 1e-8,
+      maxIterations: 10000,
+    } : null,
+  };
   return {
-    contractVersion: "walk-forward-dual-momentum-job-2026-08-17.1",
+    contractVersion: "walk-forward-dual-momentum-allocation-job-2026-08-17.1",
     jobHash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
     hashAlgorithm: "sha256-canonical-json-v1",
     status: "completed",
     asOfDate: period.evaluationEnd,
     asOfPolicy: "last_complete_utc_calendar_day-v1",
-    selectorPolicy: "dual-momentum-configured-monthly-v1",
+    selectorPolicy: "dual-momentum-configured-monthly-allocation-v1",
     oosPolicy: "decision-transition-cost-only-v1",
     request,
     periods: [
@@ -88,7 +122,7 @@ function dualMomentumResult(request) {
             lookbackMonths: request.selector.lookbackMonths,
             topK: request.selector.topK,
             absoluteThreshold: request.selector.absoluteThreshold,
-            weighting: "equal",
+            weighting: request.selector.allocationMethod,
           },
         },
         selectionEvidence: {
@@ -103,6 +137,7 @@ function dualMomentumResult(request) {
           riskyRanking,
           defensiveRanking,
           selected,
+          allocation,
         },
         eligibleCandidates: members,
         selectedConstituents: selected,
@@ -194,6 +229,8 @@ test("Dual Momentum workspace builds a causal monthly request and renders signal
   await expect(page.getByLabel("Dual Momentum Lookback 月數")).toHaveValue("12");
   await expect(page.getByLabel("Dual Momentum Top K")).toHaveValue("3");
   await expect(page.getByLabel("Dual Momentum Absolute Threshold")).toHaveValue("0");
+  await expect(page.getByLabel("Dual Momentum Allocation Method")).toHaveValue("equal");
+  await page.getByLabel("Dual Momentum Allocation Method").selectOption("risk_parity_erc");
   await expect(page.getByText("因果設定有效")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Period 6" })).toBeVisible();
 
@@ -203,6 +240,7 @@ test("Dual Momentum workspace builds a causal monthly request and renders signal
   await expect(preview).toContainText('"lookbackMonths": 12');
   await expect(preview).toContainText('"topK": 3');
   await expect(preview).toContainText('"absoluteThreshold": 0');
+  await expect(preview).toContainText('"allocationMethod": "risk_parity_erc"');
   await expect(preview).toContainText('"BIL"');
 
   await page.getByRole("button", { name: "執行研究" }).click();
@@ -215,6 +253,7 @@ test("Dual Momentum workspace builds a causal monthly request and renders signal
     lookbackMonths: 12,
     topK: 3,
     absoluteThreshold: 0,
+    allocationMethod: "risk_parity_erc",
   });
   expect(capturedRequest.periods).toHaveLength(6);
   for (let index = 1; index < capturedRequest.periods.length; index += 1) {
@@ -228,7 +267,11 @@ test("Dual Momentum workspace builds a causal monthly request and renders signal
   await expect(page.getByText("risk_on", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Risky relative momentum" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Defensive relative momentum" })).toBeVisible();
-  await expect(page.getByText("QQQ 33.33% · SMH 33.33% · SPY 33.33%")).toBeVisible();
+  await expect(page.getByText("QQQ 45.00% · SMH 33.00% · SPY 22.00%")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Training-only allocation evidence" })).toBeVisible();
+  await expect(page.locator(".wf-allocation-evidence").getByText("Risk Parity / ERC", { exact: true })).toBeVisible();
+  await expect(page.getByText("ledoit-wolf-mle-spherical-target", { exact: true })).toBeVisible();
+  await expect(page.getByText("QQQ 33.33% · SMH 33.33% · SPY 33.33%", { exact: true })).toBeVisible();
   await expect(page.getByText("55.00%")).toBeVisible();
   const qqqRiskyRow = page.getByRole("row").filter({ hasText: "QQQ" });
   await expect(qqqRiskyRow.getByRole("cell", { name: "PASS", exact: true })).toBeVisible();

@@ -1,7 +1,7 @@
-"""Training-only momentum primitives and the first Optimizer Hub strategy.
+"""Training-only momentum primitives and Optimizer Hub strategy composition.
 
-All signal values come from the authoritative ResearchDataset TWD total-return
-levels available inside the Training window. Evaluation/OOS observations are not
+All signal and allocation inputs come from the authoritative ResearchDataset TWD
+series available inside the Training window. Evaluation/OOS observations are not
 part of the SelectionContext and therefore cannot influence these decisions.
 """
 
@@ -15,12 +15,23 @@ from typing import Any, ClassVar, Mapping
 import numpy as np
 import pandas as pd
 
+from apps.api.app.quant.allocation import (
+    ALLOCATION_CONTRACT_VERSION,
+    AllocationMethod,
+    allocate_weights_from_returns,
+)
 from apps.api.app.research.selection import SelectionContext, SelectionResult
 
 MOMENTUM_SIGNAL_CONTRACT_VERSION = "momentum-twd-total-return-2026-08-17.1"
 DUAL_MOMENTUM_ENGINE_VERSION = "dual-momentum-selection-2026-08-17.1"
+DUAL_MOMENTUM_ALLOCATION_ENGINE_VERSION = (
+    "dual-momentum-allocation-selection-2026-08-17.1"
+)
 MOMENTUM_BOUNDARY_TOLERANCE_CALENDAR_DAYS = 7
 DUAL_MOMENTUM_RULE = "absolute-filter-then-relative-top-k-with-defensive-fallback-v1"
+DUAL_MOMENTUM_ALLOCATION_RULE = (
+    "dual-momentum-v1-selection-then-training-risk-allocation-v1"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,12 +181,11 @@ def top_k_momentum(
 
 @dataclass(frozen=True, slots=True)
 class DualMomentumSelectionEngine:
-    """Absolute-filter risky assets, rank survivors, otherwise use defensive assets.
+    """Frozen Phase 4B-1 Dual Momentum selection with equal weighting.
 
-    Version 1 intentionally delivers one narrow allocation policy: equal weight.
-    Risky assets that clear the absolute threshold are ranked by relative trailing
-    total return and up to ``top_k`` are selected. If none clear the hurdle, up to
-    ``top_k`` defensive assets are selected by the same relative momentum signal.
+    This class intentionally remains the legacy 4B-1 authority so old saved
+    requests reproduce their original DecisionSnapshot and job identities.
+    Phase 4B-2 allocation is composed by ``DualMomentumAllocatedSelectionEngine``.
     """
 
     risky_symbols: tuple[str, ...]
@@ -325,6 +335,68 @@ class DualMomentumSelectionEngine:
             selected_constituents=selected,
             weights=tuple(weight for _ in selected),
             evidence=evidence,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DualMomentumAllocatedSelectionEngine:
+    """Phase 4B-2 composition: frozen Dual Momentum selection then allocation."""
+
+    risky_symbols: tuple[str, ...]
+    defensive_symbols: tuple[str, ...]
+    allocation_method: AllocationMethod
+    lookback_months: int = 12
+    top_k: int = 1
+    absolute_threshold: float = 0.0
+    boundary_tolerance_days: int = MOMENTUM_BOUNDARY_TOLERANCE_CALENDAR_DAYS
+
+    contract_version: ClassVar[str] = DUAL_MOMENTUM_ALLOCATION_ENGINE_VERSION
+    rule: ClassVar[str] = DUAL_MOMENTUM_ALLOCATION_RULE
+
+    def __post_init__(self) -> None:
+        if self.allocation_method not in {
+            "equal",
+            "inverse_volatility",
+            "risk_parity_erc",
+        }:
+            raise ValueError("unsupported Dual Momentum allocation method")
+        base = self._base_engine()
+        object.__setattr__(self, "risky_symbols", base.risky_symbols)
+        object.__setattr__(self, "defensive_symbols", base.defensive_symbols)
+        object.__setattr__(self, "absolute_threshold", base.absolute_threshold)
+
+    @property
+    def parameters(self) -> Mapping[str, Any]:
+        parameters = dict(self._base_engine().parameters)
+        parameters["weighting"] = self.allocation_method
+        parameters["allocationContractVersion"] = ALLOCATION_CONTRACT_VERSION
+        parameters["allocationReturnAuthority"] = "ResearchDataset.daily_returns_twd"
+        return parameters
+
+    def select(self, context: SelectionContext) -> SelectionResult:
+        base_result = self._base_engine().select(context)
+        selected = base_result.selected_constituents
+        selected_returns = context.training_dataset.daily_returns_twd.loc[:, list(selected)]
+        allocation = allocate_weights_from_returns(
+            selected_returns,
+            method=self.allocation_method,
+        )
+        evidence = dict(base_result.evidence)
+        evidence["allocation"] = allocation.export_payload()
+        return SelectionResult(
+            selected_constituents=selected,
+            weights=allocation.weights,
+            evidence=evidence,
+        )
+
+    def _base_engine(self) -> DualMomentumSelectionEngine:
+        return DualMomentumSelectionEngine(
+            risky_symbols=self.risky_symbols,
+            defensive_symbols=self.defensive_symbols,
+            lookback_months=self.lookback_months,
+            top_k=self.top_k,
+            absolute_threshold=self.absolute_threshold,
+            boundary_tolerance_days=self.boundary_tolerance_days,
         )
 
 

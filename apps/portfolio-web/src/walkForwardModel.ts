@@ -1,5 +1,6 @@
 import type {
   WalkForwardAdmissionResponse,
+  WalkForwardAllocationMethod,
   WalkForwardApiRequest,
   WalkForwardApiSelectorRequest,
   WalkForwardPeriodDraft,
@@ -106,6 +107,7 @@ function baseWorkspaceFields(): Pick<
   | "lookbackMonths"
   | "topK"
   | "absoluteThresholdPct"
+  | "allocationMethod"
   | "initialAmountTwd"
   | "transitionCostBps"
 > {
@@ -118,6 +120,7 @@ function baseWorkspaceFields(): Pick<
     lookbackMonths: 12,
     topK: 3,
     absoluteThresholdPct: 0,
+    allocationMethod: "equal",
     initialAmountTwd: 100000,
     transitionCostBps: 5,
   };
@@ -126,7 +129,7 @@ function baseWorkspaceFields(): Pick<
 export function createDefaultWalkForwardModel(): WalkForwardWorkspaceModel {
   const latestComplete = latestCompleteUtcDate();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     strategy: "exhaustive",
     ...baseWorkspaceFields(),
     periods: [createPeriodFromOffsets("period-1", latestComplete, -3, 0)],
@@ -140,7 +143,7 @@ export function createWalkForwardModelFromAdmission(
   if (!recommendation) return null;
   const decisionDate = recommendation.decisionDate;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     strategy: "exhaustive",
     ...baseWorkspaceFields(),
     universe: recommendation.universe,
@@ -202,7 +205,7 @@ export function createDualMomentumMonthlyPeriods(
 export function createDualMomentumWalkForwardModel(): WalkForwardWorkspaceModel {
   const base = baseWorkspaceFields();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     strategy: "dual_momentum",
     ...base,
     periods: createDualMomentumMonthlyPeriods(base.lookbackMonths),
@@ -241,10 +244,16 @@ function strategyValue(record: Record<string, unknown>): WalkForwardStrategy {
   return record.strategy === "dual_momentum" ? "dual_momentum" : "exhaustive";
 }
 
+function allocationMethodValue(record: Record<string, unknown>): WalkForwardAllocationMethod {
+  if (record.allocationMethod === "inverse_volatility") return "inverse_volatility";
+  if (record.allocationMethod === "risk_parity_erc") return "risk_parity_erc";
+  return "equal";
+}
+
 export function migrateWalkForwardModel(value: unknown): WalkForwardWorkspaceModel {
   const fallback = createDefaultWalkForwardModel();
   const record = asRecord(value);
-  if (!record || (record.schemaVersion !== 1 && record.schemaVersion !== 2)) return fallback;
+  if (!record || ![1, 2, 3].includes(Number(record.schemaVersion))) return fallback;
 
   const periodsValue = Array.isArray(record.periods) ? record.periods.slice(0, MAX_WALK_FORWARD_PERIODS) : [];
   const periods = periodsValue.map((item, index) => {
@@ -261,8 +270,9 @@ export function migrateWalkForwardModel(value: unknown): WalkForwardWorkspaceMod
   });
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     strategy: record.schemaVersion === 1 ? "exhaustive" : strategyValue(record),
+    allocationMethod: allocationMethodValue(record),
     universe: stringValue(record, "universe", fallback.universe),
     benchmark: stringValue(record, "benchmark", fallback.benchmark),
     holdingCount: numberValue(record, "holdingCount", fallback.holdingCount),
@@ -453,6 +463,7 @@ export function toWalkForwardApiRequest(model: WalkForwardWorkspaceModel): WalkF
         lookbackMonths: model.lookbackMonths,
         topK: model.topK,
         absoluteThreshold: model.absoluteThresholdPct / 100,
+        allocationMethod: model.allocationMethod,
       }
     : {
         universe: model.universe.trim().toLowerCase(),

@@ -1,6 +1,6 @@
 # Optimizer Hub Dual Momentum V1
 
-Status: **Phase 4B-1 candidate contract. Not production authority until the exact candidate SHA passes PR, preview, merge and post-main production gates.**
+Status: **Phase 4B-1 production-accepted contract.** Product tree `8374bb17d3192c2e6adcfa06c7350d51e8651f2e` passed exact-head review, merge, post-main CI, Vercel/Cloudflare exact-SHA gates and production Walk-Forward verification on 2026-08-17.
 
 Contract versions:
 

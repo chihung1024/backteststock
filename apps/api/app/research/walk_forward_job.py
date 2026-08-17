@@ -17,6 +17,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from api import date_policy, exhaustive_optimizer
+from apps.api.app.quant.covariance import RISK_MATH_CONTRACT_VERSION
 from apps.api.app.data.history_service import PartialTWDHistories, TWDHistoryService
 from apps.api.app.portfolio.models import SimulationConfig
 from apps.api.app.research.dataset import ResearchDatasetService, build_research_dataset
@@ -25,7 +26,10 @@ from apps.api.app.research.exhaustive_selection import (
     ExhaustiveAuthorityRunner,
     ExhaustiveSelectionEngine,
 )
-from apps.api.app.research.momentum import DualMomentumSelectionEngine
+from apps.api.app.research.momentum import (
+    DualMomentumAllocatedSelectionEngine,
+    DualMomentumSelectionEngine,
+)
 from apps.api.app.research.oos_ledger import (
     WALK_FORWARD_OOS_LEDGER_CONTRACT_VERSION,
     WalkForwardEvaluation,
@@ -47,9 +51,15 @@ from apps.api.app.research.walk_forward import (
 
 WALK_FORWARD_JOB_CONTRACT_VERSION = "walk-forward-job-2026-08-15.1"
 DUAL_MOMENTUM_JOB_CONTRACT_VERSION = "walk-forward-dual-momentum-job-2026-08-17.1"
+DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION = (
+    "walk-forward-dual-momentum-allocation-job-2026-08-17.1"
+)
 WALK_FORWARD_JOB_HASH_ALGORITHM = "sha256-canonical-json-v1"
 WALK_FORWARD_PUBLIC_SELECTOR_POLICY = "exhaustive-gross-buy-and-hold-v1"
 WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY = "dual-momentum-configured-monthly-v1"
+WALK_FORWARD_DUAL_MOMENTUM_ALLOCATION_SELECTOR_POLICY = (
+    "dual-momentum-configured-monthly-allocation-v1"
+)
 WALK_FORWARD_PUBLIC_OOS_POLICY = "decision-transition-cost-only-v1"
 MAX_WALK_FORWARD_PERIODS = 24
 MAX_SERVER_EXHAUSTIVE_CANDIDATES = 100
@@ -98,6 +108,7 @@ class DualMomentumSelectorSpec:
     lookback_months: int = 12
     top_k: int = 1
     absolute_threshold: float = 0.0
+    allocation_method: str | None = None
 
     def __post_init__(self) -> None:
         risky = _canonical_symbols(self.risky_symbols, label="risky_symbols")
@@ -125,6 +136,13 @@ class DualMomentumSelectorSpec:
         threshold = float(self.absolute_threshold)
         if not math.isfinite(threshold):
             raise ValueError("absolute_threshold must be finite")
+        if self.allocation_method not in {
+            None,
+            "equal",
+            "inverse_volatility",
+            "risk_parity_erc",
+        }:
+            raise ValueError("unsupported Dual Momentum allocation_method")
         object.__setattr__(self, "risky_symbols", risky)
         object.__setattr__(self, "defensive_symbols", defensive)
         object.__setattr__(
@@ -358,13 +376,23 @@ class WalkForwardJobService:
                     start=period.training_start,
                     end=period.training_end,
                 )
-                engine = DualMomentumSelectionEngine(
-                    risky_symbols=dual_selector.risky_symbols,
-                    defensive_symbols=dual_selector.defensive_symbols,
-                    lookback_months=dual_selector.lookback_months,
-                    top_k=dual_selector.top_k,
-                    absolute_threshold=dual_selector.absolute_threshold,
-                )
+                if dual_selector.allocation_method is None:
+                    engine = DualMomentumSelectionEngine(
+                        risky_symbols=dual_selector.risky_symbols,
+                        defensive_symbols=dual_selector.defensive_symbols,
+                        lookback_months=dual_selector.lookback_months,
+                        top_k=dual_selector.top_k,
+                        absolute_threshold=dual_selector.absolute_threshold,
+                    )
+                else:
+                    engine = DualMomentumAllocatedSelectionEngine(
+                        risky_symbols=dual_selector.risky_symbols,
+                        defensive_symbols=dual_selector.defensive_symbols,
+                        allocation_method=dual_selector.allocation_method,
+                        lookback_months=dual_selector.lookback_months,
+                        top_k=dual_selector.top_k,
+                        absolute_threshold=dual_selector.absolute_threshold,
+                    )
                 decision = run_configured_selection(
                     period=period,
                     configured_universe=configured_universe,
@@ -540,7 +568,9 @@ def _selector_policy(selector: SelectorSpec) -> str:
     if isinstance(selector, WalkForwardSelectorSpec):
         return WALK_FORWARD_PUBLIC_SELECTOR_POLICY
     if isinstance(selector, DualMomentumSelectorSpec):
-        return WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY
+        if selector.allocation_method is None:
+            return WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY
+        return WALK_FORWARD_DUAL_MOMENTUM_ALLOCATION_SELECTOR_POLICY
     raise TypeError("unsupported Walk-Forward selector specification")
 
 
@@ -548,7 +578,9 @@ def _job_contract_version(selector: SelectorSpec) -> str:
     if isinstance(selector, WalkForwardSelectorSpec):
         return WALK_FORWARD_JOB_CONTRACT_VERSION
     if isinstance(selector, DualMomentumSelectorSpec):
-        return DUAL_MOMENTUM_JOB_CONTRACT_VERSION
+        if selector.allocation_method is None:
+            return DUAL_MOMENTUM_JOB_CONTRACT_VERSION
+        return DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION
     raise TypeError("unsupported Walk-Forward selector specification")
 
 
@@ -575,6 +607,15 @@ def _spec_payload(spec: WalkForwardJobSpec) -> dict[str, Any]:
             "weighting": "equal",
             "signalAuthority": "ResearchDataset.daily_levels_twd",
         }
+        if selector.allocation_method is not None:
+            selector_payload["allocationMethod"] = selector.allocation_method
+            selector_payload["weighting"] = selector.allocation_method
+            selector_payload["allocationReturnAuthority"] = (
+                "ResearchDataset.daily_returns_twd"
+            )
+            selector_payload["allocationCovarianceAuthority"] = (
+                f"{RISK_MATH_CONTRACT_VERSION}/ledoit-wolf"
+            )
     else:
         raise TypeError("unsupported Walk-Forward selector specification")
 

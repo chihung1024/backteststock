@@ -1,4 +1,5 @@
 export type WalkForwardStrategy = "exhaustive" | "dual_momentum";
+export type WalkForwardAllocationMethod = "equal" | "inverse_volatility" | "risk_parity_erc";
 
 export interface WalkForwardPeriodDraft {
   id: string;
@@ -11,8 +12,9 @@ export interface WalkForwardPeriodDraft {
 }
 
 export interface WalkForwardWorkspaceModel {
-  schemaVersion: 2;
+  schemaVersion: 3;
   strategy: WalkForwardStrategy;
+  allocationMethod: WalkForwardAllocationMethod;
   universe: string;
   benchmark: string;
   holdingCount: number;
@@ -53,6 +55,7 @@ export interface WalkForwardDualMomentumSelectorRequest {
   lookbackMonths: number;
   topK: number;
   absoluteThreshold: number;
+  allocationMethod: WalkForwardAllocationMethod;
 }
 
 export type WalkForwardApiSelectorRequest =
@@ -74,6 +77,7 @@ export interface WalkForwardHealthResponse {
   api_contract_version: string;
   job_contract_version: string;
   dual_momentum_job_contract_version?: string;
+  dual_momentum_allocation_job_contract_version?: string;
   deployment_sha: string;
 }
 
@@ -153,6 +157,38 @@ export interface WalkForwardMomentumRankingEvidence {
   absolutePass?: boolean;
 }
 
+export interface WalkForwardAllocationEvidence {
+  contractVersion: string;
+  riskMathContractVersion: string;
+  method: WalkForwardAllocationMethod;
+  symbols: string[];
+  weights: number[];
+  status: string;
+  inputObservations: number;
+  completeCaseObservations: number;
+  minimumCompleteCaseObservations: number;
+  returnFrequency: string;
+  valuationCurrency: string;
+  covariance: null | {
+    method: string | null;
+    annualization: number | null;
+    shrinkage: number | null;
+    isPsd: boolean | null;
+    numericalRank: number | null;
+    conditionNumber: number | null;
+  };
+  portfolioVolatility: number | null;
+  componentRisk: number[] | null;
+  riskBudgetShares: number[] | null;
+  solver: null | {
+    algorithm: string;
+    iterations: number | null;
+    maxAbsRiskBudgetError: number | null;
+    tolerance: number;
+    maxIterations: number;
+  };
+}
+
 export interface WalkForwardSelectionEvidence {
   contractVersion?: string;
   signalAsOf?: string;
@@ -165,6 +201,7 @@ export interface WalkForwardSelectionEvidence {
   riskyRanking?: WalkForwardMomentumRankingEvidence[];
   defensiveRanking?: WalkForwardMomentumRankingEvidence[];
   selected?: string[];
+  allocation?: WalkForwardAllocationEvidence;
   [key: string]: unknown;
 }
 
