@@ -46,6 +46,7 @@ export function WalkForwardAdmissionWorkspace() {
   const [state, setState] = useState<AdmissionState>("loading");
   const [admission, setAdmission] = useState<WalkForwardAdmissionResponse | null>(null);
   const [revision, setRevision] = useState(0);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -63,7 +64,7 @@ export function WalkForwardAdmissionWorkspace() {
   }, []);
 
   function applyRecommended() {
-    if (!admission || !persistRecommended(admission)) return;
+    if (workspaceBusy || !admission || !persistRecommended(admission)) return;
     setRevision((current) => current + 1);
   }
 
@@ -91,7 +92,7 @@ export function WalkForwardAdmissionWorkspace() {
               </div>
             </div>
             <div className="section-actions">
-              <button type="button" className="secondary" disabled={!admission.recommended} onClick={applyRecommended}>套用可執行預設</button>
+              <button type="button" className="secondary" disabled={workspaceBusy || !admission.recommended} onClick={applyRecommended}>套用可執行預設</button>
             </div>
           </div>
           {admission.recommended ? (
@@ -120,7 +121,7 @@ export function WalkForwardAdmissionWorkspace() {
           <p>工作區仍可使用；正式研究送出時後端會維持 fail-closed 驗證。</p>
         </div>
       )}
-      <WalkForwardWorkspace key={revision} />
+      <WalkForwardWorkspace key={revision} onBusyChange={setWorkspaceBusy} />
     </>
   );
 }

@@ -1,5 +1,13 @@
 import router from "./router.js";
 import {
+  RESEARCH_RUN_HEALTH_PATH,
+  getResearchRunHealth,
+} from "./research_run_health.js";
+import {
+  RESEARCH_RUNS_PATH,
+  handleResearchRunRequest,
+} from "./research_runs.js";
+import {
   WALK_FORWARD_ADMISSION_PATH,
   getWalkForwardAdmission,
 } from "./walk_forward_admission.js";
@@ -138,11 +146,53 @@ async function proxyWalkForward(request, env) {
   }
 }
 
-export { proxyWalkForward };
+function executeTrustedWalkForward(executionRequest, env, sourceRequest) {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  // Preserve only Cloudflare's trusted client identity so the existing backend
+  // rate-limit authority remains per client. Never propagate browser credentials.
+  const clientIp = sourceRequest?.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("cf-connecting-ip", clientIp);
+  const request = new Request(`https://research-run.internal${WALK_FORWARD_PATH}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(executionRequest),
+  });
+  return proxyWalkForward(request, env);
+}
+
+async function routeResearchRun(request, env) {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === RESEARCH_RUN_HEALTH_PATH) {
+    const requestId = crypto.randomUUID();
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+    }
+    return getResearchRunHealth(env, requestId);
+  }
+  try {
+    return await handleResearchRunRequest(
+      request,
+      env,
+      (executionRequest) => executeTrustedWalkForward(executionRequest, env, request),
+    );
+  } catch (error) {
+    const requestId = crypto.randomUUID();
+    console.error("ResearchRun route failure", { requestId, message: String(error) });
+    return jsonResponse({ error: "ResearchRun durable store 暫時無法使用。" }, 503, requestId);
+  }
+}
+
+export { executeTrustedWalkForward, proxyWalkForward, routeResearchRun };
 
 export default {
   async fetch(request, env, context) {
     const pathname = new URL(request.url).pathname;
+    if (pathname === RESEARCH_RUNS_PATH || pathname.startsWith(`${RESEARCH_RUNS_PATH}/`)) {
+      return routeResearchRun(request, env);
+    }
     if (pathname === WALK_FORWARD_PATH || pathname.startsWith(`${WALK_FORWARD_PATH}/`)) {
       return proxyWalkForward(request, env);
     }
