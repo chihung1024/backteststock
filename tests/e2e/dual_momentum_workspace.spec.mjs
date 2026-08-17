@@ -230,7 +230,8 @@ test("Dual Momentum workspace builds a causal monthly request and renders signal
   await expect(page.getByRole("heading", { name: "Defensive relative momentum" })).toBeVisible();
   await expect(page.getByText("QQQ 33.33% · SMH 33.33% · SPY 33.33%")).toBeVisible();
   await expect(page.getByText("55.00%")).toBeVisible();
-  await expect(page.getByText("PASS", { exact: true })).toBeVisible();
+  const qqqRiskyRow = page.getByRole("row").filter({ hasText: "QQQ" });
+  await expect(qqqRiskyRow.getByRole("cell", { name: "PASS", exact: true })).toBeVisible();
   await expect(page.getByText("Dual Momentum authority boundary")).toBeVisible();
 
   await page.getByText("查看完整 provenance").click();
