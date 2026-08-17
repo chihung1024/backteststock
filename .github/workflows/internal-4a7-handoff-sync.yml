@@ -1,0 +1,180 @@
+name: Internal 4A-7 Handoff Sync
+
+on:
+  push:
+    branches:
+      - internal-4a7-research-memory-finalize
+    paths:
+      - ".github/workflows/internal-4a7-handoff-sync.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Prepend current 4A-7 operational truth without removing history
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('to_do_update_list.md')
+          text = path.read_text(encoding='utf-8')
+          title = '# BacktestStock — Live Project Status & Handoff\n'
+          if not text.startswith(title):
+              raise SystemExit('unexpected handoff title')
+          marker = '## 0. Current Operational Truth — 2026-08-17 (4A-7 Research Memory)'
+          if marker in text:
+              raise SystemExit('current 4A-7 block already exists')
+          block = r'''
+
+## 0. Current Operational Truth — 2026-08-17 (4A-7 Research Memory)
+
+> This block supersedes older operational snapshots below where they conflict. Historical sections are intentionally retained. Mutable GitHub / CI / Vercel / Cloudflare / runtime truth must still be re-queried before important writes.
+
+### Production baseline
+
+```text
+main@5182170fcbee40f044fb0f4a3231cf1fff4e22a9
+PR #164 squash-merged
+recovery: backup-post-pr164-5182170fcbee
+```
+
+Production remains unchanged during 4A-7 development. Re-verified remote baseline:
+
+- main CI #872: SUCCESS;
+- Vercel production deployment for the same main SHA: SUCCESS;
+- Cloudflare deployment #78 for the same main SHA: SUCCESS;
+- real production Walk-Forward acceptance completed before 4A-7 started.
+
+### Primary Goal
+
+**4A-7 — ResearchRun / Research Memory**: turn a one-off authoritative Walk-Forward result into a durable Research Library that can save, load, inspect lineage and rerun the exact accepted research request without creating a second calculation or research authority.
+
+Priority remains functionality / UX / durable authority first. No unrelated cleanup is in the active batch.
+
+### Current Phase / Batch
+
+Status: **4A-7A RELIABILITY + 4A-7B PRODUCT UX INTERNALLY VERIFIED / FORMAL PR GATES NEXT**.
+
+Verified final internal candidate:
+
+```text
+internal-4a7-research-memory-finalize@93c85c5c5de46384b1c1078345638cd5aaf1dc92
+Internal Research Library Product Verify #3
+run 31998851073: SUCCESS
+```
+
+4A-7A reliability boundary now includes:
+
+- `GET /api/v1/research/runs/health` as a read-only D1/schema probe; it creates no ResearchRun data;
+- unexpected top-level ResearchRun durable-store/runtime failures converge to a structured 503 instead of uncaught Worker failure;
+- local D1 migration rehearsal applies 0001 → 0005 from an empty state and confirms both ResearchRun tables;
+- Cloudflare Wrangler production bundle dry-run succeeds.
+
+4A-7B user-visible loop now includes:
+
+- `執行並保存` through the existing Walk-Forward authority, then durable D1 persistence;
+- Research Library history, durable detail loading and explicit run identity / source lineage / jobHash;
+- existing `WalkForwardResults` remains the renderer for Decision / selected constituents / OOS evidence and metrics;
+- rerun sends no replacement research request and executes the D1-saved accepted request;
+- first-library recovery code presentation, copy/export, server-validated import and device-only forget semantics;
+- localStorage is limited to the capability credential / workspace convenience state and is not ResearchRun truth;
+- loading / cancellation / credential-invalid / stale-response protection plus 390px mobile containment;
+- Research Library operations lock conflicting workspace/admission edits while the durable operation is pending.
+
+### Authority / Architecture Notes
+
+- D1 is durable ResearchRun authority.
+- `run_id` is ResearchRun identity; `jobHash` remains immutable completed-result identity and is not reused as run identity.
+- Browser never submits completed result evidence, jobHash, decisionHash or ledger for persistence.
+- Raw recovery capability is never stored in D1; only SHA-256 hash material is durable.
+- Research Library capability is consumed by the Worker and is never forwarded to the Walk-Forward backend/Vercel.
+- First library creation occurs only after a successful authoritative Walk-Forward execution.
+- Rerun is bound to `execution_request_json` already stored by D1 and creates a new run with `source_run_id` lineage.
+- `research_runs.library_id` uses `ON DELETE CASCADE`, enabling an isolated production acceptance library to be fully cleaned after verification.
+
+### Root Cause Log — 4A-7
+
+1. **Test harness fetch normalization** — initial Worker regression was caused by a mock that assumed `fetch()` always receives a `Request`; production correctly used standard `fetch(URL, init)`. Fixed only in the harness; no runtime workaround added.
+2. **Portfolio clean-build dependency** — `vite.config.ts` imported `@vitejs/plugin-react`, but the package manifest/lock did not declare it. A clean runner therefore passed TypeScript but could not execute the production Vite build. Root fix: declare and lock `@vitejs/plugin-react` 6.0.4; clean `npm ci` + production build now succeed.
+3. **Research Library cancel/stale race** — relying only on `AbortController` allowed a transport that ignored AbortSignal to resolve late and potentially refill cancelled evidence. Root fix: operation generation/version authority rejects late responses after cancel/forget/unmount; regression reproduces a transport that ignores AbortSignal.
+4. **Concurrent internal writers** — two temporary internal workflows advanced the same branch during verification. Unknown-changes protection correctly rejected the stale push; no force/reset was used. Final verification was isolated on `internal-4a7-research-memory-finalize`.
+
+### Verification
+
+Internal exact candidate gate `31998851073` completed SUCCESS with:
+
+- clean `npm ci`;
+- JavaScript checks + score regressions;
+- Worker authority/security suite: 118 / 118 PASS;
+- D1 migrations 0001 → 0005 from empty local state and schema existence checks;
+- Portfolio TypeScript check + production Vite build;
+- Cloudflare Wrangler dry-run;
+- 15 targeted browser cases covering Walk-Forward admission/execution/cancel/mobile and Research Library create/history/detail/rerun/recovery/concurrency/mobile/stale-response race;
+- temporary verification workflows/scripts self-removed from the final tree.
+
+### NOW
+
+```text
+create formal feat/4a7-research-memory candidate from this verified tree
+→ Draft PR against current main
+→ exact-head repository CI + one intended Vercel Preview
+→ independent R3 exact-head review
+→ merge only if no BLOCKER and required gates are green
+```
+
+### NEXT — only after merge
+
+```text
+re-query exact main
+→ apply remote D1 migration 0005
+→ verify main CI + exact-SHA Vercel production + Cloudflare production
+→ production read-only ResearchRun health
+→ isolated create/list/detail/rerun-lineage acceptance
+→ delete isolated test library (cascade removes its runs)
+→ create stable post-merge recovery checkpoint
+→ mark 4A-7 CLOSED
+```
+
+### BACKLOG / Deferred
+
+- `npm audit` currently reports one high-severity dependency finding during clean install. It was not auto-fixed in this functional batch because there is no evidence yet that it is introduced by 4A-7 or reachable in production. Perform separate evidence-based security triage; promote immediately if exploitability/reachability makes it a Critical item.
+
+### REJECT / Do Not Do
+
+- no localStorage ResearchRun/result authority;
+- no browser-submitted completed evidence;
+- no second Walk-Forward calculator or result reconstruction;
+- no rerun request mutation;
+- no production D1 migration before merge gates;
+- no CI bypass / weakened tests / force-push over unknown changes;
+- no unrelated refactor or dependency cleanup in 4A-7.
+
+---
+'''
+          path.write_text(title + block + text[len(title):], encoding='utf-8')
+          PY
+
+      - name: Validate handoff convergence
+        run: |
+          grep -q 'main@5182170fcbee40f044fb0f4a3231cf1fff4e22a9' to_do_update_list.md
+          grep -q 'run 31998851073: SUCCESS' to_do_update_list.md
+          grep -q '118 / 118 PASS' to_do_update_list.md
+          git diff --check
+
+      - name: Commit handoff and self-remove
+        run: |
+          git fetch origin internal-4a7-research-memory-finalize
+          test "$(git rev-parse origin/internal-4a7-research-memory-finalize)" = "$GITHUB_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- to_do_update_list.md
+          git rm -- .github/workflows/internal-4a7-handoff-sync.yml
+          git commit -m "docs: sync 4A-7 Research Memory handoff"
+          git push origin HEAD:internal-4a7-research-memory-finalize
