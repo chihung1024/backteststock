@@ -162,15 +162,15 @@ test("Walk-Forward settings expose causal API inputs and fail closed before requ
 
   await expect(page.getByText("Walk-Forward API 正常")).toBeVisible();
   await expect(page.getByText("因果設定有效")).toBeVisible();
-  await expect(page.getByLabel("Walk-Forward Universe")).toHaveValue("sp500");
+  await expect(page.getByLabel("Walk-Forward Universe")).toHaveValue("soxx");
   await expect(page.getByLabel("Walk-Forward Benchmark")).toHaveValue("SPY");
-  await expect(page.getByLabel("Walk-Forward 持股檔數")).toHaveValue("10");
+  await expect(page.getByLabel("Walk-Forward 持股檔數")).toHaveValue("5");
 
   await page.getByText("查看標準化 API Request").click();
   const requestPreview = page.locator(".wf-request-preview pre");
-  await expect(requestPreview).toContainText('"universe": "sp500"');
+  await expect(requestPreview).toContainText('"universe": "soxx"');
   await expect(requestPreview).toContainText('"benchmark": "SPY"');
-  await expect(requestPreview).toContainText('"holdingCount": 10');
+  await expect(requestPreview).toContainText('"holdingCount": 5');
   await expect(requestPreview).toContainText('"initialAmountTwd": 100000');
 
   const holdingCount = page.getByLabel("Walk-Forward 持股檔數");
@@ -178,7 +178,7 @@ test("Walk-Forward settings expose causal API inputs and fail closed before requ
   await expect(page.getByText("持股檔數必須是 1–20 的整數。")).toBeVisible();
   await expect(page.getByRole("button", { name: "複製 Request" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "執行研究" })).toBeDisabled();
-  await holdingCount.fill("10");
+  await holdingCount.fill("5");
 
   const decision = page.getByLabel("Period 1 Decision 日期");
   const evaluationStart = page.getByLabel("Period 1 Evaluation 起始日");
@@ -198,7 +198,7 @@ test("Walk-Forward execution posts the normalized request and renders authoritat
   await expect(page.getByRole("heading", { name: "Continuous OOS 結果" })).toBeVisible();
 
   const capturedRequest = requestSnapshot();
-  expect(capturedRequest.selector).toEqual({ universe: "sp500", benchmark: "SPY", holdingCount: 10 });
+  expect(capturedRequest.selector).toEqual({ universe: "soxx", benchmark: "SPY", holdingCount: 5 });
   expect(capturedRequest.execution).toEqual({ initialAmountTwd: 100000, transitionCostBps: 5 });
   expect(capturedRequest.periods).toHaveLength(1);
   expect(capturedRequest.periods[0].evaluationStart > capturedRequest.periods[0].decisionDate).toBe(true);

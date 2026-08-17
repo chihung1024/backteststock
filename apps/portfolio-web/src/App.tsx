@@ -15,7 +15,7 @@ import {
 import { RefineryWorkspace } from "./RefineryWorkspace";
 import { ResultsDashboard } from "./ResultsDashboard";
 import { SettingsPanels } from "./SettingsPanels";
-import { WalkForwardWorkspace } from "./WalkForwardWorkspace";
+import { WalkForwardAdmissionWorkspace } from "./WalkForwardAdmissionWorkspace";
 import type { WorkspaceKind } from "./workspaceTypes";
 import type {
   BacktestResponse,
@@ -437,7 +437,7 @@ export default function App() {
         ) : workspaceKind === "refinery" ? (
           <RefineryWorkspace />
         ) : (
-          <WalkForwardWorkspace />
+          <WalkForwardAdmissionWorkspace />
         )}
       </main>
 

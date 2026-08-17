@@ -85,8 +85,40 @@ async function waitForWalkForwardHealth() {
   throw new Error(`Walk-Forward health did not reach expected deployment ${expectedSha}: ${last}`);
 }
 
+async function readExecutableAdmission() {
+  const response = await fetch(`${workerOrigin}/api/v1/research/walk-forward/admission`, {
+    headers: { "cache-control": "no-store" },
+  });
+  const payload = await readJson(response);
+  const recommendation = payload?.recommended;
+  const universe = Array.isArray(payload?.universes)
+    ? payload.universes.find((item) => item?.id === recommendation?.universe)
+    : null;
+  const valid = response.status === 200
+    && response.headers.get("cache-control")?.includes("no-store")
+    && response.headers.get("x-walk-forward-admission-contract-version") === payload?.contractVersion
+    && typeof payload?.contractVersion === "string"
+    && typeof payload?.asOfDate === "string"
+    && recommendation
+    && universe?.status === "eligible"
+    && Number.isInteger(recommendation.holdingCount)
+    && recommendation.holdingCount >= 1
+    && recommendation.holdingCount <= Number(payload?.limits?.maxHoldingCount)
+    && Number.isInteger(recommendation.memberCount)
+    && recommendation.memberCount <= Number(payload?.limits?.maxCandidates)
+    && Number.isFinite(recommendation.combinationCount)
+    && recommendation.combinationCount <= Number(payload?.limits?.maxCombinationsPerPeriod)
+    && recommendation.decisionDate >= universe.earliestDecisionDate
+    && recommendation.decisionDate <= universe.latestDecisionDate;
+  if (!valid) {
+    throw new Error(`Walk-Forward admission is not executable: status=${response.status} body=${JSON.stringify(payload)}`);
+  }
+  return payload;
+}
+
 const authority = await waitForAuthority();
 const health = await waitForWalkForwardHealth();
+const admission = await readExecutableAdmission();
 console.log(JSON.stringify({
   status: "ok",
   expectedDeploymentSha: expectedSha,
@@ -94,4 +126,9 @@ console.log(JSON.stringify({
   bridgeVersion: authority.bridgeVersion,
   apiContractVersion: health.api_contract_version,
   jobContractVersion: health.job_contract_version,
+  admissionContractVersion: admission.contractVersion,
+  recommendedUniverse: admission.recommended.universe,
+  recommendedDecisionDate: admission.recommended.decisionDate,
+  recommendedHoldingCount: admission.recommended.holdingCount,
+  recommendedCombinationCount: admission.recommended.combinationCount,
 }));

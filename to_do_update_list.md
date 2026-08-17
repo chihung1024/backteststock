@@ -4,6 +4,122 @@
 
 Last updated: **2026-08-17**
 
+## 0. Current Operational Truth — 2026-08-17
+
+> This section is the current repository handoff. Older phase/PR narratives below are historical snapshots where they conflict with this block. Mutable GitHub/CI/Vercel/Cloudflare truth must still be re-queried before writes.
+
+### Production baseline
+
+```text
+main@78bc79095140fd477b667aad3ea51ba04c364dcc
+feat: add Walk-Forward research workspace (#163)
+```
+
+Batch 4A-6 is **CLOSED / SQUASH-MERGED / POST-MAIN VERIFIED / PRODUCTION EXACT-SHA VERIFIED**.
+
+Recovery:
+
+```text
+backup-post-pr163-78bc79095140
+```
+
+Verified on exact main:
+
+- main CI #870 SUCCESS;
+- Vercel production SUCCESS;
+- Cloudflare deployment #77 SUCCESS;
+- Worker/static production `https://backteststock.chired.workers.dev`;
+- Cloudflare Version ID `0cc729c6-0bc5-4671-8894-d46cf5390978`;
+- Russell 2000, Portfolio v3, Walk-Forward route/health and Refinery production smokes SUCCESS.
+
+### Active correctness fix — Batch 4A-6.1 Walk-Forward Executable Admission
+
+Status: **INTERNAL CANDIDATE VERIFIED / FINAL RELEASE CANDIDATE PENDING**.
+
+Internal branch:
+
+```text
+internal-4a7-research-run-memory
+```
+
+Root cause found after 4A-6 production verification: the browser's first-run default was structurally valid but predictably non-executable under the already-versioned backend contract.
+
+Production D1 audit evidence (2026-08-17):
+
+- `sp500`: 504–505 members and proxy membership → public Walk-Forward must reject;
+- `russell2000`: 1963–1964 members and proxy membership → must reject;
+- `nasdaq100`: 102–103 authoritative members → above the 100-candidate ceiling;
+- `soxx`: 30 authoritative members → currently admissible;
+- causal PIT archive availability begins 2026-07-29, while the old UI default Decision was about 180 days earlier;
+- `30 choose 10 = 30,045,015` exceeds the 500,000 combination ceiling;
+- `30 choose 5 = 142,506` fits the ceiling.
+
+Therefore `sp500 / 10 holdings / ~180-day-old Decision` could not be a valid product default. Backend correctness was preserved because it failed closed; the defect is first-run functionality/UX admission correctness, not incorrect research output.
+
+Systemic correction implemented:
+
+- new D1-derived `GET /api/v1/research/walk-forward/admission` contract `walk-forward-admission-2026-08-17.1`;
+- explicit `eligible` / blocked reasons for proxy membership, candidate ceiling, causal snapshot window and combination budget;
+- recommended holding count is derived from exact combination capacity, without changing Exhaustive scoring/ranking;
+- new/known-legacy-impossible browser defaults bootstrap from live admission before Walk-Forward mounts;
+- arbitrary user-authored settings are not silently overwritten;
+- explicit `套用可執行預設` recovery action;
+- admission remains an early D1 product guard; `POST /api/v1/research/walk-forward` remains final fail-closed authority;
+- production deploy smoke now requires a real executable admission recommendation instead of checking health only.
+
+Canonical contract:
+
+```text
+docs/research/WALK_FORWARD_ADMISSION_V1.md
+```
+
+Internal evidence:
+
+- production PIT audit workflow #31993730152 SUCCESS;
+- admission source/Worker/TypeScript/Vite + 8 targeted browser cases workflow #31994444117 SUCCESS;
+- generated `/portfolio/` assets synchronized from the same verified source;
+- all temporary audit/verifier workflows self-remove from the final diff;
+- no Vercel Preview consumed by the internal branch.
+
+### NOW
+
+Close 4A-6.1 without expanding methodology:
+
+```text
+final internal regression + diff audit
+→ one squash fix/walk-forward-admission-correctness candidate from current main
+→ one Vercel Preview + full repository CI
+→ independent exact-head review
+→ squash merge only with gates green
+→ post-main recovery + main CI + Vercel/Cloudflare exact-SHA verification
+→ one-time real recommended Walk-Forward execution acceptance
+```
+
+### NEXT — ResearchRun / research memory
+
+After 4A-6.1 production closure, resume durable research memory. Locked direction from the architecture review:
+
+- `jobHash` remains immutable completed-result identity; it is **not** a ResearchRun id;
+- introduce separate durable `run_id`;
+- D1, not browser localStorage, is durable run authority;
+- browser must never be allowed to submit an arbitrary `completed result` for persistence;
+- first implementation should use a capability-scoped Research Library because the public site has no existing user/session authority;
+- Worker trusted path executes the existing Walk-Forward backend first and persists only backend-produced completed results;
+- store the exact accepted execution request separately from normalized result payload so reruns do not depend on reconstructing a strict API request from result JSON;
+- future account authentication may attach to a Research Library without changing `run_id` or `jobHash` semantics.
+
+### REJECT / DO NOT DO
+
+- do not hard-code one SOXX date as the fix;
+- do not truncate >100 PIT candidates;
+- do not turn proxy membership into authoritative truth;
+- do not change Exhaustive scoring/ranking or Portfolio math for this admission fix;
+- do not make localStorage a research-memory authority;
+- do not add OAuth merely as infrastructure before ResearchRun requires account semantics;
+- do not reintroduce temporary verifier workflows into final diffs.
+
+---
+
 ## 1. North Star
 
 Build BacktestStock into a:

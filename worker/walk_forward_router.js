@@ -1,4 +1,8 @@
 import router from "./router.js";
+import {
+  WALK_FORWARD_ADMISSION_PATH,
+  getWalkForwardAdmission,
+} from "./walk_forward_admission.js";
 
 const WALK_FORWARD_PATH = "/api/v1/research/walk-forward";
 const WALK_FORWARD_HEALTH_PATH = `${WALK_FORWARD_PATH}/health`;
@@ -78,10 +82,17 @@ async function boundedBody(request, requestId) {
 async function proxyWalkForward(request, env) {
   const requestId = crypto.randomUUID();
   const incomingUrl = new URL(request.url);
+  const isAdmission = incomingUrl.pathname === WALK_FORWARD_ADMISSION_PATH;
   const isHealth = incomingUrl.pathname === WALK_FORWARD_HEALTH_PATH;
   const isRun = incomingUrl.pathname === WALK_FORWARD_PATH;
-  if (!isHealth && !isRun) {
+  if (!isAdmission && !isHealth && !isRun) {
     return jsonResponse({ error: "找不到 Walk-Forward API 路徑。" }, 404, requestId);
+  }
+  if (isAdmission) {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "不支援此 HTTP 方法。" }, 405, requestId);
+    }
+    return getWalkForwardAdmission(env, requestId);
   }
   const expectedMethod = isHealth ? "GET" : "POST";
   if (request.method !== expectedMethod) {

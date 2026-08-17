@@ -1,4 +1,5 @@
 import type {
+  WalkForwardAdmissionResponse,
   WalkForwardApiRequest,
   WalkForwardHealthResponse,
   WalkForwardResultResponse,
@@ -31,7 +32,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
   if (!response.ok) {
     const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-    throw new WalkForwardApiError(String(record.detail ?? `HTTP ${response.status}`), response.status);
+    throw new WalkForwardApiError(
+      String(record.detail ?? record.error ?? `HTTP ${response.status}`),
+      response.status,
+    );
   }
   return payload as T;
 }
@@ -43,6 +47,15 @@ export async function checkWalkForwardHealth(signal?: AbortSignal): Promise<Walk
     ...(signal ? { signal } : {}),
   });
   return parseResponse<WalkForwardHealthResponse>(response);
+}
+
+export async function getWalkForwardAdmission(signal?: AbortSignal): Promise<WalkForwardAdmissionResponse> {
+  const response = await fetch(`${WALK_FORWARD_API_PREFIX}/admission`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    ...(signal ? { signal } : {}),
+  });
+  return parseResponse<WalkForwardAdmissionResponse>(response);
 }
 
 export async function runWalkForward(

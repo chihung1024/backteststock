@@ -53,6 +53,44 @@ export interface WalkForwardHealthResponse {
   deployment_sha: string;
 }
 
+export type WalkForwardAdmissionStatus = "eligible" | "blocked";
+
+export interface WalkForwardAdmissionUniverse {
+  id: string;
+  name: string;
+  status: WalkForwardAdmissionStatus;
+  reason?: string;
+  minimumMemberCount?: number;
+  earliestDecisionDate?: string;
+  latestDecisionDate?: string;
+  recommendedDecisionDate?: string;
+  recommendedMemberCount?: number;
+  recommendedHoldingCount?: number;
+  recommendedCombinationCount?: number;
+  sourceAsOf?: string;
+  evidenceAvailableAsOf?: string;
+  version?: string;
+}
+
+export interface WalkForwardAdmissionResponse {
+  contractVersion: string;
+  asOfDate: string;
+  limits: {
+    maxCandidates: number;
+    maxCombinationsPerPeriod: number;
+    maxHoldingCount: number;
+    pitMaxAgeDays: number;
+  };
+  universes: WalkForwardAdmissionUniverse[];
+  recommended: null | {
+    universe: string;
+    decisionDate: string;
+    holdingCount: number;
+    memberCount: number;
+    combinationCount: number;
+  };
+}
+
 export type WalkForwardMetricValue = number | string | null;
 
 export interface WalkForwardDecisionResponse {
