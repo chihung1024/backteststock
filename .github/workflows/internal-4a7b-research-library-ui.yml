@@ -1,0 +1,179 @@
+name: Internal Research Library UX Verify
+
+on:
+  push:
+    branches:
+      - internal-4a7-research-memory
+    paths:
+      - ".github/workflows/internal-4a7b-research-library-ui.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  integrate-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: internal-4a7-research-memory
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Integrate Research Library into Walk-Forward workspace
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/portfolio-web/src/WalkForwardWorkspace.tsx")
+          text = path.read_text(encoding="utf-8")
+
+          old = 'import { WalkForwardResults } from "./WalkForwardResults";'
+          new = 'import { ResearchLibraryPanel } from "./ResearchLibraryPanel";\nimport { WalkForwardResults } from "./WalkForwardResults";'
+          if old not in text:
+              raise SystemExit("results import anchor not found")
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+              '  canRemove,\n  onChange,',
+              '  canRemove,\n  disabled,\n  onChange,',
+              1,
+          )
+          text = text.replace(
+              '  canRemove: boolean;\n  onChange:',
+              '  canRemove: boolean;\n  disabled: boolean;\n  onChange:',
+              1,
+          )
+          text = text.replace('disabled={!canRemove}', 'disabled={disabled || !canRemove}', 1)
+          text = text.replace(
+              '          maxLength={80}\n          onChange=',
+              '          maxLength={80}\n          disabled={disabled}\n          onChange=',
+              1,
+          )
+          text = text.replace('<input type="date" aria-label=', '<input type="date" disabled={disabled} aria-label=')
+
+          state_anchor = '  const [busy, setBusy] = useState(false);\n'
+          if state_anchor not in text:
+              raise SystemExit("busy state anchor not found")
+          text = text.replace(state_anchor, state_anchor + '  const [libraryBusy, setLibraryBusy] = useState(false);\n', 1)
+
+          latest_anchor = '  const latestComplete = latestCompleteUtcDate();\n'
+          if latest_anchor not in text:
+              raise SystemExit("latest anchor not found")
+          text = text.replace(latest_anchor, latest_anchor + '  const workspaceBusy = busy || libraryBusy;\n', 1)
+
+          text = text.replace('disabled={busy ||', 'disabled={workspaceBusy ||')
+          text = text.replace('disabled={busy}', 'disabled={workspaceBusy}')
+          text = text.replace('className={busy ? "wf-period-list busy" : "wf-period-list"}', 'className={workspaceBusy ? "wf-period-list busy" : "wf-period-list"}')
+          text = text.replace('canRemove={!busy && model.periods.length > 1}', 'canRemove={model.periods.length > 1}\n              disabled={workspaceBusy}', 1)
+
+          cancel_anchor = '''  function cancelResearch() {
+            requestVersion.current += 1;
+            activeController.current?.abort();
+            activeController.current = null;
+            setBusy(false);
+            setMessage("已取消目前的 Walk-Forward 請求；未完成的結果不會保留。 ");
+          }
+          '''
+          if cancel_anchor not in text:
+              raise SystemExit("cancel anchor not found")
+          helpers = cancel_anchor + '''
+          function setResearchLibraryBusy(nextBusy: boolean) {
+            setLibraryBusy(nextBusy);
+            if (!nextBusy) return;
+            requestVersion.current += 1;
+            activeController.current?.abort();
+            activeController.current = null;
+            setBusy(false);
+            setResult(null);
+            setError("");
+            setMessage("");
+          }
+
+          function showResearchLibraryResult(nextResult: WalkForwardResultResponse, nextMessage: string) {
+            setResult(nextResult);
+            setError("");
+            setMessage(nextMessage);
+            window.requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+          }
+          '''
+          text = text.replace(cancel_anchor, helpers, 1)
+
+          result_anchor = '      <div ref={resultRef}>{result && <WalkForwardResults result={result} />}</div>\n'
+          if result_anchor not in text:
+              raise SystemExit("result anchor not found")
+          panel = '''      <ResearchLibraryPanel
+            request={request}
+            disabled={workspaceBusy}
+            onBusyChange={setResearchLibraryBusy}
+            onResult={showResearchLibraryResult}
+          />
+
+          ''' + result_anchor
+          text = text.replace(result_anchor, panel, 1)
+
+          signature = 'export function WalkForwardWorkspace() {'
+          if signature not in text:
+              raise SystemExit("workspace signature not found")
+          text = text.replace(
+              signature,
+              'export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) {',
+              1,
+          )
+          effect_anchor = '  useEffect(() => () => activeController.current?.abort(), []);\n'
+          if effect_anchor not in text:
+              raise SystemExit("cleanup effect anchor not found")
+          text = text.replace(
+              effect_anchor,
+              effect_anchor + '\n  useEffect(() => {\n    onBusyChange?.(workspaceBusy);\n    return () => onBusyChange?.(false);\n  }, [onBusyChange, workspaceBusy]);\n',
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          wrapper = Path("apps/portfolio-web/src/WalkForwardAdmissionWorkspace.tsx")
+          wrapper_text = wrapper.read_text(encoding="utf-8")
+          wrapper_text = wrapper_text.replace(
+              '  const [revision, setRevision] = useState(0);\n',
+              '  const [revision, setRevision] = useState(0);\n  const [workspaceBusy, setWorkspaceBusy] = useState(false);\n',
+              1,
+          )
+          wrapper_text = wrapper_text.replace(
+              '  function applyRecommended() {\n    if (!admission || !persistRecommended(admission)) return;',
+              '  function applyRecommended() {\n    if (workspaceBusy || !admission || !persistRecommended(admission)) return;',
+              1,
+          )
+          wrapper_text = wrapper_text.replace(
+              'disabled={!admission.recommended} onClick={applyRecommended}',
+              'disabled={workspaceBusy || !admission.recommended} onClick={applyRecommended}',
+              1,
+          )
+          wrapper_text = wrapper_text.replace(
+              '<WalkForwardWorkspace key={revision} />',
+              '<WalkForwardWorkspace key={revision} onBusyChange={setWorkspaceBusy} />',
+              1,
+          )
+          wrapper.write_text(wrapper_text, encoding="utf-8")
+          PY
+      - run: npm ci
+      - name: Check source and Worker authority
+        run: |
+          npm run check
+          npm run test:worker
+      - name: Type-check and build Portfolio
+        run: npm run check:portfolio
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test Walk-Forward and Research Library browser UX
+        run: npx playwright test tests/e2e/walk_forward_workspace.spec.mjs tests/e2e/walk_forward_admission.spec.mjs tests/e2e/research_library.spec.mjs --reporter=line
+      - name: Commit verified UI and assets, remove helper
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- apps/portfolio-web/src/WalkForwardWorkspace.tsx apps/portfolio-web/src/WalkForwardAdmissionWorkspace.tsx public/portfolio
+          git rm -- .github/workflows/internal-4a7b-research-library-ui.yml
+          git commit -m "feat: integrate durable Research Library UX"
+          git push origin HEAD:internal-4a7-research-memory
