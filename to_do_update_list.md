@@ -19,12 +19,13 @@ Production is unchanged during 4A-7. Re-verified baseline: main CI #872 SUCCESS,
 
 **4A-7 — ResearchRun / Research Memory** converts authoritative one-off Walk-Forward results into a durable Research Library without creating a second calculation or research authority.
 
-Status: **4A-7A RELIABILITY + 4A-7B PRODUCT UX INTERNALLY VERIFIED / FORMAL PR GATES NEXT**.
+Status: **4A-7A RELIABILITY + 4A-7B PRODUCT UX INTERNALLY VERIFIED / PR #165 EXACT-HEAD GATES NEXT**.
 
 ```text
-internal-4a7-research-memory-finalize@93c85c5c5de46384b1c1078345638cd5aaf1dc92
-Internal Research Library Product Verify #3
-run 31998851073: SUCCESS
+Draft PR #165: feat/4a7-research-memory
+final internal source: internal-4a7-context-boundary@717bdf46b7fa951fd39ffb00935c473a85d6ae9d
+Internal 4A-7 Context Boundary #3
+run 31999833266: SUCCESS
 ```
 
 Delivered candidate scope:
@@ -53,22 +54,25 @@ Delivered candidate scope:
 3. AbortController alone could not reject a late success when transport ignored AbortSignal. Root fix adds operation generation/version authority; regression reproduces the ignored-AbortSignal race.
 4. Concurrent internal writers advanced one branch during verification. Unknown-changes protection rejected the stale push; no force/reset occurred. Final candidate verification was isolated.
 5. Exact-PR self-review found the initial 4 MiB result guard exceeded Cloudflare D1's 2,000,000-byte string/row limit. Root fix budgets the full request plus a 64 KiB row reserve and rejects oversized completed evidence with 413 before any D1 write.
+6. ResearchRun's trusted synthetic Walk-Forward request initially lost Cloudflare client identity. The existing backend 2/minute rate limiter could therefore collapse unrelated users onto a shared Worker/serverless egress bucket. Root fix propagates only trusted `cf-connecting-ip` into the synthetic request so the existing proxy emits per-client `x-forwarded-for`; browser authorization/cookie/recovery credentials remain stripped.
+7. Capability auto-refresh, manual refresh and recovery-code connect originally relied on AbortController without the same operation-generation authority used by save/rerun. If a transport ignored AbortSignal, a late response could refill stale library state or persist an obsolete recovery code after workspace unmount. Root fix applies `operationVersion` + active-controller identity to these paths and adds a late-connect/unmount browser regression.
 
 ### Verification
 
-Exact internal gate `31998851073` SUCCESS:
+Final hardening gate `31999833266` SUCCESS:
 - clean `npm ci`;
-- JavaScript + score regressions;
-- Worker authority/security 118 / 118 PASS;
-- D1 migrations 0001 → 0005 from empty state + ResearchRun schema checks;
+- JavaScript checks;
+- Worker authority/security **120 / 120 PASS**, including D1 row-bound rejection and trusted per-client limiter identity without browser credential forwarding;
 - Portfolio TypeScript + production Vite build;
 - Cloudflare Wrangler dry-run;
-- 15 targeted Walk-Forward/Research Library browser cases including mobile, concurrency and stale-response race;
-- temporary product verifier/scripts removed from final tree.
+- **15 / 15 targeted browser PASS**, including save cancellation, late-connect/unmount credential race, admission, rate-limit UX, history/detail/rerun/recovery, concurrency and 390px mobile containment;
+- temporary context verifier/script removed from the final tree.
+
+Schema remained unchanged during the final context hardening. Earlier exact-candidate verification `31998851073` already rehearsed D1 migrations 0001 → 0005 from an empty local state and confirmed both ResearchRun tables.
 
 ### NOW
 
-`formal feat/4a7-research-memory → Draft PR → exact-head CI + intended Vercel Preview → independent R3 exact-head review → merge only with no BLOCKER and green required gates`.
+`fast-forward feat/4a7-research-memory to the verified final source → exact-head CI + intended Vercel Preview → mark PR #165 Ready → independent cchung911 R3 exact-head review → merge only with no BLOCKER and green required gates`.
 
 ### NEXT — only after merge
 
