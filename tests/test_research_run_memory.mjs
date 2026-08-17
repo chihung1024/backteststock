@@ -163,7 +163,7 @@ function sampleRequest(symbol = "soxx") {
 
 async function withBackend(handler, callback) {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = handler;
+  globalThis.fetch = (input, init) => handler(input instanceof Request ? input : new Request(input, init));
   try {
     return await callback();
   } finally {
