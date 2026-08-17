@@ -8,7 +8,8 @@
 ### Production baseline
 
 ```text
-main@3971244255fb3045a8cb6981a00acaccd1f8841b
+accepted product tree@3971244255fb3045a8cb6981a00acaccd1f8841b
+current main: re-query remote truth; closeout handoff may be a documentation-only descendant
 PR #165 Research Memory merged
 PR #166 Vercel missed-main-push recovery merged
 PR #167 release-retrigger closure merged
@@ -34,15 +35,15 @@ The product now provides a durable capability-scoped Research Library without cr
 3. A second release-chain gap was found: the repository already had `.vercel-redeploy-trigger`, but `deploy-cloudflare.yml` did not watch that marker. Therefore a Vercel recovery could leave the Cloudflare exact-SHA production gate un-run.
 4. PR #167 fixed the systemic gap by adding `.vercel-redeploy-trigger` to the existing Cloudflare production path filter. Exact-SHA Portfolio and Walk-Forward checks were not weakened or bypassed.
 
-### Exact current-main verification
+### Accepted product-tree verification
 
-Current production candidate `3971244255fb3045a8cb6981a00acaccd1f8841b` is verified:
+Accepted 4A-7 production product tree `3971244255fb3045a8cb6981a00acaccd1f8841b` is verified:
 - main CI **#880 / run 32003819948 — SUCCESS**;
 - Vercel production deployment `dpl_7xLAb9LCtibNeWsVCQfXUCGHmhw9` — READY, `target=production`, exact Git SHA `3971244255fb3045a8cb6981a00acaccd1f8841b`;
 - production Portfolio health returned exact `deployment_sha=3971244255fb3045a8cb6981a00acaccd1f8841b`;
 - Cloudflare production **#80 / run 32003819946 — SUCCESS**;
 - remote D1 migrations, Worker/static deploy, Russell 2000 smoke, Portfolio exact-SHA smoke, Walk-Forward exact-SHA routing smoke and Refinery smoke all passed;
-- GitHub combined statuses on the exact main are `Vercel: success` and `Cloudflare Worker: success`.
+- GitHub combined statuses on the accepted product-tree commit are `Vercel: success` and `Cloudflare Worker: success`.
 
 ### Real production ResearchRun acceptance
 
@@ -56,7 +57,7 @@ Temporary internal acceptance run **32004467822 / run #3 — SUCCESS** against t
 - raw library capability was never printed or persisted by the verifier;
 - `always()` production D1 cleanup deleted the isolated library and cascaded its runs;
 - final cleanup proof: `libraryCount=0`, `runCount=0`, `cascadeVerified=true`;
-- the temporary acceptance workflow self-removed; the internal acceptance branch is content-identical to current main after cleanup.
+- the temporary acceptance workflow self-removed; the internal acceptance branch is content-identical to the accepted product tree after cleanup.
 
 Two earlier acceptance attempts failed only in temporary verifier plumbing before any ResearchRun write: job-context use before runner allocation, then Node `require()` + top-level-await module ambiguity. Both were corrected in the verifier only; neither required product changes.
 
