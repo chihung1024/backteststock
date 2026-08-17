@@ -14,40 +14,58 @@ jobs:
   verify:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: internal-4a7-research-memory
           fetch-depth: 0
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
+
+      - name: Apply final candidate patch
+        run: node scripts/_internal_4a7_finalize.mjs
+
+      - name: Lock the declared Vite React build dependency
+        run: npm install --package-lock-only --ignore-scripts
+
       - run: npm ci
-      - name: Check JavaScript
-        run: npm run check
+
+      - name: Check JavaScript and score regressions
+        run: |
+          npm run check
+          npm run test:score
+
       - name: Test full Worker authority and ResearchRun memory
         run: npm run test:worker
-      - name: Apply D1 migrations locally
-        run: npx wrangler d1 migrations apply backteststock-universe --local
-      - name: Verify ResearchRun D1 schema
+
+      - name: Rehearse D1 migrations locally from an empty state
         run: |
+          rm -rf .wrangler/state
+          npx wrangler d1 migrations apply backteststock-universe --local
           npx wrangler d1 execute backteststock-universe --local --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('research_libraries','research_runs') ORDER BY name;"
-      - name: Type-check and build Portfolio
+
+      - name: Type-check and build Portfolio production assets
         run: npm run check:portfolio
+
       - name: Validate Cloudflare bundle
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+
       - name: Test Walk-Forward and Research Library UX
         run: npx playwright test tests/e2e/walk_forward_workspace.spec.mjs tests/e2e/walk_forward_admission.spec.mjs tests/e2e/research_library.spec.mjs tests/e2e/research_library_concurrency.spec.mjs --reporter=line
-      - name: Commit generated assets and remove verifier
-        if: success()
+
+      - name: Commit verified candidate and self-remove temporary verification
         run: |
+          git fetch origin internal-4a7-research-memory
+          test "$(git rev-parse origin/internal-4a7-research-memory)" = "$GITHUB_SHA"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- public/portfolio
-          git rm -- .github/workflows/internal-4a7b-verify.yml
-          git commit -m "chore: sync Research Library production assets"
+          git add -- package.json package-lock.json apps/portfolio-web/src/ResearchLibraryPanel.tsx tests/e2e/research_library_concurrency.spec.mjs public/portfolio
+          git rm -- .github/workflows/internal-4a7b-verify.yml .github/workflows/internal-4a7-finalize-research-library.yml scripts/_internal_4a7_finalize.mjs
+          git commit -m "fix: close Research Library stale-result boundary"
           git push origin HEAD:internal-4a7-research-memory
