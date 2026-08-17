@@ -1,5 +1,9 @@
 import router from "./router.js";
 import {
+  RESEARCH_RUNS_PATH,
+  handleResearchRunRequest,
+} from "./research_runs.js";
+import {
   WALK_FORWARD_ADMISSION_PATH,
   getWalkForwardAdmission,
 } from "./walk_forward_admission.js";
@@ -138,11 +142,27 @@ async function proxyWalkForward(request, env) {
   }
 }
 
-export { proxyWalkForward };
+function executeTrustedWalkForward(executionRequest, env) {
+  const request = new Request(`https://research-run.internal${WALK_FORWARD_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    body: JSON.stringify(executionRequest),
+  });
+  return proxyWalkForward(request, env);
+}
+
+export { executeTrustedWalkForward, proxyWalkForward };
 
 export default {
   async fetch(request, env, context) {
     const pathname = new URL(request.url).pathname;
+    if (pathname === RESEARCH_RUNS_PATH || pathname.startsWith(`${RESEARCH_RUNS_PATH}/`)) {
+      return handleResearchRunRequest(
+        request,
+        env,
+        (executionRequest) => executeTrustedWalkForward(executionRequest, env),
+      );
+    }
     if (pathname === WALK_FORWARD_PATH || pathname.startsWith(`${WALK_FORWARD_PATH}/`)) {
       return proxyWalkForward(request, env);
     }
