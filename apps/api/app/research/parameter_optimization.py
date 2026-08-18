@@ -12,7 +12,6 @@ import itertools
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any, Iterable
 
 import pandas as pd
@@ -63,8 +62,16 @@ class ParameterCandidate:
             raise ValueError("absolute_threshold must be finite")
         if self.allocation_method not in _ALLOCATION_ORDER:
             raise ValueError("unsupported allocation_method")
-        object.__setattr__(self, "absolute_threshold", 0.0 if threshold == 0.0 else threshold)
-        object.__setattr__(self, "parameter_hash", _canonical_hash(self.identity_payload()))
+        object.__setattr__(
+            self,
+            "absolute_threshold",
+            0.0 if threshold == 0.0 else threshold,
+        )
+        object.__setattr__(
+            self,
+            "parameter_hash",
+            _canonical_hash(self.identity_payload()),
+        )
 
     def identity_payload(self) -> dict[str, Any]:
         return {
@@ -100,14 +107,23 @@ class ParameterSearchSpace:
             minimum=1,
             maximum=60,
         )
-        top_k = _canonical_ints(self.top_k, label="top_k", minimum=1, maximum=None)
+        top_k = _canonical_ints(
+            self.top_k,
+            label="top_k",
+            minimum=1,
+            maximum=None,
+        )
         thresholds = _canonical_thresholds(self.absolute_thresholds)
         methods = _canonical_allocation_methods(self.allocation_methods)
         object.__setattr__(self, "lookback_months", lookbacks)
         object.__setattr__(self, "top_k", top_k)
         object.__setattr__(self, "absolute_thresholds", thresholds)
         object.__setattr__(self, "allocation_methods", methods)
-        object.__setattr__(self, "search_space_hash", _canonical_hash(self.identity_payload()))
+        object.__setattr__(
+            self,
+            "search_space_hash",
+            _canonical_hash(self.identity_payload()),
+        )
 
     @property
     def candidate_count(self) -> int:
@@ -182,7 +198,11 @@ class InnerFoldSchedule:
     def __post_init__(self) -> None:
         ordered = validate_period_schedule(self.periods)
         object.__setattr__(self, "periods", ordered)
-        object.__setattr__(self, "schedule_hash", _canonical_hash(self.identity_payload()))
+        object.__setattr__(
+            self,
+            "schedule_hash",
+            _canonical_hash(self.identity_payload()),
+        )
 
     def identity_payload(self) -> dict[str, Any]:
         return {
@@ -269,7 +289,9 @@ class ParameterSearchPlan:
 
     def __post_init__(self) -> None:
         if len(self.candidates) != self.search_space.candidate_count:
-            raise ValueError("candidate materialization does not match normalized search space")
+            raise ValueError(
+                "candidate materialization does not match normalized search space"
+            )
         object.__setattr__(self, "plan_hash", _canonical_hash(self.identity_payload()))
 
     def identity_payload(self) -> dict[str, Any]:
@@ -277,7 +299,9 @@ class ParameterSearchPlan:
             "contractVersion": PARAMETER_OPTIMIZATION_CONTRACT_VERSION,
             "objectivePolicyVersion": PARAMETER_OPTIMIZATION_OBJECTIVE_POLICY,
             "searchSpaceHash": self.search_space.search_space_hash,
-            "candidateParameterHashes": [candidate.parameter_hash for candidate in self.candidates],
+            "candidateParameterHashes": [
+                candidate.parameter_hash for candidate in self.candidates
+            ],
             "innerValidation": self.inner_validation.export_payload(),
             "plannedTuningEvaluations": self.planned_tuning_evaluations,
         }
@@ -303,7 +327,9 @@ def enumerate_parameter_candidates(
         or risky_symbol_count < 1
     ):
         raise ValueError("risky_symbol_count must be a positive integer")
-    invalid_top_k = [value for value in search_space.top_k if value > risky_symbol_count]
+    invalid_top_k = [
+        value for value in search_space.top_k if value > risky_symbol_count
+    ]
     if invalid_top_k:
         raise ValueError(
             "top_k search values exceed the fixed risky universe size: "
@@ -369,7 +395,9 @@ def build_inner_fold_schedule(
         or isinstance(maximum_lookback_months, bool)
         or not 1 <= maximum_lookback_months <= 60
     ):
-        raise ValueError("maximum_lookback_months must be an integer between 1 and 60")
+        raise ValueError(
+            "maximum_lookback_months must be an integer between 1 and 60"
+        )
 
     newest_end = pd.Timestamp(outer_period.training_end)
     generated: list[WalkForwardPeriod] = []
@@ -392,12 +420,17 @@ def build_inner_fold_schedule(
                 "and inner fold schedule"
             )
         if evaluation_start_ts.date() <= outer_period.training_start:
-            raise ValueError("inner evaluation must leave a non-empty causal training interval")
+            raise ValueError(
+                "inner evaluation must leave a non-empty causal training interval"
+            )
         if evaluation_end_ts.date() > outer_period.training_end:
             raise ValueError("inner evaluation escaped outer Training end")
         generated.append(
             WalkForwardPeriod(
-                period_id=f"{outer_period.period_id}:inner:{validation.fold_count - reverse_index:02d}",
+                period_id=(
+                    f"{outer_period.period_id}:inner:"
+                    f"{validation.fold_count - reverse_index:02d}"
+                ),
                 training_start=outer_period.training_start,
                 training_end=decision_ts.date(),
                 decision_date=decision_ts.date(),
@@ -430,7 +463,11 @@ def _canonical_ints(
         if not isinstance(value, int) or isinstance(value, bool):
             raise TypeError(f"{label} must contain integers")
         if value < minimum or (maximum is not None and value > maximum):
-            bound = f"[{minimum}, {maximum}]" if maximum is not None else f">= {minimum}"
+            bound = (
+                f"[{minimum}, {maximum}]"
+                if maximum is not None
+                else f">= {minimum}"
+            )
             raise ValueError(f"{label} values must be {bound}")
         normalized.add(value)
     if not normalized:
@@ -456,7 +493,9 @@ def _canonical_allocation_methods(
     unique = set(values)
     unsupported = [value for value in unique if value not in _ALLOCATION_ORDER]
     if unsupported:
-        raise ValueError("unsupported allocation methods: " + ", ".join(sorted(unsupported)))
+        raise ValueError(
+            "unsupported allocation methods: " + ", ".join(sorted(unsupported))
+        )
     if not unique:
         raise ValueError("allocation_methods requires at least one value")
     return tuple(sorted(unique, key=_ALLOCATION_ORDER.__getitem__))
