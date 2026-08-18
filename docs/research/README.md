@@ -20,11 +20,12 @@ This index identifies which document owns which semantic boundary. Current execu
 12. `RESEARCH_RUN_MEMORY_V1.md`
 13. `OPTIMIZER_HUB_DUAL_MOMENTUM_V1.md`
 14. `OPTIMIZER_HUB_ALLOCATION_V1.md`
-15. `../quant/RISK_MATHEMATICS_V1.md`
-16. `REFINERY_API_V1.md`
-17. `REFINERY_UI_V1.md`
-18. `REFINERY_CLUSTERING_V1.md`
-19. corresponding implementation and tests
+15. `OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md`
+16. `../quant/RISK_MATHEMATICS_V1.md`
+17. `REFINERY_API_V1.md`
+18. `REFINERY_UI_V1.md`
+19. `REFINERY_CLUSTERING_V1.md`
+20. corresponding implementation and tests
 
 Closed implementation/convergence/production-acceptance narratives are reconstructed from Git/PR/Issue/Actions history when needed; they are not parallel contract authorities.
 
@@ -42,13 +43,14 @@ Closed implementation/convergence/production-acceptance narratives are reconstru
 | `WALK_FORWARD_UI_V1.md` | Batch 4A-6 user-facing workspace: request editing/pre-validation, synchronous execution/cancellation, authoritative OOS result presentation, provenance visibility and explicit no-fabricated-benchmark boundary |
 | `RESEARCH_RUN_MEMORY_V1.md` | Batch 4A-7 durable D1 ResearchRun authority: immutable original request, backend-produced completed result, run/job identity separation, capability-based library access and rerun semantics |
 | `OPTIMIZER_HUB_DUAL_MOMENTUM_V1.md` | Phase 4B-1 production-accepted configured strategy contract: configured-request universe provenance, Training-only TWD Momentum, absolute/relative/Top-K selection, defensive fallback, monthly schedule and reuse of existing OOS/ResearchRun authorities |
-| `OPTIMIZER_HUB_ALLOCATION_V1.md` | Phase 4B-2 candidate Allocation/Weighting contract: explicit Equal / Inverse Volatility / Risk Parity-ERC, Training-only TWD returns, formal Ledoit-Wolf covariance, signed component-risk convergence and legacy 4B-1 replay compatibility |
+| `OPTIMIZER_HUB_ALLOCATION_V1.md` | Phase 4B-2 production-accepted Allocation/Weighting contract: explicit Equal / Inverse Volatility / Risk Parity-ERC, Training-only TWD returns, formal Ledoit-Wolf covariance, signed component-risk convergence and legacy 4B-1 replay compatibility |
+| `OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md` | Phase 4B-3 candidate nested parameter-optimization contract: bounded canonical search, completed-calendar-month inner folds confined to Outer Training, exact continuous inner-OOS Portfolio v3 metrics, deterministic winner identity, full-Outer-Training refit and outer-Evaluation causality firewall |
 | `../quant/RISK_MATHEMATICS_V1.md` | pure covariance/correlation/risk mathematics |
 | `REFINERY_API_V1.md` | public read-only Refinery request/resource/fail-closed API contract; request contract `refinery-v1`, Phase 3–5 response schema `.3`, plus opt-in Phase 6 marginal contract `.1` |
 | `REFINERY_UI_V1.md` | Refinery workspace/presentation/persistence boundary, including the non-persisted Phase 6 explicit-plan UI |
 | `REFINERY_CLUSTERING_V1.md` | current Phase 5 clustering/redundancy methodology, bootstrap/factor/common-sample evidence and descriptive redundancy semantics; current clustering contract `.2` |
 
-Phase 4A-7 ResearchRun memory and Phase 4B-1 Dual Momentum are merged and production accepted. `OPTIMIZER_HUB_ALLOCATION_V1.md` is the Phase 4B-2 candidate authority until its PR/preview/review/merge/post-main production gates pass. Operational state is recorded in `to_do_update_list.md`.
+Phase 4A-7 ResearchRun memory, Phase 4B-1 Dual Momentum and Phase 4B-2 Allocation/Weighting are merged and production accepted. `OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md` is the Phase 4B-3 candidate authority until its PR/preview/review/merge/post-main production gates pass. Operational state is recorded in `to_do_update_list.md`.
 
 ## Semantic boundaries
 

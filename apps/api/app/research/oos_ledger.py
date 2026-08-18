@@ -16,6 +16,7 @@ evidence.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from typing import Sequence
 
@@ -51,6 +52,8 @@ WALK_FORWARD_OOS_EXECUTION_POLICY = "target-at-first-effective-oos-close-v1"
 WALK_FORWARD_OOS_GAP_POLICY = "carry-last-audited-state-flat-no-invented-return-v1"
 WALK_FORWARD_OOS_RETURN_COMPONENT_POLICY = "research-total-return-reinvested-v1"
 _EPSILON = 1e-12
+_PORTFOLIO_NAME_LIMIT = 60
+_SEGMENT_NAME_DIGEST_LENGTH = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +216,7 @@ def run_continuous_oos_ledger(
 
         segment_config = replace(config, initial_amount=current_initial_amount)
         portfolio = PortfolioSpec.from_weights(
-            f"{name}:{decision.period.period_id}",
+            _segment_portfolio_name(name, decision.period.period_id),
             dict(zip(decision.selected_constituents, decision.weights, strict=True)),
         )
         histories = _histories_from_research_levels(levels, dataset)
@@ -318,6 +321,17 @@ def run_continuous_oos_ledger(
         metrics=metrics,
         periods=tuple(audits),
     )
+
+
+def _segment_portfolio_name(name: str, period_id: str) -> str:
+    """Bound execution metadata without altering semantic period identity."""
+
+    raw = f"{name}:{period_id}"
+    if len(raw) <= _PORTFOLIO_NAME_LIMIT:
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:_SEGMENT_NAME_DIGEST_LENGTH]
+    prefix_length = _PORTFOLIO_NAME_LIMIT - _SEGMENT_NAME_DIGEST_LENGTH - 1
+    return f"{raw[:prefix_length]}:{digest}"
 
 
 def _validate_supported_config(config: SimulationConfig) -> None:

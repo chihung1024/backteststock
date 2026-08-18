@@ -1,5 +1,6 @@
 export type WalkForwardStrategy = "exhaustive" | "dual_momentum";
 export type WalkForwardAllocationMethod = "equal" | "inverse_volatility" | "risk_parity_erc";
+export type WalkForwardOptimizationMode = "manual" | "auto";
 
 export interface WalkForwardPeriodDraft {
   id: string;
@@ -11,10 +12,26 @@ export interface WalkForwardPeriodDraft {
   evaluationEnd: string;
 }
 
+export interface WalkForwardParameterOptimizationSearchSpace {
+  lookbackMonths: number[];
+  topK: number[];
+  absoluteThresholds: number[];
+  allocationMethods: WalkForwardAllocationMethod[];
+}
+
+export interface WalkForwardParameterOptimizationInnerValidation {
+  foldCount: number;
+  evaluationMonths: number;
+  stepMonths: number;
+}
+
 export interface WalkForwardWorkspaceModel {
-  schemaVersion: 3;
+  schemaVersion: 4;
   strategy: WalkForwardStrategy;
   allocationMethod: WalkForwardAllocationMethod;
+  optimizationMode: WalkForwardOptimizationMode;
+  optimizationSearchSpace: WalkForwardParameterOptimizationSearchSpace;
+  optimizationInnerValidation: WalkForwardParameterOptimizationInnerValidation;
   universe: string;
   benchmark: string;
   holdingCount: number;
@@ -48,7 +65,7 @@ export interface WalkForwardExhaustiveSelectorRequest {
   holdingCount: number;
 }
 
-export interface WalkForwardDualMomentumSelectorRequest {
+export interface WalkForwardDualMomentumManualSelectorRequest {
   strategy: "dual_momentum";
   riskySymbols: string[];
   defensiveSymbols: string[];
@@ -57,6 +74,22 @@ export interface WalkForwardDualMomentumSelectorRequest {
   absoluteThreshold: number;
   allocationMethod: WalkForwardAllocationMethod;
 }
+
+export interface WalkForwardParameterOptimizationRequest {
+  searchSpace: WalkForwardParameterOptimizationSearchSpace;
+  innerValidation: WalkForwardParameterOptimizationInnerValidation;
+}
+
+export interface WalkForwardDualMomentumAutoSelectorRequest {
+  strategy: "dual_momentum";
+  riskySymbols: string[];
+  defensiveSymbols: string[];
+  parameterOptimization: WalkForwardParameterOptimizationRequest;
+}
+
+export type WalkForwardDualMomentumSelectorRequest =
+  | WalkForwardDualMomentumManualSelectorRequest
+  | WalkForwardDualMomentumAutoSelectorRequest;
 
 export type WalkForwardApiSelectorRequest =
   | WalkForwardExhaustiveSelectorRequest
@@ -78,6 +111,10 @@ export interface WalkForwardHealthResponse {
   job_contract_version: string;
   dual_momentum_job_contract_version?: string;
   dual_momentum_allocation_job_contract_version?: string;
+  dual_momentum_parameter_optimization_job_contract_version?: string;
+  max_parameter_candidates?: number;
+  max_inner_folds?: number;
+  max_tuning_evaluations_per_job?: number;
   deployment_sha: string;
 }
 
@@ -189,6 +226,52 @@ export interface WalkForwardAllocationEvidence {
   };
 }
 
+export interface WalkForwardParameterOptimizationCandidateEvidence {
+  parameterHash: string;
+  parameters: Record<string, unknown>;
+  status: "eligible" | "failed" | string;
+  completedFoldCount: number;
+  failedFold: string | null;
+  failureReason: string | null;
+  innerOosMetricSummary: {
+    sortino: number | null;
+    maxDrawdown: number | null;
+    cagr: number | null;
+    transactionCosts: number | null;
+  };
+  innerOosIdentity: string | null;
+  decisionHashes: string[];
+  evaluationDatasetHashes: string[];
+}
+
+export interface WalkForwardParameterOptimizationEvidence {
+  contractVersion: string;
+  tuningContractVersion: string;
+  objectivePolicyVersion: string;
+  outerTrainingDatasetHash: string;
+  innerFoldSchedule: {
+    contractVersion: string;
+    calendarPolicy: string;
+    periods: Array<{
+      periodId: string;
+      trainingStart: string;
+      trainingEnd: string;
+      decisionDate: string;
+      evaluationStart: string;
+      evaluationEnd: string;
+      decisionTiming: string;
+    }>;
+    innerFoldScheduleHash: string;
+  };
+  searchPlanHash: string;
+  candidateCount: number;
+  candidates: WalkForwardParameterOptimizationCandidateEvidence[];
+  winnerParameterHash: string;
+  winnerParameters: Record<string, unknown>;
+  winnerRank: number;
+  resultHash: string;
+}
+
 export interface WalkForwardSelectionEvidence {
   contractVersion?: string;
   signalAsOf?: string;
@@ -202,6 +285,12 @@ export interface WalkForwardSelectionEvidence {
   defensiveRanking?: WalkForwardMomentumRankingEvidence[];
   selected?: string[];
   allocation?: WalkForwardAllocationEvidence;
+  parameterOptimization?: WalkForwardParameterOptimizationEvidence;
+  parameterOptimizationRefit?: {
+    policy: string;
+    outerTrainingDatasetHash: string;
+    winnerParameterHash: string;
+  };
   [key: string]: unknown;
 }
 
@@ -242,6 +331,9 @@ export interface WalkForwardPeriodAuditResponse {
   exhaustive_combination_count?: number;
   training_dataset_hash: string;
   authority_dataset_hash?: string;
+  tuning_result_hash?: string;
+  search_plan_hash?: string;
+  winner_parameter_hash?: string;
   decision_hash: string;
   evaluation_dataset_hash: string;
 }
