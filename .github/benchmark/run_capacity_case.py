@@ -4,13 +4,14 @@ import json
 import os
 import time
 import traceback
+from datetime import date
 from pathlib import Path
 
 import parameter_tuning_capacity as bench
 from apps.api.app.portfolio.models import SimulationConfig
 from apps.api.app.research.parameter_optimization import build_inner_fold_schedule
 from apps.api.app.research.parameter_tuning import _evaluate_candidate, run_inner_parameter_tuning
-from apps.api.app.research.walk_forward import ConfiguredResearchUniverse
+from apps.api.app.research.walk_forward import ConfiguredResearchUniverse, WalkForwardPeriod
 
 
 def _write(output: Path, payload: dict[str, object]) -> None:
@@ -18,10 +19,25 @@ def _write(output: Path, payload: dict[str, object]) -> None:
     print(json.dumps(payload, sort_keys=True), flush=True)
 
 
+def _benchmark_outer_period() -> WalkForwardPeriod:
+    # Exact period id used by the formally passing integration fixture. Keep
+    # capacity measurement independent from the separately discovered long-name
+    # boundary in OOS segment PortfolioSpec metadata.
+    return WalkForwardPeriod(
+        period_id="outer-2025-12",
+        training_start=bench.START,
+        training_end=bench.END,
+        decision_date=bench.END,
+        evaluation_start=date(2026, 1, 1),
+        evaluation_end=date(2026, 1, 30),
+    )
+
+
 def _diagnose_candidates(candidate_count: int, fold_count: int, dataset):
     plan = bench._plan(candidate_count, fold_count)
+    outer_period = _benchmark_outer_period()
     schedule = build_inner_fold_schedule(
-        outer_period=bench._outer_period(),
+        outer_period=outer_period,
         validation=plan.inner_validation,
         maximum_lookback_months=plan.search_space.maximum_lookback_months,
     )
@@ -59,7 +75,7 @@ def main() -> int:
     started = time.perf_counter()
     try:
         tuning = run_inner_parameter_tuning(
-            outer_period=bench._outer_period(),
+            outer_period=_benchmark_outer_period(),
             outer_training_dataset=dataset,
             configured_universe=ConfiguredResearchUniverse(bench.MEMBERS),
             risky_symbols=bench.RISKY,
