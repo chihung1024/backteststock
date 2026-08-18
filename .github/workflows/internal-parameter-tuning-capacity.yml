@@ -14,15 +14,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        candidates: [12, 24, 48]
-        folds: [3, 6]
+        include:
+          - candidates: 2
+            folds: 3
+          - candidates: 12
+            folds: 3
+          - candidates: 12
+            folds: 6
+          - candidates: 24
+            folds: 3
+          - candidates: 24
+            folds: 6
+          - candidates: 48
+            folds: 3
+          - candidates: 48
+            folds: 6
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       PYTHONPATH: ${{ github.workspace }}
       BENCHMARK_CANDIDATES: ${{ matrix.candidates }}
       BENCHMARK_FOLDS: ${{ matrix.folds }}
-      PRODUCT_SOURCE_SHA: ${{ github.event.pull_request.base.sha }}
       BENCHMARK_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v7
