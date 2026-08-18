@@ -16,25 +16,18 @@ from apps.api.app.data.history_service import PartialTWDHistories, TWDAssetHisto
 from apps.api.app.data.twd_valuation import TWDValuation
 from apps.api.app.portfolio.models import SimulationConfig
 from apps.api.app.research.dataset import build_research_dataset
-from apps.api.app.research.parameter_optimization import (
-    InnerValidationSpec,
-    ParameterSearchSpace,
-    TuningBudget,
-    build_parameter_search_plan,
-)
+from apps.api.app.research.parameter_optimization import InnerValidationSpec, ParameterSearchSpace, TuningBudget, build_parameter_search_plan
 from apps.api.app.research.parameter_tuning import run_inner_parameter_tuning
 from apps.api.app.research.walk_forward import ConfiguredResearchUniverse, WalkForwardPeriod
-from apps.api.app.research.walk_forward_job import (
-    MAX_INNER_FOLDS,
-    MAX_PARAMETER_CANDIDATES,
-    MAX_TUNING_EVALUATIONS_PER_JOB,
-)
+from apps.api.app.research.walk_forward_job import MAX_INNER_FOLDS, MAX_PARAMETER_CANDIDATES, MAX_TUNING_EVALUATIONS_PER_JOB
 
 RISKY = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
 DEFENSIVE = ("BND",)
 MEMBERS = (*RISKY, *DEFENSIVE)
 ALLOCATIONS = ("equal", "inverse_volatility", "risk_parity_erc")
 OUTPUT = Path("parameter-tuning-capacity.json")
+START = date(2023, 1, 31)
+END = date(2025, 12, 31)
 
 
 def _history(symbol: str, dates: pd.DatetimeIndex, daily: np.ndarray) -> TWDAssetHistory:
@@ -58,31 +51,35 @@ def _history(symbol: str, dates: pd.DatetimeIndex, daily: np.ndarray) -> TWDAsse
 
 
 def _dataset():
-    dates = pd.bdate_range("2021-01-29", "2025-12-31")
+    dates = pd.bdate_range(START, END)
     phase = np.arange(len(dates), dtype=float)
+    # AAA/BBB/BND intentionally match the proven eligible integration-test regime.
+    # Four additional risky members remain in the configured universe for realistic
+    # selection width but have persistently negative momentum, so they do not
+    # accidentally redefine the benchmark's objective availability.
     daily = {
-        "AAA": 0.00080 + 0.0100 * np.sin(phase / 8.0),
-        "BBB": 0.00072 + 0.0092 * np.cos(phase / 10.0),
-        "CCC": 0.00064 + 0.0087 * np.sin(phase / 12.0 + 0.5),
-        "DDD": 0.00056 + 0.0081 * np.cos(phase / 14.0 + 0.8),
-        "EEE": 0.00048 + 0.0076 * np.sin(phase / 16.0 + 1.1),
-        "FFF": 0.00040 + 0.0070 * np.cos(phase / 18.0 + 1.4),
-        "BND": 0.00014 + 0.0022 * np.sin(phase / 21.0 + 0.3),
+        "AAA": 0.0008 + 0.0100 * np.sin(phase / 8.0),
+        "BBB": 0.0006 + 0.0090 * np.cos(phase / 10.0),
+        "CCC": np.full(len(dates), -0.00055),
+        "DDD": np.full(len(dates), -0.00065),
+        "EEE": np.full(len(dates), -0.00075),
+        "FFF": np.full(len(dates), -0.00085),
+        "BND": 0.00015 + 0.0025 * np.sin(phase / 17.0),
     }
     histories = {symbol: _history(symbol, dates, daily[symbol]) for symbol in MEMBERS}
     return build_research_dataset(
         PartialTWDHistories(requested=MEMBERS, histories=histories, failures={}),
-        start=date(2021, 1, 29),
-        end=date(2025, 12, 31),
+        start=START,
+        end=END,
     )
 
 
 def _outer_period() -> WalkForwardPeriod:
     return WalkForwardPeriod(
         period_id="capacity-outer-2025-12",
-        training_start=date(2021, 1, 29),
-        training_end=date(2025, 12, 31),
-        decision_date=date(2025, 12, 31),
+        training_start=START,
+        training_end=END,
+        decision_date=END,
         evaluation_start=date(2026, 1, 1),
         evaluation_end=date(2026, 1, 30),
     )
@@ -109,11 +106,7 @@ def _space(candidate_count: int) -> ParameterSearchSpace:
 def _plan(candidate_count: int, fold_count: int):
     return build_parameter_search_plan(
         search_space=_space(candidate_count),
-        inner_validation=InnerValidationSpec(
-            fold_count=fold_count,
-            evaluation_months=1,
-            step_months=1,
-        ),
+        inner_validation=InnerValidationSpec(fold_count=fold_count, evaluation_months=1, step_months=1),
         risky_symbol_count=len(RISKY),
         outer_period_count=1,
         budget=TuningBudget(
@@ -130,48 +123,34 @@ def _write(report: dict[str, object]) -> None:
 
 def main() -> int:
     dataset = _dataset()
-    outer_period = _outer_period()
     universe = ConfiguredResearchUniverse(MEMBERS)
     config = SimulationConfig(initial_amount=100_000.0, transaction_cost_bps=5.0)
     report: dict[str, object] = {
         "status": "running",
         "workflowSha": os.environ.get("GITHUB_SHA"),
-        "productBaseSha": os.environ.get("PRODUCT_SOURCE_SHA"),
-        "benchmarkHeadSha": os.environ.get("BENCHMARK_HEAD_SHA"),
         "runnerOs": os.environ.get("RUNNER_OS"),
         "runnerArch": os.environ.get("RUNNER_ARCH"),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
-        "dataset": {
-            "symbols": list(MEMBERS),
-            "requestedStart": dataset.requested_start.isoformat(),
-            "requestedEnd": dataset.requested_end.isoformat(),
-            "datasetHash": dataset.dataset_hash,
-        },
-        "productionBudget": {
-            "maxParameterCandidates": MAX_PARAMETER_CANDIDATES,
-            "maxInnerFolds": MAX_INNER_FOLDS,
-            "maxTuningEvaluationsPerJob": MAX_TUNING_EVALUATIONS_PER_JOB,
-        },
+        "dataset": {"symbols": list(MEMBERS), "requestedStart": START.isoformat(), "requestedEnd": END.isoformat(), "datasetHash": dataset.dataset_hash},
+        "productionBudget": {"maxParameterCandidates": MAX_PARAMETER_CANDIDATES, "maxInnerFolds": MAX_INNER_FOLDS, "maxTuningEvaluationsPerJob": MAX_TUNING_EVALUATIONS_PER_JOB},
         "cases": [],
     }
     _write(report)
-
-    overall_start = time.perf_counter()
+    started_all = time.perf_counter()
     cases: list[dict[str, object]] = []
     try:
         for candidate_count in (12, 24, 48):
             for fold_count in (3, 6):
-                plan = _plan(candidate_count, fold_count)
                 planned = candidate_count * fold_count
                 started = time.perf_counter()
                 tuning = run_inner_parameter_tuning(
-                    outer_period=outer_period,
+                    outer_period=_outer_period(),
                     outer_training_dataset=dataset,
                     configured_universe=universe,
                     risky_symbols=RISKY,
                     defensive_symbols=DEFENSIVE,
-                    search_plan=plan,
+                    search_plan=_plan(candidate_count, fold_count),
                     simulation_config=config,
                 )
                 elapsed = time.perf_counter() - started
@@ -190,20 +169,15 @@ def main() -> int:
                 }
                 cases.append(case)
                 report["cases"] = cases
-                report["elapsedSecondsSoFar"] = round(time.perf_counter() - overall_start, 6)
+                report["elapsedSecondsSoFar"] = round(time.perf_counter() - started_all, 6)
                 _write(report)
                 print(json.dumps(case, sort_keys=True), flush=True)
     except Exception as exc:
-        report["status"] = "failed"
-        report["failureType"] = type(exc).__name__
-        report["failureMessage"] = str(exc)
-        report["traceback"] = traceback.format_exc()
-        report["elapsedSecondsSoFar"] = round(time.perf_counter() - overall_start, 6)
+        report.update(status="failed", failureType=type(exc).__name__, failureMessage=str(exc), traceback=traceback.format_exc(), elapsedSecondsSoFar=round(time.perf_counter() - started_all, 6))
         _write(report)
         raise
-
     report["status"] = "completed"
-    report["totalMeasuredSeconds"] = round(time.perf_counter() - overall_start, 6)
+    report["totalMeasuredSeconds"] = round(time.perf_counter() - started_all, 6)
     _write(report)
     print(json.dumps(report, sort_keys=True), flush=True)
     return 0
