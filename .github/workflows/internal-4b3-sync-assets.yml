@@ -1,0 +1,37 @@
+name: Internal 4B-3 Sync Assets
+
+on:
+  push:
+    branches:
+      - feat/optimizer-hub-parameter-optimization
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/optimizer-hub-parameter-optimization
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check and rebuild canonical Portfolio assets
+        run: npm run check:portfolio
+      - name: Commit synchronized assets and remove internal trigger
+        run: |
+          rm -f .github/internal-4b3-assets-trigger
+          rm -f .github/workflows/internal-4b3-sync-assets.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/portfolio .github/internal-4b3-assets-trigger .github/workflows/internal-4b3-sync-assets.yml
+          git diff --cached --stat
+          git commit -m "build: sync Portfolio assets for Auto Optimize"
+          git push origin HEAD:feat/optimizer-hub-parameter-optimization
