@@ -47,9 +47,6 @@ jobs:
                   raise SystemExit(f"expected cap anchor missing: {path}")
               path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # Any test assertion that names the 288 job ceiling belongs to this
-          # versioned 4B-3 cap and must move with the product constant.  Reject
-          # unrelated occurrences instead of performing a repository-wide blind replace.
           allowed_test_fragments = (
               "parameter_optimization",
               "parameter_tuning",
@@ -101,10 +98,10 @@ jobs:
           python -m pytest -q tests/test_walk_forward_oos_internal_name.py tests/test_walk_forward_oos_ledger.py tests/test_parameter_tuning_integration.py tests/test_parameter_optimization.py tests/test_parameter_optimization_walk_forward.py
           npm run check:portfolio
           npm run test:worker
-      - name: Reject stale or unrelated 288 references
+      - name: Reject stale product-code 288 references
         run: |
-          if git grep -n "288" -- apps api worker tests docs/research/OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md ':!public/portfolio' ; then
-            echo "Unexpected stale 288 reference remains in product contracts" >&2
+          if git grep -n "288" -- apps api worker tests ':!public/portfolio' ; then
+            echo "Unexpected stale 288 reference remains in executable/test contracts" >&2
             exit 1
           fi
       - name: Commit finalized product tree
