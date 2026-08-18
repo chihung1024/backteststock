@@ -133,8 +133,14 @@ def test_nested_tuning_is_deterministic_and_never_uses_outer_oos() -> None:
     assert len(first.candidates) == 2
     assert all(item.status == "eligible" for item in first.candidates)
     assert all(item.completed_fold_count == 3 for item in first.candidates)
-    assert all(period.evaluation_end <= outer_period.training_end for period in first.inner_fold_schedule.periods)
-    assert all(period.evaluation_end < outer_period.evaluation_start for period in first.inner_fold_schedule.periods)
+    assert all(
+        period.evaluation_end <= outer_period.training_end
+        for period in first.inner_fold_schedule.periods
+    )
+    assert all(
+        period.evaluation_end < outer_period.evaluation_start
+        for period in first.inner_fold_schedule.periods
+    )
     assert first.export_payload() == second.export_payload()
 
 
@@ -149,7 +155,10 @@ def test_winner_is_refit_on_full_outer_training_and_hash_bound_into_decision() -
         risky_symbols=("AAA", "BBB"),
         defensive_symbols=("BND",),
         search_plan=_search_plan(),
-        simulation_config=SimulationConfig(initial_amount=100_000.0, transaction_cost_bps=5.0),
+        simulation_config=SimulationConfig(
+            initial_amount=100_000.0,
+            transaction_cost_bps=5.0,
+        ),
     )
 
     decision = refit_parameter_tuning_winner(
@@ -161,13 +170,17 @@ def test_winner_is_refit_on_full_outer_training_and_hash_bound_into_decision() -
         tuning_result=tuning,
     )
     payload = decision.export_payload()
+    selector_parameters = payload["selector"]["parameters"]
 
     assert decision.training_dataset_hash == dataset.dataset_hash
     assert decision.training_effective_end <= outer_period.decision_date
     assert sum(decision.weights) == pytest.approx(1.0)
-    assert payload["selectorParameters"]["tuningResultHash"] == tuning.result_hash
-    assert payload["selectorParameters"]["winnerParameterHash"] == tuning.winner_parameter_hash
-    assert payload["selectionEvidence"]["parameterOptimization"]["resultHash"] == tuning.result_hash
+    assert selector_parameters["tuningResultHash"] == tuning.result_hash
+    assert selector_parameters["winnerParameterHash"] == tuning.winner_parameter_hash
+    assert (
+        payload["selectionEvidence"]["parameterOptimization"]["resultHash"]
+        == tuning.result_hash
+    )
     assert payload["selectionEvidence"]["parameterOptimizationRefit"] == {
         "policy": "winner-on-full-outer-training-v1",
         "outerTrainingDatasetHash": dataset.dataset_hash,
