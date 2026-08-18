@@ -24,7 +24,6 @@ from apps.api.app.research.walk_forward_job import MAX_INNER_FOLDS, MAX_PARAMETE
 RISKY = ("AAA", "BBB")
 DEFENSIVE = ("BND",)
 MEMBERS = (*RISKY, *DEFENSIVE)
-ALLOCATIONS = ("equal", "inverse_volatility", "risk_parity_erc")
 OUTPUT = Path("parameter-tuning-capacity.json")
 START = date(2023, 1, 31)
 END = date(2025, 12, 31)
@@ -51,9 +50,6 @@ def _history(symbol: str, dates: pd.DatetimeIndex, daily: np.ndarray) -> TWDAsse
 
 
 def _dataset():
-    # Keep the numerical regime byte-for-byte equivalent to the formally tested
-    # nested-tuning integration fixture. Capacity is varied only by canonical
-    # parameter combinations, never by changing the investable universe/regime.
     dates = pd.bdate_range(START, END)
     phase = np.arange(len(dates), dtype=float)
     daily = {
@@ -82,16 +78,17 @@ def _outer_period() -> WalkForwardPeriod:
 
 def _space(candidate_count: int) -> ParameterSearchSpace:
     dimensions = {
-        12: ((3, 6, 9, 12), (1,), (0.0,)),
-        24: ((3, 6, 9, 12), (1, 2), (0.0,)),
-        48: ((3, 6, 9, 12), (1, 2), (0.0, 0.03)),
+        2: ((6, 12), (1,), (0.0,), ("equal",)),
+        12: ((3, 6, 9, 12), (1,), (0.0,), ("equal", "inverse_volatility", "risk_parity_erc")),
+        24: ((3, 6, 9, 12), (1, 2), (0.0,), ("equal", "inverse_volatility", "risk_parity_erc")),
+        48: ((3, 6, 9, 12), (1, 2), (0.0, 0.03), ("equal", "inverse_volatility", "risk_parity_erc")),
     }
-    lookbacks, top_k, thresholds = dimensions[candidate_count]
+    lookbacks, top_k, thresholds, allocations = dimensions[candidate_count]
     space = ParameterSearchSpace(
         lookback_months=lookbacks,
         top_k=top_k,
         absolute_thresholds=thresholds,
-        allocation_methods=ALLOCATIONS,
+        allocation_methods=allocations,
     )
     if space.candidate_count != candidate_count:
         raise AssertionError(f"expected {candidate_count} candidates, got {space.candidate_count}")
