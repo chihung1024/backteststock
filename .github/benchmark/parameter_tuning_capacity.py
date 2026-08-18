@@ -5,6 +5,7 @@ import os
 import platform
 import sys
 import time
+import traceback
 from datetime import date
 from pathlib import Path
 
@@ -29,10 +30,10 @@ from apps.api.app.research.walk_forward_job import (
     MAX_TUNING_EVALUATIONS_PER_JOB,
 )
 
-RISKY_SYMBOLS = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
-DEFENSIVE_SYMBOLS = ("BND",)
-ALL_SYMBOLS = (*RISKY_SYMBOLS, *DEFENSIVE_SYMBOLS)
-ALLOCATION_METHODS = ("equal", "inverse_volatility", "risk_parity_erc")
+RISKY = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
+DEFENSIVE = ("BND",)
+MEMBERS = (*RISKY, *DEFENSIVE)
+ALLOCATIONS = ("equal", "inverse_volatility", "risk_parity_erc")
 OUTPUT = Path("parameter-tuning-capacity.json")
 
 
@@ -47,14 +48,32 @@ def _history(symbol: str, dates: pd.DatetimeIndex, daily: np.ndarray) -> TWDAsse
             native_adjusted_close=levels.rename("native_adjusted_close"),
             fx_to_twd=fx.rename("fx_to_twd"),
             adjusted_close_twd=levels.rename("adjusted_close_twd"),
-            daily_returns=levels.pct_change(fill_method=None)
-            .fillna(0.0)
-            .rename("daily_return"),
+            daily_returns=levels.pct_change(fill_method=None).fillna(0.0).rename("daily_return"),
         ),
         corporate_action_audit={"status": "verified_standard_actions"},
         fx_audit={"method": "identity", "tickers": []},
         raw_quote_currency="TWD",
         native_price_scale=1.0,
+    )
+
+
+def _dataset():
+    dates = pd.bdate_range("2021-01-29", "2025-12-31")
+    phase = np.arange(len(dates), dtype=float)
+    daily = {
+        "AAA": 0.00080 + 0.0100 * np.sin(phase / 8.0),
+        "BBB": 0.00072 + 0.0092 * np.cos(phase / 10.0),
+        "CCC": 0.00064 + 0.0087 * np.sin(phase / 12.0 + 0.5),
+        "DDD": 0.00056 + 0.0081 * np.cos(phase / 14.0 + 0.8),
+        "EEE": 0.00048 + 0.0076 * np.sin(phase / 16.0 + 1.1),
+        "FFF": 0.00040 + 0.0070 * np.cos(phase / 18.0 + 1.4),
+        "BND": 0.00014 + 0.0022 * np.sin(phase / 21.0 + 0.3),
+    }
+    histories = {symbol: _history(symbol, dates, daily[symbol]) for symbol in MEMBERS}
+    return build_research_dataset(
+        PartialTWDHistories(requested=MEMBERS, histories=histories, failures={}),
+        start=date(2021, 1, 29),
+        end=date(2025, 12, 31),
     )
 
 
@@ -69,70 +88,33 @@ def _outer_period() -> WalkForwardPeriod:
     )
 
 
-def _outer_training_dataset():
-    dates = pd.bdate_range("2021-01-29", "2025-12-31")
-    phase = np.arange(len(dates), dtype=float)
-    daily_by_symbol = {
-        "AAA": 0.00080 + 0.0100 * np.sin(phase / 8.0),
-        "BBB": 0.00072 + 0.0092 * np.cos(phase / 10.0),
-        "CCC": 0.00064 + 0.0087 * np.sin(phase / 12.0 + 0.5),
-        "DDD": 0.00056 + 0.0081 * np.cos(phase / 14.0 + 0.8),
-        "EEE": 0.00048 + 0.0076 * np.sin(phase / 16.0 + 1.1),
-        "FFF": 0.00040 + 0.0070 * np.cos(phase / 18.0 + 1.4),
-        "BND": 0.00014 + 0.0022 * np.sin(phase / 21.0 + 0.3),
+def _space(candidate_count: int) -> ParameterSearchSpace:
+    dimensions = {
+        12: ((6, 12), (1, 3), (0.0,)),
+        24: ((6, 12), (1, 3), (0.0, 0.03)),
+        48: ((3, 6, 9, 12), (1, 3), (0.0, 0.03)),
     }
-    histories = {
-        symbol: _history(symbol, dates, daily_by_symbol[symbol])
-        for symbol in ALL_SYMBOLS
-    }
-    return build_research_dataset(
-        PartialTWDHistories(
-            requested=ALL_SYMBOLS,
-            histories=histories,
-            failures={},
-        ),
-        start=date(2021, 1, 29),
-        end=date(2025, 12, 31),
-    )
-
-
-def _search_space(candidate_count: int) -> ParameterSearchSpace:
-    if candidate_count == 12:
-        lookbacks = (6, 12)
-        top_k = (1, 3)
-        thresholds = (0.0,)
-    elif candidate_count == 24:
-        lookbacks = (6, 12)
-        top_k = (1, 3)
-        thresholds = (0.0, 0.03)
-    elif candidate_count == 48:
-        lookbacks = (3, 6, 9, 12)
-        top_k = (1, 3)
-        thresholds = (0.0, 0.03)
-    else:
-        raise ValueError(f"unsupported benchmark candidate_count={candidate_count}")
+    lookbacks, top_k, thresholds = dimensions[candidate_count]
     space = ParameterSearchSpace(
         lookback_months=lookbacks,
         top_k=top_k,
         absolute_thresholds=thresholds,
-        allocation_methods=ALLOCATION_METHODS,
+        allocation_methods=ALLOCATIONS,
     )
     if space.candidate_count != candidate_count:
-        raise AssertionError(
-            f"benchmark search-space mismatch: expected {candidate_count}, got {space.candidate_count}"
-        )
+        raise AssertionError(f"expected {candidate_count} candidates, got {space.candidate_count}")
     return space
 
 
 def _plan(candidate_count: int, fold_count: int):
     return build_parameter_search_plan(
-        search_space=_search_space(candidate_count),
+        search_space=_space(candidate_count),
         inner_validation=InnerValidationSpec(
             fold_count=fold_count,
             evaluation_months=1,
             step_months=1,
         ),
-        risky_symbol_count=len(RISKY_SYMBOLS),
+        risky_symbol_count=len(RISKY),
         outer_period_count=1,
         budget=TuningBudget(
             max_parameter_candidates=MAX_PARAMETER_CANDIDATES,
@@ -147,20 +129,21 @@ def _write(report: dict[str, object]) -> None:
 
 
 def main() -> int:
+    dataset = _dataset()
     outer_period = _outer_period()
-    dataset = _outer_training_dataset()
-    universe = ConfiguredResearchUniverse(ALL_SYMBOLS)
+    universe = ConfiguredResearchUniverse(MEMBERS)
     config = SimulationConfig(initial_amount=100_000.0, transaction_cost_bps=5.0)
-
     report: dict[str, object] = {
         "status": "running",
-        "sourceSha": os.environ.get("GITHUB_SHA"),
+        "workflowSha": os.environ.get("GITHUB_SHA"),
+        "productBaseSha": os.environ.get("PRODUCT_SOURCE_SHA"),
+        "benchmarkHeadSha": os.environ.get("BENCHMARK_HEAD_SHA"),
         "runnerOs": os.environ.get("RUNNER_OS"),
         "runnerArch": os.environ.get("RUNNER_ARCH"),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "dataset": {
-            "symbols": list(ALL_SYMBOLS),
+            "symbols": list(MEMBERS),
             "requestedStart": dataset.requested_start.isoformat(),
             "requestedEnd": dataset.requested_end.isoformat(),
             "datasetHash": dataset.dataset_hash,
@@ -174,73 +157,50 @@ def main() -> int:
     }
     _write(report)
 
-    # Small untimed warm-up removes import/first-call noise without exercising a production ceiling.
-    warmup_plan = build_parameter_search_plan(
-        search_space=ParameterSearchSpace(
-            lookback_months=(12,),
-            top_k=(3,),
-            absolute_thresholds=(0.0,),
-            allocation_methods=("equal",),
-        ),
-        inner_validation=InnerValidationSpec(
-            fold_count=1,
-            evaluation_months=1,
-            step_months=1,
-        ),
-        risky_symbol_count=len(RISKY_SYMBOLS),
-        outer_period_count=1,
-        budget=TuningBudget(
-            max_parameter_candidates=MAX_PARAMETER_CANDIDATES,
-            max_inner_folds=MAX_INNER_FOLDS,
-            max_tuning_evaluations=MAX_TUNING_EVALUATIONS_PER_JOB,
-        ),
-    )
-    run_inner_parameter_tuning(
-        outer_period=outer_period,
-        outer_training_dataset=dataset,
-        configured_universe=universe,
-        risky_symbols=RISKY_SYMBOLS,
-        defensive_symbols=DEFENSIVE_SYMBOLS,
-        search_plan=warmup_plan,
-        simulation_config=config,
-    )
-
     overall_start = time.perf_counter()
     cases: list[dict[str, object]] = []
-    for candidate_count in (12, 24, 48):
-        for fold_count in (3, 6):
-            plan = _plan(candidate_count, fold_count)
-            planned = candidate_count * fold_count
-            started = time.perf_counter()
-            tuning = run_inner_parameter_tuning(
-                outer_period=outer_period,
-                outer_training_dataset=dataset,
-                configured_universe=universe,
-                risky_symbols=RISKY_SYMBOLS,
-                defensive_symbols=DEFENSIVE_SYMBOLS,
-                search_plan=plan,
-                simulation_config=config,
-            )
-            elapsed = time.perf_counter() - started
-            eligible = sum(candidate.status == "eligible" for candidate in tuning.candidates)
-            failed = len(tuning.candidates) - eligible
-            case = {
-                "candidateCount": candidate_count,
-                "innerFoldCount": fold_count,
-                "plannedEvaluations": planned,
-                "elapsedSeconds": round(elapsed, 6),
-                "millisecondsPerEvaluation": round(1000.0 * elapsed / planned, 3),
-                "evaluationsPerSecond": round(planned / elapsed, 3),
-                "eligibleCandidates": eligible,
-                "failedCandidates": failed,
-                "winnerParameterHash": tuning.winner_parameter_hash,
-                "resultHash": tuning.result_hash,
-            }
-            cases.append(case)
-            report["cases"] = cases
-            report["elapsedSecondsSoFar"] = round(time.perf_counter() - overall_start, 6)
-            _write(report)
-            print(json.dumps(case, sort_keys=True), flush=True)
+    try:
+        for candidate_count in (12, 24, 48):
+            for fold_count in (3, 6):
+                plan = _plan(candidate_count, fold_count)
+                planned = candidate_count * fold_count
+                started = time.perf_counter()
+                tuning = run_inner_parameter_tuning(
+                    outer_period=outer_period,
+                    outer_training_dataset=dataset,
+                    configured_universe=universe,
+                    risky_symbols=RISKY,
+                    defensive_symbols=DEFENSIVE,
+                    search_plan=plan,
+                    simulation_config=config,
+                )
+                elapsed = time.perf_counter() - started
+                eligible = sum(item.status == "eligible" for item in tuning.candidates)
+                case = {
+                    "candidateCount": candidate_count,
+                    "innerFoldCount": fold_count,
+                    "plannedEvaluations": planned,
+                    "elapsedSeconds": round(elapsed, 6),
+                    "millisecondsPerEvaluation": round(1000.0 * elapsed / planned, 3),
+                    "evaluationsPerSecond": round(planned / elapsed, 3),
+                    "eligibleCandidates": eligible,
+                    "failedCandidates": len(tuning.candidates) - eligible,
+                    "winnerParameterHash": tuning.winner_parameter_hash,
+                    "resultHash": tuning.result_hash,
+                }
+                cases.append(case)
+                report["cases"] = cases
+                report["elapsedSecondsSoFar"] = round(time.perf_counter() - overall_start, 6)
+                _write(report)
+                print(json.dumps(case, sort_keys=True), flush=True)
+    except Exception as exc:
+        report["status"] = "failed"
+        report["failureType"] = type(exc).__name__
+        report["failureMessage"] = str(exc)
+        report["traceback"] = traceback.format_exc()
+        report["elapsedSecondsSoFar"] = round(time.perf_counter() - overall_start, 6)
+        _write(report)
+        raise
 
     report["status"] = "completed"
     report["totalMeasuredSeconds"] = round(time.perf_counter() - overall_start, 6)
