@@ -726,16 +726,25 @@ def _parameter_search_plan(
     *,
     outer_period_count: int,
 ) -> ParameterSearchPlan:
+    budget = TuningBudget(
+        max_parameter_candidates=MAX_PARAMETER_CANDIDATES,
+        max_inner_folds=MAX_INNER_FOLDS,
+        max_tuning_evaluations=MAX_TUNING_EVALUATIONS_PER_JOB,
+    )
+    # Job-level resource accounting depends on how many outer periods are in the
+    # request, but that operational count must not contaminate the methodology
+    # identity of any one outer Decision.
+    budget.validate(
+        candidate_count=selector.search_space.candidate_count,
+        inner_fold_count=selector.inner_validation.fold_count,
+        outer_period_count=outer_period_count,
+    )
     return build_parameter_search_plan(
         search_space=selector.search_space,
         inner_validation=selector.inner_validation,
         risky_symbol_count=len(selector.risky_symbols),
-        outer_period_count=outer_period_count,
-        budget=TuningBudget(
-            max_parameter_candidates=MAX_PARAMETER_CANDIDATES,
-            max_inner_folds=MAX_INNER_FOLDS,
-            max_tuning_evaluations=MAX_TUNING_EVALUATIONS_PER_JOB,
-        ),
+        outer_period_count=1,
+        budget=budget,
     )
 
 
