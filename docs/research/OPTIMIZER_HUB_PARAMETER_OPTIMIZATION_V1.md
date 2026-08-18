@@ -39,9 +39,7 @@ This contract does not create a second market-data, covariance, Portfolio, metri
 | final outer Decision identity | existing configured `DecisionSnapshot` |
 | durable completed research | existing D1 ResearchRun authority |
 
-The optimizer may orchestrate these authorities, but it must not reimplement them privately.
-
-The browser or a future AI agent may define a bounded search request and render returned evidence. Neither may submit authoritative candidate results, calculate the accepted winner, or bypass backend validation.
+The optimizer may orchestrate these authorities, but it must not reimplement them privately. The browser or a future AI agent may define a bounded search request and render returned evidence. Neither may submit authoritative candidate results, calculate the accepted winner, or bypass backend validation.
 
 ## 3. Versioned identities
 
@@ -63,7 +61,7 @@ Inner fold calendar policy:
 completed-calendar-month-buckets-v1
 ```
 
-Planned configured selector policy:
+Configured selector policy:
 
 ```text
 dual-momentum-nested-parameter-optimization-v1
@@ -77,20 +75,18 @@ walk-forward-dual-momentum-parameter-optimization-job-2026-08-18.1
 
 Any externally observable methodology change requires explicit versioning rather than silent reinterpretation of an old ResearchRun.
 
-## 4. Backward compatibility
+## 4. Backward compatibility and replay
 
-Phase 4B-3 is opt-in.
-
-Existing requests remain frozen:
+Phase 4B-3 is opt-in. Existing requests remain frozen:
 
 - legacy Dual Momentum request without `allocationMethod` keeps 4B-1 request shape, selector policy and job contract;
 - explicit 4B-2 allocation request keeps its existing request shape, allocation selector policy and job contract;
 - PIT / Exhaustive behavior remains unchanged;
 - ResearchRun rerun replays the exact stored request and therefore does not upgrade old runs into parameter optimization.
 
-A 4B-3 request receives a separately versioned normalized selector/search identity.
+A 4B-3 request receives a separately versioned normalized selector/search identity. Do not add optional tuning fields to an old normalized request in a way that changes an existing `jobHash` or `DecisionSnapshot` identity.
 
-Do not add optional tuning fields to an old normalized request in a way that changes an existing `jobHash` or `DecisionSnapshot` identity.
+Explicit optimization requests must persist their exact original search dimensions and inner validation policy. Rerun must recreate the same normalized search, not rewrite it into the winning manual parameter tuple.
 
 ## 5. V1 tunable dimensions
 
@@ -144,9 +140,15 @@ Canonical tuple order is:
 (lookbackMonths, topK, absoluteThreshold, allocationMethodOrder)
 ```
 
-where allocation method order is versioned and deterministic.
+The allocation order is versioned and deterministic:
 
-Each candidate receives a SHA-256 canonical-JSON parameter identity. The whole normalized search space receives a separate `searchSpaceHash`.
+```text
+equal
+inverse_volatility
+risk_parity_erc
+```
+
+Each candidate receives a SHA-256 canonical-JSON parameter identity. The normalized search space receives a separate `searchSpaceHash`; the candidate list plus inner validation policy and planned work receive a separate search-plan identity.
 
 ## 7. Outer / inner temporal firewall
 
@@ -168,6 +170,17 @@ Inner Evaluation end <= Outer Training end
 ```
 
 No inner dataset may include an observation later than the outer Training end. Outer Evaluation is not passed to the tuning component and must be structurally unavailable before the final outer DecisionSnapshot is frozen.
+
+The required orchestration order is:
+
+```text
+build/fetch Outer Training
+→ tune only inside Outer Training
+→ choose winner parameters
+→ refit on full Outer Training
+→ freeze outer DecisionSnapshot
+→ only then fetch/validate Outer Evaluation
+```
 
 ## 8. Inner-fold policy
 
@@ -249,7 +262,9 @@ Important rules:
 - transaction costs are computed by existing Portfolio v3 semantics;
 - a candidate must complete every required fold to be eligible;
 - candidate-specific missing history or allocation failure is an explicit candidate failure;
-- failures do not authorize alternate data, silent symbol removal, Equal fallback, or shorter validation windows.
+- failures do not authorize alternate data, silent symbol removal, Equal fallback, or shorter validation windows;
+- all candidates see exactly the same outer Training data and inner schedule;
+- runtime completion order cannot affect ranking order or identity.
 
 ## 11. Accepted objective policy
 
@@ -300,7 +315,7 @@ MAX_TUNING_EVALUATIONS_PER_JOB
 
 must be chosen from empirical runtime/capacity evidence before release. They are not guessed in the methodology contract.
 
-Product defaults should remain materially below measured hard ceilings.
+Product defaults should remain materially below measured hard ceilings. Search count preflight must happen before market-data work whenever all required counts are available from the normalized request.
 
 Unbounded Cartesian search is forbidden.
 
@@ -322,6 +337,8 @@ winnerParameterHash
 winnerParameters
 resultHash
 ```
+
+Candidate evidence should include completed fold count, failed fold/reason when relevant, exact Sortino/MDD/CAGR/transaction costs for eligible candidates, inner Decision hashes and inner Evaluation dataset hashes.
 
 Same normalized request + same audited data + same versioned methodology must produce the same ordering and winner identity.
 
@@ -355,6 +372,18 @@ The outer Decision binds:
 - full-Outer-Training final selection and allocation evidence;
 - final selected constituents and weights.
 
+The existing `DecisionSnapshot` selector structure remains authoritative:
+
+```text
+selector: {
+  contractVersion,
+  rule,
+  parameters
+}
+```
+
+Phase 4B-3 must use that existing structure rather than creating a parallel top-level selector-parameters schema.
+
 Only after this DecisionSnapshot exists may the ordinary outer Evaluation dataset be fetched/validated.
 
 ## 15. Outer OOS remains existing authority
@@ -380,10 +409,20 @@ Recommended semantic shape:
 ```text
 selector: {
   strategy: "dual_momentum",
-  ...fixed configured universe...,
+  riskySymbols,
+  defensiveSymbols,
   parameterOptimization: {
-    searchSpace: {...},
-    innerValidation: {...}
+    searchSpace: {
+      lookbackMonths,
+      topK,
+      absoluteThreshold,
+      allocationMethod
+    },
+    innerValidation: {
+      foldCount,
+      evaluationMonths,
+      stepMonths
+    }
   }
 }
 ```
@@ -393,7 +432,8 @@ The exact API field shape may be refined during implementation, but these rules 
 - omission of `parameterOptimization` remains existing manual behavior;
 - an explicit optimization request receives a new job contract and selector policy;
 - normalized search space, validation policy and fixed assumptions enter job identity;
-- old job hashes must remain reconstructable.
+- old job hashes must remain reconstructable;
+- optimization and manual fixed parameter fields must not ambiguously compete for authority in the same request.
 
 ## 17. ResearchRun replay
 
@@ -406,6 +446,8 @@ For a 4B-3 run:
 - rerun does not mutate the winner into a manual request;
 - rerun creates normal ResearchRun lineage under the existing D1 authority;
 - browser-submitted candidate rankings or winner evidence remain forbidden.
+
+`jobHash` remains completed backend-result identity; durable `run_id` remains ResearchRun identity.
 
 ## 18. UX requirements
 
@@ -429,6 +471,8 @@ Auto optimize should provide:
 
 The UI must not imply that inner search metrics are final OOS performance.
 
+Recommended defaults must be narrow enough to be useful without encouraging enormous Cartesian searches. The browser should display the normalized candidate count before execution, but backend resource guards remain authoritative.
+
 ## 19. Required regression invariants
 
 A 4B-3 release must prove:
@@ -446,11 +490,13 @@ A 4B-3 release must prove:
 11. unavailable primary metric is not coerced to zero;
 12. deterministic tie-break ends in canonical parameter hash;
 13. winner is rerun on exact full Outer Training before the outer Decision is frozen;
-14. tuning result / winner evidence is hash-bound into the outer Decision;
+14. tuning result / winner evidence is hash-bound into the existing outer Decision selector/evidence structure;
 15. only after final outer Decision exists is outer Evaluation loaded;
 16. ResearchRun rerun replays the exact stored optimization request;
 17. browser evidence matches backend results and does not recompute them;
-18. capacity limits reject oversized work before expensive execution.
+18. capacity limits reject oversized work before expensive execution;
+19. tampered tuning/winner identity fails closed;
+20. a tuning result cannot be refit against a different outer Training dataset hash.
 
 ## 20. Rejected shortcuts
 
@@ -468,6 +514,7 @@ Do not:
 - create a new blended AI score without a versioned visible methodology;
 - use a proxy winner without exact accepted-path validation;
 - mutate legacy request identity;
+- create a second Decision/selector payload authority;
 - weaken existing CI, exact-SHA or production smoke gates.
 
 ## 21. Capacity / runtime expansion rule
@@ -486,7 +533,33 @@ Required order:
 
 Do not introduce Redis, task queues or distributed workers before measured product evidence requires them.
 
-## 22. Future extensions
+## 22. Release gates
+
+4B-3 is R2 by default because it changes quantitative methodology and public research behavior.
+
+Before Ready / merge:
+
+- targeted mathematical/causal tests pass;
+- full relevant regression passes;
+- legacy 4B-1/4B-2 identity regressions pass;
+- public API/UI contract matches backend fields;
+- browser E2E covers Auto Optimize request and authoritative evidence display;
+- capacity benchmark establishes production caps/defaults;
+- exact-head CI passes;
+- independent exact-head methodology review is approved;
+- rollback/recovery point exists.
+
+After merge:
+
+- main CI passes;
+- Vercel production is READY on exact accepted SHA;
+- Cloudflare deployment and applicable production smokes pass;
+- Walk-Forward exact-SHA production verifier passes with the new API/job contract;
+- runtime error/fatal scan shows no 4B-3 release defect.
+
+4B-3 is not CLOSED before those post-main gates pass.
+
+## 23. Future extensions
 
 After 4B-3 is production accepted, later separately versioned work may add:
 
