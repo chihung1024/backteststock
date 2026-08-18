@@ -23,6 +23,7 @@ from apps.api.app.research.walk_forward_job import (
     WalkForwardJobService,
     WalkForwardJobSpec,
     _job_contract_version,
+    _parameter_search_plan,
     _selector_policy,
     _spec_payload,
 )
@@ -142,6 +143,17 @@ def test_explicit_optimization_has_separate_job_and_selector_identity() -> None:
     assert optimization["searchSpace"]["lookbackMonths"] == [6, 12]
     assert optimization["searchSpace"]["candidateCount"] == 2
     assert optimization["innerValidation"]["foldCount"] == 3
+
+
+def test_per_period_search_plan_identity_is_independent_of_job_scope() -> None:
+    selector = _selector()
+
+    single_period = _parameter_search_plan(selector, outer_period_count=1)
+    twelve_periods = _parameter_search_plan(selector, outer_period_count=12)
+
+    assert single_period.plan_hash == twelve_periods.plan_hash
+    assert single_period.planned_tuning_evaluations == 6
+    assert twelve_periods.planned_tuning_evaluations == 6
 
 
 def test_budget_preflight_rejects_oversized_search_before_service_execution() -> None:
