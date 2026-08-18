@@ -314,8 +314,8 @@ test("Auto Optimize sends only nested tuning authority and renders backend winne
   const tuningPanel = page.locator(".wf-optimization-evidence");
   await expect(tuningPanel.getByRole("heading", { name: "Nested parameter optimization evidence" })).toBeVisible();
   await expect(tuningPanel.getByText("Winner 由後端 inner-OOS authority 決定")).toBeVisible();
-  await expect(tuningPanel.getByText("1.820", { exact: true })).toBeVisible();
-  await expect(tuningPanel.getByText("-7.00%", { exact: true })).toBeVisible();
+  await expect(tuningPanel.getByRole("definition").filter({ hasText: /^1\.820$/ })).toBeVisible();
+  await expect(tuningPanel.getByRole("definition").filter({ hasText: /^-7\.00%$/ })).toBeVisible();
   await expect(tuningPanel.getByText("insufficient complete-case covariance evidence", { exact: false })).toBeVisible();
   await expect(tuningPanel.getByText("LB 12m · K 1 · Hurdle 0.00% · equal", { exact: false })).toBeVisible();
 
