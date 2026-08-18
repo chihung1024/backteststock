@@ -1,0 +1,52 @@
+name: Internal Parameter Tuning Capacity Benchmark
+
+on:
+  push:
+    branches:
+      - internal-4b3-capacity-benchmark-20260819
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run exact tuning capacity matrix
+        id: capacity
+        continue-on-error: true
+        run: timeout 900s python .github/benchmark/parameter_tuning_capacity.py
+      - name: Upload capacity evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: parameter-tuning-capacity-${{ github.sha }}
+          path: parameter-tuning-capacity.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Require completed benchmark
+        if: ${{ always() }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("parameter-tuning-capacity.json")
+          if not path.exists():
+              raise SystemExit("capacity benchmark produced no evidence file")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          if payload.get("status") != "completed":
+              raise SystemExit(f"capacity benchmark incomplete: {payload.get('status')}")
+          if len(payload.get("cases", [])) != 6:
+              raise SystemExit("capacity benchmark did not complete the 6-case matrix")
+          PY
