@@ -25,6 +25,7 @@ PARAMETER_OPTIMIZATION_CONTRACT_VERSION = (
 PARAMETER_OPTIMIZATION_HASH_ALGORITHM = "sha256-canonical-json-v1"
 PARAMETER_OPTIMIZATION_OBJECTIVE_POLICY = "inner-oos-sortino-lexicographic-v1"
 PARAMETER_OPTIMIZATION_SELECTOR_POLICY = "dual-momentum-nested-parameter-optimization-v1"
+PARAMETER_OPTIMIZATION_INNER_FOLD_POLICY = "completed-calendar-month-buckets-v1"
 
 ALLOCATION_METHOD_ORDER: tuple[AllocationMethod, ...] = (
     "equal",
@@ -161,7 +162,7 @@ class ParameterSearchSpace:
 
 @dataclass(frozen=True, slots=True)
 class InnerValidationSpec:
-    """Bounded rolling-month inner validation policy."""
+    """Bounded completed-calendar-month inner validation policy."""
 
     fold_count: int
     evaluation_months: int = 1
@@ -180,11 +181,12 @@ class InnerValidationSpec:
                 "step_months must be >= evaluation_months so inner OOS folds do not overlap"
             )
 
-    def export_payload(self) -> dict[str, int]:
+    def export_payload(self) -> dict[str, Any]:
         return {
             "foldCount": self.fold_count,
             "evaluationMonths": self.evaluation_months,
             "stepMonths": self.step_months,
+            "calendarPolicy": PARAMETER_OPTIMIZATION_INNER_FOLD_POLICY,
         }
 
 
@@ -207,6 +209,7 @@ class InnerFoldSchedule:
     def identity_payload(self) -> dict[str, Any]:
         return {
             "contractVersion": PARAMETER_OPTIMIZATION_CONTRACT_VERSION,
+            "calendarPolicy": PARAMETER_OPTIMIZATION_INNER_FOLD_POLICY,
             "periods": [
                 {
                     "periodId": period.period_id,
@@ -384,7 +387,7 @@ def build_inner_fold_schedule(
     validation: InnerValidationSpec,
     maximum_lookback_months: int,
 ) -> InnerFoldSchedule:
-    """Build newest rolling-month folds using only the outer Training interval."""
+    """Build newest completed calendar-month folds using only outer Training."""
 
     if outer_period.training_end != outer_period.decision_date:
         raise ValueError(
@@ -399,31 +402,35 @@ def build_inner_fold_schedule(
             "maximum_lookback_months must be an integer between 1 and 60"
         )
 
-    newest_end = pd.Timestamp(outer_period.training_end)
+    outer_end = pd.Timestamp(outer_period.training_end)
+    outer_month = outer_end.to_period("M")
+    newest_end_period = (
+        outer_month
+        if outer_month.end_time.date() == outer_period.training_end
+        else outer_month - 1
+    )
+
     generated: list[WalkForwardPeriod] = []
     for reverse_index in range(validation.fold_count):
-        evaluation_end_ts = newest_end - pd.DateOffset(
-            months=reverse_index * validation.step_months
-        )
-        evaluation_start_ts = (
-            evaluation_end_ts
-            - pd.DateOffset(months=validation.evaluation_months)
-            + pd.Timedelta(days=1)
-        )
-        decision_ts = evaluation_start_ts - pd.Timedelta(days=1)
-        required_lookback_start = decision_ts - pd.DateOffset(
-            months=maximum_lookback_months
-        )
-        if required_lookback_start.date() < outer_period.training_start:
+        end_period = newest_end_period - reverse_index * validation.step_months
+        start_period = end_period - (validation.evaluation_months - 1)
+        evaluation_start = start_period.start_time.date()
+        evaluation_end = end_period.end_time.date()
+        decision_date = (start_period.start_time - pd.Timedelta(days=1)).date()
+        required_lookback_start = (
+            pd.Timestamp(decision_date)
+            - pd.DateOffset(months=maximum_lookback_months)
+        ).date()
+        if required_lookback_start < outer_period.training_start:
             raise ValueError(
                 "outer Training interval cannot support the requested maximum lookback "
                 "and inner fold schedule"
             )
-        if evaluation_start_ts.date() <= outer_period.training_start:
+        if evaluation_start <= outer_period.training_start:
             raise ValueError(
                 "inner evaluation must leave a non-empty causal training interval"
             )
-        if evaluation_end_ts.date() > outer_period.training_end:
+        if evaluation_end > outer_period.training_end:
             raise ValueError("inner evaluation escaped outer Training end")
         generated.append(
             WalkForwardPeriod(
@@ -432,10 +439,10 @@ def build_inner_fold_schedule(
                     f"{validation.fold_count - reverse_index:02d}"
                 ),
                 training_start=outer_period.training_start,
-                training_end=decision_ts.date(),
-                decision_date=decision_ts.date(),
-                evaluation_start=evaluation_start_ts.date(),
-                evaluation_end=evaluation_end_ts.date(),
+                training_end=decision_date,
+                decision_date=decision_date,
+                evaluation_start=evaluation_start,
+                evaluation_end=evaluation_end,
             )
         )
 
