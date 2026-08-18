@@ -17,9 +17,9 @@ from typing import Any, Callable
 import pandas as pd
 
 from api import date_policy, exhaustive_optimizer
-from apps.api.app.quant.covariance import RISK_MATH_CONTRACT_VERSION
 from apps.api.app.data.history_service import PartialTWDHistories, TWDHistoryService
 from apps.api.app.portfolio.models import SimulationConfig
+from apps.api.app.quant.covariance import RISK_MATH_CONTRACT_VERSION
 from apps.api.app.research.dataset import ResearchDatasetService, build_research_dataset
 from apps.api.app.research.exhaustive_authority_http import HttpExhaustiveAuthorityRunner
 from apps.api.app.research.exhaustive_selection import (
@@ -36,6 +36,18 @@ from apps.api.app.research.oos_ledger import (
     WalkForwardOOSResult,
     run_continuous_oos_ledger,
 )
+from apps.api.app.research.parameter_optimization import (
+    PARAMETER_OPTIMIZATION_CONTRACT_VERSION,
+    PARAMETER_OPTIMIZATION_OBJECTIVE_POLICY,
+    PARAMETER_OPTIMIZATION_SELECTOR_POLICY,
+    InnerValidationSpec,
+    ParameterSearchPlan,
+    ParameterSearchSpace,
+    TuningBudget,
+    build_parameter_search_plan,
+)
+from apps.api.app.research.parameter_refit import refit_parameter_tuning_winner
+from apps.api.app.research.parameter_tuning import run_inner_parameter_tuning
 from apps.api.app.research.pit_client import PITUniverseClient, PITUniverseResolver
 from apps.api.app.research.selection import (
     run_configured_selection,
@@ -54,11 +66,17 @@ DUAL_MOMENTUM_JOB_CONTRACT_VERSION = "walk-forward-dual-momentum-job-2026-08-17.
 DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION = (
     "walk-forward-dual-momentum-allocation-job-2026-08-17.1"
 )
+DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_JOB_CONTRACT_VERSION = (
+    "walk-forward-dual-momentum-parameter-optimization-job-2026-08-18.1"
+)
 WALK_FORWARD_JOB_HASH_ALGORITHM = "sha256-canonical-json-v1"
 WALK_FORWARD_PUBLIC_SELECTOR_POLICY = "exhaustive-gross-buy-and-hold-v1"
 WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY = "dual-momentum-configured-monthly-v1"
 WALK_FORWARD_DUAL_MOMENTUM_ALLOCATION_SELECTOR_POLICY = (
     "dual-momentum-configured-monthly-allocation-v1"
+)
+WALK_FORWARD_DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_SELECTOR_POLICY = (
+    PARAMETER_OPTIMIZATION_SELECTOR_POLICY
 )
 WALK_FORWARD_PUBLIC_OOS_POLICY = "decision-transition-cost-only-v1"
 MAX_WALK_FORWARD_PERIODS = 24
@@ -67,6 +85,11 @@ MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_PERIOD = 500_000
 MAX_SERVER_EXHAUSTIVE_COMBINATIONS_PER_JOB = 2_000_000
 MAX_PUBLIC_HOLDING_COUNT = 20
 MAX_CONFIGURED_STRATEGY_SYMBOLS = 50
+# Candidate-stage synchronous safety bounds. Capacity benchmarking is mandatory
+# before PR #175 can become Ready and may tighten/raise these values explicitly.
+MAX_PARAMETER_CANDIDATES = 48
+MAX_INNER_FOLDS = 6
+MAX_TUNING_EVALUATIONS_PER_JOB = 288
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +177,47 @@ class DualMomentumSelectorSpec:
         return (*self.risky_symbols, *self.defensive_symbols)
 
 
-SelectorSpec = WalkForwardSelectorSpec | DualMomentumSelectorSpec
+@dataclass(frozen=True, slots=True)
+class DualMomentumParameterOptimizationSpec:
+    """Explicit 4B-3 configured search request; never mutates manual 4B-1/4B-2."""
+
+    risky_symbols: tuple[str, ...]
+    defensive_symbols: tuple[str, ...]
+    search_space: ParameterSearchSpace
+    inner_validation: InnerValidationSpec
+
+    def __post_init__(self) -> None:
+        risky = _canonical_symbols(self.risky_symbols, label="risky_symbols")
+        defensive = _canonical_symbols(
+            self.defensive_symbols, label="defensive_symbols"
+        )
+        if set(risky).intersection(defensive):
+            raise ValueError("risky and defensive symbols must not overlap")
+        if len(risky) + len(defensive) > MAX_CONFIGURED_STRATEGY_SYMBOLS:
+            raise ValueError(
+                f"configured strategy supports at most {MAX_CONFIGURED_STRATEGY_SYMBOLS} total symbols"
+            )
+        if not isinstance(self.search_space, ParameterSearchSpace):
+            raise TypeError("search_space must be ParameterSearchSpace")
+        if not isinstance(self.inner_validation, InnerValidationSpec):
+            raise TypeError("inner_validation must be InnerValidationSpec")
+        if max(self.search_space.top_k) > len(risky):
+            raise ValueError(
+                "parameter optimization top_k search values cannot exceed risky universe size"
+            )
+        object.__setattr__(self, "risky_symbols", risky)
+        object.__setattr__(self, "defensive_symbols", defensive)
+
+    @property
+    def configured_members(self) -> tuple[str, ...]:
+        return (*self.risky_symbols, *self.defensive_symbols)
+
+
+SelectorSpec = (
+    WalkForwardSelectorSpec
+    | DualMomentumSelectorSpec
+    | DualMomentumParameterOptimizationSpec
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +250,9 @@ class WalkForwardJobSpec:
             )
         if isinstance(self.selector, DualMomentumSelectorSpec):
             _validate_dual_momentum_schedule(periods, self.selector)
+        elif isinstance(self.selector, DualMomentumParameterOptimizationSpec):
+            _validate_parameter_optimization_schedule(periods, self.selector)
+            _parameter_search_plan(self.selector, outer_period_count=len(periods))
         object.__setattr__(self, "periods", periods)
 
 
@@ -210,7 +276,23 @@ class DualMomentumJobPeriodAudit:
     evaluation_dataset_hash: str
 
 
-PeriodAudit = WalkForwardJobPeriodAudit | DualMomentumJobPeriodAudit
+@dataclass(frozen=True, slots=True)
+class TunedDualMomentumJobPeriodAudit:
+    period_id: str
+    configured_member_count: int
+    training_dataset_hash: str
+    tuning_result_hash: str
+    search_plan_hash: str
+    winner_parameter_hash: str
+    decision_hash: str
+    evaluation_dataset_hash: str
+
+
+PeriodAudit = (
+    WalkForwardJobPeriodAudit
+    | DualMomentumJobPeriodAudit
+    | TunedDualMomentumJobPeriodAudit
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,14 +354,32 @@ class WalkForwardJobService:
         exhaustive_selector = (
             spec.selector if isinstance(spec.selector, WalkForwardSelectorSpec) else None
         )
+        optimized_selector = (
+            spec.selector
+            if isinstance(spec.selector, DualMomentumParameterOptimizationSpec)
+            else None
+        )
         dual_selector = (
             spec.selector if isinstance(spec.selector, DualMomentumSelectorSpec) else None
         )
         runner = self._authority_runner_factory() if exhaustive_selector is not None else None
+        configured_selector = dual_selector or optimized_selector
         configured_universe = (
-            ConfiguredResearchUniverse(dual_selector.configured_members)
-            if dual_selector is not None
+            ConfiguredResearchUniverse(configured_selector.configured_members)
+            if configured_selector is not None
             else None
+        )
+        search_plan = (
+            _parameter_search_plan(optimized_selector, outer_period_count=len(periods))
+            if optimized_selector is not None
+            else None
+        )
+        risk_free_rate = float(exhaustive_optimizer.legacy.RISK_FREE_RATE)
+        oos_config = SimulationConfig(
+            initial_amount=spec.execution.initial_amount,
+            reinvest_distributions=True,
+            transaction_cost_bps=spec.execution.transition_cost_bps,
+            risk_free_rate=risk_free_rate,
         )
 
         for period in periods:
@@ -365,6 +465,48 @@ class WalkForwardJobService:
                     decision_hash=decision.decision_hash,
                     evaluation_dataset_hash="",
                 )
+            elif (
+                optimized_selector is not None
+                and configured_universe is not None
+                and search_plan is not None
+            ):
+                training_batch = self._history_service.histories_partial(
+                    list(configured_universe.members),
+                    period.training_start,
+                    period.training_end,
+                )
+                training_dataset = build_research_dataset(
+                    training_batch,
+                    start=period.training_start,
+                    end=period.training_end,
+                )
+                tuning_result = run_inner_parameter_tuning(
+                    outer_period=period,
+                    outer_training_dataset=training_dataset,
+                    configured_universe=configured_universe,
+                    risky_symbols=optimized_selector.risky_symbols,
+                    defensive_symbols=optimized_selector.defensive_symbols,
+                    search_plan=search_plan,
+                    simulation_config=oos_config,
+                )
+                decision = refit_parameter_tuning_winner(
+                    outer_period=period,
+                    outer_training_dataset=training_dataset,
+                    configured_universe=configured_universe,
+                    risky_symbols=optimized_selector.risky_symbols,
+                    defensive_symbols=optimized_selector.defensive_symbols,
+                    tuning_result=tuning_result,
+                )
+                audit_factory = TunedDualMomentumJobPeriodAudit(
+                    period_id=period.period_id,
+                    configured_member_count=len(configured_universe.members),
+                    training_dataset_hash=training_dataset.dataset_hash,
+                    tuning_result_hash=tuning_result.result_hash,
+                    search_plan_hash=search_plan.plan_hash,
+                    winner_parameter_hash=tuning_result.winner_parameter_hash,
+                    decision_hash=decision.decision_hash,
+                    evaluation_dataset_hash="",
+                )
             elif dual_selector is not None and configured_universe is not None:
                 training_batch = self._history_service.histories_partial(
                     list(configured_universe.members),
@@ -409,6 +551,8 @@ class WalkForwardJobService:
             else:
                 raise TypeError("unsupported Walk-Forward selector specification")
 
+            # Causal firewall: for optimized jobs this outer Evaluation fetch remains
+            # after inner tuning + full-Outer-Training winner refit + Decision freeze.
             evaluation_batch = self._history_service.histories_partial(
                 list(decision.selected_constituents),
                 period.evaluation_start,
@@ -442,6 +586,19 @@ class WalkForwardJobService:
                         evaluation_dataset_hash=evaluation_dataset.dataset_hash,
                     )
                 )
+            elif isinstance(audit_factory, TunedDualMomentumJobPeriodAudit):
+                audits.append(
+                    TunedDualMomentumJobPeriodAudit(
+                        period_id=audit_factory.period_id,
+                        configured_member_count=audit_factory.configured_member_count,
+                        training_dataset_hash=audit_factory.training_dataset_hash,
+                        tuning_result_hash=audit_factory.tuning_result_hash,
+                        search_plan_hash=audit_factory.search_plan_hash,
+                        winner_parameter_hash=audit_factory.winner_parameter_hash,
+                        decision_hash=audit_factory.decision_hash,
+                        evaluation_dataset_hash=evaluation_dataset.dataset_hash,
+                    )
+                )
             else:
                 audits.append(
                     DualMomentumJobPeriodAudit(
@@ -453,13 +610,6 @@ class WalkForwardJobService:
                     )
                 )
 
-        risk_free_rate = float(exhaustive_optimizer.legacy.RISK_FREE_RATE)
-        oos_config = SimulationConfig(
-            initial_amount=spec.execution.initial_amount,
-            reinvest_distributions=True,
-            transaction_cost_bps=spec.execution.transition_cost_bps,
-            risk_free_rate=risk_free_rate,
-        )
         oos = run_continuous_oos_ledger(evaluations, oos_config)
         contract_version = _job_contract_version(spec.selector)
         selector_policy = _selector_policy(spec.selector)
@@ -532,6 +682,63 @@ def _validate_dual_momentum_schedule(
             )
 
 
+def _validate_parameter_optimization_schedule(
+    periods: tuple[WalkForwardPeriod, ...],
+    selector: DualMomentumParameterOptimizationSpec,
+) -> None:
+    maximum_lookback = selector.search_space.maximum_lookback_months
+    for period in periods:
+        if period.training_end != period.decision_date:
+            raise ValueError(
+                "Dual Momentum parameter optimization requires training_end == decision_date"
+            )
+        if period.evaluation_start != period.decision_date + timedelta(days=1):
+            raise ValueError(
+                "Dual Momentum parameter optimization Evaluation must start the calendar day after Decision"
+            )
+        if (period.evaluation_end - period.decision_date).days > 35:
+            raise ValueError(
+                "Dual Momentum parameter optimization Evaluation windows may span at most 35 calendar days"
+            )
+        requested_signal_start = (
+            pd.Timestamp(period.decision_date) - pd.DateOffset(months=maximum_lookback)
+        ).date()
+        if period.training_start > requested_signal_start:
+            raise ValueError(
+                "parameter optimization training_start must cover the maximum momentum lookback"
+            )
+
+    for previous, current in zip(periods, periods[1:]):
+        previous_month = previous.decision_date.year * 12 + previous.decision_date.month
+        current_month = current.decision_date.year * 12 + current.decision_date.month
+        if current_month != previous_month + 1:
+            raise ValueError(
+                "Dual Momentum parameter optimization requires one Decision in each consecutive calendar month"
+            )
+        if previous.evaluation_end != current.decision_date:
+            raise ValueError(
+                "parameter-optimized monthly periods must hand off at the next Decision date without an OOS gap"
+            )
+
+
+def _parameter_search_plan(
+    selector: DualMomentumParameterOptimizationSpec,
+    *,
+    outer_period_count: int,
+) -> ParameterSearchPlan:
+    return build_parameter_search_plan(
+        search_space=selector.search_space,
+        inner_validation=selector.inner_validation,
+        risky_symbol_count=len(selector.risky_symbols),
+        outer_period_count=outer_period_count,
+        budget=TuningBudget(
+            max_parameter_candidates=MAX_PARAMETER_CANDIDATES,
+            max_inner_folds=MAX_INNER_FOLDS,
+            max_tuning_evaluations=MAX_TUNING_EVALUATIONS_PER_JOB,
+        ),
+    )
+
+
 def _subset_histories(
     batch: PartialTWDHistories,
     requested: tuple[str, ...],
@@ -567,6 +774,8 @@ def _subset_histories(
 def _selector_policy(selector: SelectorSpec) -> str:
     if isinstance(selector, WalkForwardSelectorSpec):
         return WALK_FORWARD_PUBLIC_SELECTOR_POLICY
+    if isinstance(selector, DualMomentumParameterOptimizationSpec):
+        return WALK_FORWARD_DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_SELECTOR_POLICY
     if isinstance(selector, DualMomentumSelectorSpec):
         if selector.allocation_method is None:
             return WALK_FORWARD_DUAL_MOMENTUM_SELECTOR_POLICY
@@ -577,6 +786,8 @@ def _selector_policy(selector: SelectorSpec) -> str:
 def _job_contract_version(selector: SelectorSpec) -> str:
     if isinstance(selector, WalkForwardSelectorSpec):
         return WALK_FORWARD_JOB_CONTRACT_VERSION
+    if isinstance(selector, DualMomentumParameterOptimizationSpec):
+        return DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_JOB_CONTRACT_VERSION
     if isinstance(selector, DualMomentumSelectorSpec):
         if selector.allocation_method is None:
             return DUAL_MOMENTUM_JOB_CONTRACT_VERSION
@@ -594,6 +805,25 @@ def _spec_payload(spec: WalkForwardJobSpec) -> dict[str, Any]:
             "rebalanceMode": "never",
             "trainingTransactionCostBps": 0.0,
             "executionDelayTradingDays": 1,
+        }
+    elif isinstance(selector, DualMomentumParameterOptimizationSpec):
+        selector_payload = {
+            "strategy": "dual_momentum",
+            "riskySymbols": list(selector.risky_symbols),
+            "defensiveSymbols": list(selector.defensive_symbols),
+            "parameterOptimization": {
+                "contractVersion": PARAMETER_OPTIMIZATION_CONTRACT_VERSION,
+                "objectivePolicyVersion": PARAMETER_OPTIMIZATION_OBJECTIVE_POLICY,
+                "searchSpace": selector.search_space.export_payload(),
+                "innerValidation": selector.inner_validation.export_payload(),
+            },
+            "rebalanceFrequency": "monthly",
+            "weighting": "parameter_optimized",
+            "signalAuthority": "ResearchDataset.daily_levels_twd",
+            "allocationReturnAuthority": "ResearchDataset.daily_returns_twd",
+            "allocationCovarianceAuthority": (
+                f"{RISK_MATH_CONTRACT_VERSION}/ledoit-wolf"
+            ),
         }
     elif isinstance(selector, DualMomentumSelectorSpec):
         selector_payload = {
