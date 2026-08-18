@@ -37,7 +37,6 @@ def _optimized_selector() -> dict[str, object]:
                     "risk_parity_erc",
                     "equal",
                     "inverse_volatility",
-                    "equal",
                 ],
             },
             "innerValidation": {
