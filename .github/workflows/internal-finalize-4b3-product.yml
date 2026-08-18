@@ -1,0 +1,117 @@
+name: Internal Finalize 4B-3 Product
+
+on:
+  pull_request:
+    branches:
+      - feat/optimizer-hub-parameter-optimization
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.head_ref == 'internal-4b3-capacity-benchmark-20260819'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/optimizer-hub-parameter-optimization
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Apply empirically bounded synchronous cap and benchmark evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("apps/api/app/research/walk_forward_job.py"): (
+                  "MAX_TUNING_EVALUATIONS_PER_JOB = 288",
+                  "MAX_TUNING_EVALUATIONS_PER_JOB = 216",
+              ),
+              Path("apps/portfolio-web/src/walkForwardModel.ts"): (
+                  "export const MAX_TUNING_EVALUATIONS_PER_JOB = 288;",
+                  "export const MAX_TUNING_EVALUATIONS_PER_JOB = 216;",
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"expected cap anchor missing: {path}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Any test assertion that names the 288 job ceiling belongs to this
+          # versioned 4B-3 cap and must move with the product constant.  Reject
+          # unrelated occurrences instead of performing a repository-wide blind replace.
+          allowed_test_fragments = (
+              "parameter_optimization",
+              "parameter_tuning",
+              "walk_forward",
+          )
+          remaining = []
+          for path in Path("tests").rglob("*"):
+              if not path.is_file():
+                  continue
+              try:
+                  text = path.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              if "288" not in text:
+                  continue
+              if not any(fragment in path.name for fragment in allowed_test_fragments):
+                  remaining.append(str(path))
+                  continue
+              path.write_text(text.replace("288", "216"), encoding="utf-8")
+          if remaining:
+              raise SystemExit("unexpected 288 test references: " + ", ".join(remaining))
+
+          doc_path = Path("docs/research/OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md")
+          doc = doc_path.read_text(encoding="utf-8")
+          fold_old = "The exact production default/max `foldCount` is set from runtime capacity evidence before release."
+          fold_new = "Production defaults use `foldCount = 3`; the V1 per-request fold ceiling is `6`."
+          if fold_old not in doc:
+              raise SystemExit("fold-cap documentation anchor missing")
+          doc = doc.replace(fold_old, fold_new, 1)
+
+          budget_old = """Production hard caps such as `MAX_PARAMETER_CANDIDATES`, `MAX_INNER_FOLDS`, and `MAX_TUNING_EVALUATIONS_PER_JOB` must come from empirical runtime evidence before release, not arbitrary methodology guesses.\n\nProduct defaults remain materially below measured hard ceilings. Where counts are request-derived, fail closed before market-data fetch. Unbounded Cartesian search is forbidden."""
+          budget_new = """V1 production limits are empirically bounded at:\n\n```text\nMAX_PARAMETER_CANDIDATES = 48\nMAX_INNER_FOLDS = 6\nMAX_TUNING_EVALUATIONS_PER_JOB = 216\n```\n\nCapacity evidence was collected on the exact 4B-3 quant/API tree with the audited `AAA/BBB/BND` synthetic integration regime and the real `run_inner_parameter_tuning` authority. Each case ran in an isolated GitHub-hosted runner job; timing below excludes dependency installation and measures tuning execution only.\n\n| Candidates | Inner folds | Planned evaluations | Tuning wall time | Eligible |\n| ---: | ---: | ---: | ---: | ---: |\n| 2 | 3 | 6 | 1.234 s | 2/2 |\n| 12 | 3 | 36 | 10.165 s | 12/12 |\n| 12 | 6 | 72 | 18.609 s | 12/12 |\n| 24 | 3 | 72 | 20.076 s | 24/24 |\n| 24 | 6 | 144 | 21.848 s | 24/24 |\n| 48 | 3 | 144 | 39.293 s | 48/48 |\n| 48 | 6 | 288 | 78.709 s | 48/48 |\n\nThe 288-evaluation case proves correctness/completability but is not accepted as the synchronous product ceiling: its ~78.7 s is tuning CPU alone and excludes live Training/Evaluation data access, winner refit and outer OOS orchestration. The global cap is therefore 216 while preserving the useful per-dimension ceilings of 48 candidates and 6 folds. The shipped default remains `12 candidates × 3 folds × 6 outer periods = 216` and therefore stays inside the final job ceiling.\n\nCounts are request-derived and fail closed before market-data fetch. Unbounded Cartesian search is forbidden. Raising the 216 ceiling requires new empirical evidence and a separately reviewed release decision."""
+          if budget_old not in doc:
+              raise SystemExit("resource-budget documentation anchor missing")
+          doc = doc.replace(budget_old, budget_new, 1)
+
+          rca_anchor = """No Redis/queue/distributed-worker expansion before measured product need."""
+          rca_note = """No Redis/queue/distributed-worker expansion before measured product need.\n\nThe benchmark also exposed a separate execution-metadata boundary: long valid Walk-Forward `period_id` values could make the internal `PortfolioSpec` segment name exceed its 60-character validation limit. The OOS adapter now keeps full period identity in Decision/audit evidence and deterministically hash-compacts only the execution-only segment name when required; existing short names remain unchanged."""
+          if rca_anchor not in doc:
+              raise SystemExit("runtime expansion documentation anchor missing")
+          doc = doc.replace(rca_anchor, rca_note, 1)
+          doc_path.write_text(doc, encoding="utf-8")
+          PY
+      - name: Install and validate targeted product contracts
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          npm ci
+          ruff check apps/api/app/research/oos_ledger.py apps/api/app/research/walk_forward_job.py tests/test_walk_forward_oos_internal_name.py
+          python -m pytest -q tests/test_walk_forward_oos_internal_name.py tests/test_walk_forward_oos_ledger.py tests/test_parameter_tuning_integration.py tests/test_parameter_optimization.py tests/test_parameter_optimization_walk_forward.py
+          npm run check:portfolio
+          npm run test:worker
+      - name: Reject stale or unrelated 288 references
+        run: |
+          if git grep -n "288" -- apps api worker tests docs/research/OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md ':!public/portfolio' ; then
+            echo "Unexpected stale 288 reference remains in product contracts" >&2
+            exit 1
+          fi
+      - name: Commit finalized product tree
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps api worker tests docs/research/OPTIMIZER_HUB_PARAMETER_OPTIMIZATION_V1.md public/portfolio package-lock.json
+          git diff --cached --check
+          git commit -m "perf: bound synchronous parameter tuning"
+          git push origin HEAD:feat/optimizer-hub-parameter-optimization
