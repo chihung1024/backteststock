@@ -317,7 +317,11 @@ test("Auto Optimize sends only nested tuning authority and renders backend winne
   await expect(tuningPanel.getByRole("definition").filter({ hasText: /^1\.820$/ })).toBeVisible();
   await expect(tuningPanel.getByRole("definition").filter({ hasText: /^-7\.00%$/ })).toBeVisible();
   await expect(tuningPanel.getByText("insufficient complete-case covariance evidence", { exact: false })).toBeVisible();
-  await expect(tuningPanel.getByText("LB 12m · K 1 · Hurdle 0.00% · equal", { exact: false })).toBeVisible();
+  await expect(
+    tuningPanel.locator(".wf-selected-assets").filter({
+      hasText: "LB 12m · K 1 · Hurdle 0.00% · equal",
+    }),
+  ).toBeVisible();
 
   await tuningPanel.getByText("查看 inner-fold / refit identity").click();
   await expect(tuningPanel.getByText("completed-calendar-month-buckets-v1", { exact: true })).toBeVisible();
