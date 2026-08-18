@@ -21,7 +21,7 @@ from apps.api.app.research.parameter_tuning import run_inner_parameter_tuning
 from apps.api.app.research.walk_forward import ConfiguredResearchUniverse, WalkForwardPeriod
 from apps.api.app.research.walk_forward_job import MAX_INNER_FOLDS, MAX_PARAMETER_CANDIDATES, MAX_TUNING_EVALUATIONS_PER_JOB
 
-RISKY = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
+RISKY = ("AAA", "BBB")
 DEFENSIVE = ("BND",)
 MEMBERS = (*RISKY, *DEFENSIVE)
 ALLOCATIONS = ("equal", "inverse_volatility", "risk_parity_erc")
@@ -51,19 +51,14 @@ def _history(symbol: str, dates: pd.DatetimeIndex, daily: np.ndarray) -> TWDAsse
 
 
 def _dataset():
+    # Keep the numerical regime byte-for-byte equivalent to the formally tested
+    # nested-tuning integration fixture. Capacity is varied only by canonical
+    # parameter combinations, never by changing the investable universe/regime.
     dates = pd.bdate_range(START, END)
     phase = np.arange(len(dates), dtype=float)
-    # AAA/BBB/BND intentionally match the proven eligible integration-test regime.
-    # Four additional risky members remain in the configured universe for realistic
-    # selection width but have persistently negative momentum, so they do not
-    # accidentally redefine the benchmark's objective availability.
     daily = {
         "AAA": 0.0008 + 0.0100 * np.sin(phase / 8.0),
         "BBB": 0.0006 + 0.0090 * np.cos(phase / 10.0),
-        "CCC": np.full(len(dates), -0.00055),
-        "DDD": np.full(len(dates), -0.00065),
-        "EEE": np.full(len(dates), -0.00075),
-        "FFF": np.full(len(dates), -0.00085),
         "BND": 0.00015 + 0.0025 * np.sin(phase / 17.0),
     }
     histories = {symbol: _history(symbol, dates, daily[symbol]) for symbol in MEMBERS}
@@ -87,9 +82,9 @@ def _outer_period() -> WalkForwardPeriod:
 
 def _space(candidate_count: int) -> ParameterSearchSpace:
     dimensions = {
-        12: ((6, 12), (1, 3), (0.0,)),
-        24: ((6, 12), (1, 3), (0.0, 0.03)),
-        48: ((3, 6, 9, 12), (1, 3), (0.0, 0.03)),
+        12: ((3, 6, 9, 12), (1,), (0.0,)),
+        24: ((3, 6, 9, 12), (1, 2), (0.0,)),
+        48: ((3, 6, 9, 12), (1, 2), (0.0, 0.03)),
     }
     lookbacks, top_k, thresholds = dimensions[candidate_count]
     space = ParameterSearchSpace(
