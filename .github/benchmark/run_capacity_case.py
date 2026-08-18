@@ -8,13 +8,37 @@ from pathlib import Path
 
 import parameter_tuning_capacity as bench
 from apps.api.app.portfolio.models import SimulationConfig
-from apps.api.app.research.parameter_tuning import run_inner_parameter_tuning
+from apps.api.app.research.parameter_optimization import build_inner_fold_schedule
+from apps.api.app.research.parameter_tuning import _evaluate_candidate, run_inner_parameter_tuning
 from apps.api.app.research.walk_forward import ConfiguredResearchUniverse
 
 
 def _write(output: Path, payload: dict[str, object]) -> None:
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(payload, sort_keys=True), flush=True)
+
+
+def _diagnose_candidates(candidate_count: int, fold_count: int, dataset):
+    plan = bench._plan(candidate_count, fold_count)
+    schedule = build_inner_fold_schedule(
+        outer_period=bench._outer_period(),
+        validation=plan.inner_validation,
+        maximum_lookback_months=plan.search_space.maximum_lookback_months,
+    )
+    universe = ConfiguredResearchUniverse(bench.MEMBERS)
+    config = SimulationConfig(initial_amount=100_000.0, transaction_cost_bps=5.0)
+    return [
+        _evaluate_candidate(
+            candidate=candidate,
+            schedule=schedule,
+            outer_training_dataset=dataset,
+            configured_universe=universe,
+            risky_symbols=bench.RISKY,
+            defensive_symbols=bench.DEFENSIVE,
+            simulation_config=config,
+        ).export_payload()
+        for candidate in plan.candidates
+    ]
 
 
 def main() -> int:
@@ -25,7 +49,6 @@ def main() -> int:
     dataset = bench._dataset()
     base: dict[str, object] = {
         "productBranch": "feat/optimizer-hub-parameter-optimization",
-        "productQuantTreeNote": "benchmark fixture executes the same quant/API tree as product head; later product-only differences are E2E locator assertions",
         "benchmarkHeadSha": os.environ.get("BENCHMARK_HEAD_SHA"),
         "workflowSha": os.environ.get("GITHUB_SHA"),
         "datasetHash": dataset.dataset_hash,
@@ -54,6 +77,7 @@ def main() -> int:
             "failureType": type(exc).__name__,
             "failureMessage": str(exc),
             "traceback": traceback.format_exc(),
+            "candidateDiagnostics": _diagnose_candidates(candidate_count, fold_count, dataset),
         }
         _write(output, payload)
         raise
