@@ -208,7 +208,9 @@ function DecisionEvidence({
           {tuning && (
             <WalkForwardOptimizationEvidence
               evidence={tuning}
-              refit={signal?.parameterOptimizationRefit}
+              {...(signal?.parameterOptimizationRefit
+                ? { refit: signal.parameterOptimizationRefit }
+                : {})}
             />
           )}
 
