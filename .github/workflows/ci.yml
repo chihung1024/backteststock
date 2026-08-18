@@ -45,6 +45,8 @@ jobs:
         run: ruff check api apps scripts tests
       - name: Test Python
         run: python -m pytest -q
+      - name: Benchmark parameter tuning capacity
+        run: python .github/benchmark/parameter_tuning_capacity.py
       - name: Check JavaScript
         run: npm run check
       - name: Test Worker
@@ -69,6 +71,7 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            parameter-tuning-capacity.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Validate Vercel configuration
