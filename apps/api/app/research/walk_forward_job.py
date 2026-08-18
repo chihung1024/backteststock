@@ -89,7 +89,7 @@ MAX_CONFIGURED_STRATEGY_SYMBOLS = 50
 # before PR #175 can become Ready and may tighten/raise these values explicitly.
 MAX_PARAMETER_CANDIDATES = 48
 MAX_INNER_FOLDS = 6
-MAX_TUNING_EVALUATIONS_PER_JOB = 288
+MAX_TUNING_EVALUATIONS_PER_JOB = 216
 
 
 @dataclass(frozen=True, slots=True)

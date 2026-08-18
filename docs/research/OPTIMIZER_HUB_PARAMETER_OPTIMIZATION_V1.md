@@ -177,7 +177,7 @@ Rules:
 
 This avoids inclusive month-length artifacts such as adjacent folds both containing November 30.
 
-The exact production default/max `foldCount` is set from runtime capacity evidence before release.
+Production defaults use `foldCount = 3`; the V1 per-request fold ceiling is `6`.
 
 ## 9. One download, many audited views
 
@@ -254,9 +254,29 @@ outerPeriodCount
 plannedTuningEvaluations = candidateCount × innerFoldCount × outerPeriodCount
 ```
 
-Production hard caps such as `MAX_PARAMETER_CANDIDATES`, `MAX_INNER_FOLDS`, and `MAX_TUNING_EVALUATIONS_PER_JOB` must come from empirical runtime evidence before release, not arbitrary methodology guesses.
+V1 production limits are empirically bounded at:
 
-Product defaults remain materially below measured hard ceilings. Where counts are request-derived, fail closed before market-data fetch. Unbounded Cartesian search is forbidden.
+```text
+MAX_PARAMETER_CANDIDATES = 48
+MAX_INNER_FOLDS = 6
+MAX_TUNING_EVALUATIONS_PER_JOB = 216
+```
+
+Capacity evidence was collected on the exact 4B-3 quant/API tree with the audited `AAA/BBB/BND` synthetic integration regime and the real `run_inner_parameter_tuning` authority. Each case ran in an isolated GitHub-hosted runner job; timing below excludes dependency installation and measures tuning execution only.
+
+| Candidates | Inner folds | Planned evaluations | Tuning wall time | Eligible |
+| ---: | ---: | ---: | ---: | ---: |
+| 2 | 3 | 6 | 1.234 s | 2/2 |
+| 12 | 3 | 36 | 10.165 s | 12/12 |
+| 12 | 6 | 72 | 18.609 s | 12/12 |
+| 24 | 3 | 72 | 20.076 s | 24/24 |
+| 24 | 6 | 144 | 21.848 s | 24/24 |
+| 48 | 3 | 144 | 39.293 s | 48/48 |
+| 48 | 6 | 288 | 78.709 s | 48/48 |
+
+The 288-evaluation case proves correctness/completability but is not accepted as the synchronous product ceiling: its ~78.7 s is tuning CPU alone and excludes live Training/Evaluation data access, winner refit and outer OOS orchestration. The global cap is therefore 216 while preserving the useful per-dimension ceilings of 48 candidates and 6 folds. The shipped default remains `12 candidates × 3 folds × 6 outer periods = 216` and therefore stays inside the final job ceiling.
+
+Counts are request-derived and fail closed before market-data fetch. Unbounded Cartesian search is forbidden. Raising the 216 ceiling requires new empirical evidence and a separately reviewed release decision.
 
 ## 13. Tuning identity/evidence
 
@@ -440,6 +460,8 @@ Do not:
 ```
 
 No Redis/queue/distributed-worker expansion before measured product need.
+
+The benchmark also exposed a separate execution-metadata boundary: long valid Walk-Forward `period_id` values could make the internal `PortfolioSpec` segment name exceed its 60-character validation limit. The OOS adapter now keeps full period identity in Decision/audit evidence and deterministically hash-compacts only the execution-only segment name when required; existing short names remain unchanged.
 
 ## 22. Release gates
 
