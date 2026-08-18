@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 
 from apps.api.app.research.parameter_optimization import (
+    PARAMETER_OPTIMIZATION_INNER_FOLD_POLICY,
     InnerValidationSpec,
     ParameterSearchSpace,
     TuningBudget,
@@ -31,7 +32,12 @@ def test_search_space_is_order_and_duplicate_invariant() -> None:
         lookback_months=(12, 6, 12),
         top_k=(2, 1, 2),
         absolute_thresholds=(0.0, -0.0, 0.05),
-        allocation_methods=("risk_parity_erc", "equal", "inverse_volatility", "equal"),
+        allocation_methods=(
+            "risk_parity_erc",
+            "equal",
+            "inverse_volatility",
+            "equal",
+        ),
     )
     second = ParameterSearchSpace(
         lookback_months=(6, 12),
@@ -99,7 +105,11 @@ def test_top_k_is_checked_against_fixed_risky_universe() -> None:
 def test_inner_folds_are_chronological_and_never_touch_outer_oos() -> None:
     schedule = build_inner_fold_schedule(
         outer_period=_outer_period(),
-        validation=InnerValidationSpec(fold_count=3, evaluation_months=1, step_months=1),
+        validation=InnerValidationSpec(
+            fold_count=3,
+            evaluation_months=1,
+            step_months=1,
+        ),
         maximum_lookback_months=12,
     )
 
@@ -114,11 +124,51 @@ def test_inner_folds_are_chronological_and_never_touch_outer_oos() -> None:
         date(2025, 12, 31),
     ]
     assert schedule.periods[-1].evaluation_start == date(2025, 12, 1)
-    assert all(period.training_end == period.decision_date for period in schedule.periods)
-    assert all(period.evaluation_start > period.decision_date for period in schedule.periods)
-    assert all(period.evaluation_end <= _outer_period().training_end for period in schedule.periods)
-    assert all(period.evaluation_end < _outer_period().evaluation_start for period in schedule.periods)
-    assert schedule.export_payload()["innerFoldScheduleHash"] == schedule.schedule_hash
+    assert all(
+        period.training_end == period.decision_date for period in schedule.periods
+    )
+    assert all(
+        period.evaluation_start > period.decision_date for period in schedule.periods
+    )
+    assert all(
+        period.evaluation_end <= _outer_period().training_end
+        for period in schedule.periods
+    )
+    assert all(
+        period.evaluation_end < _outer_period().evaluation_start
+        for period in schedule.periods
+    )
+    exported = schedule.export_payload()
+    assert exported["calendarPolicy"] == PARAMETER_OPTIMIZATION_INNER_FOLD_POLICY
+    assert exported["innerFoldScheduleHash"] == schedule.schedule_hash
+
+
+def test_partial_outer_month_is_reserved_for_full_training_refit() -> None:
+    outer = WalkForwardPeriod(
+        period_id="outer-mid-month",
+        training_start=date(2023, 1, 1),
+        training_end=date(2025, 12, 15),
+        decision_date=date(2025, 12, 15),
+        evaluation_start=date(2025, 12, 16),
+        evaluation_end=date(2026, 1, 15),
+    )
+
+    schedule = build_inner_fold_schedule(
+        outer_period=outer,
+        validation=InnerValidationSpec(fold_count=2),
+        maximum_lookback_months=12,
+    )
+
+    assert [period.evaluation_start for period in schedule.periods] == [
+        date(2025, 10, 1),
+        date(2025, 11, 1),
+    ]
+    assert [period.evaluation_end for period in schedule.periods] == [
+        date(2025, 10, 31),
+        date(2025, 11, 30),
+    ]
+    assert schedule.periods[-1].evaluation_end < outer.training_end
+    assert schedule.periods[-1].evaluation_end < outer.evaluation_start
 
 
 def test_inner_fold_schedule_fails_when_lookback_does_not_fit() -> None:
