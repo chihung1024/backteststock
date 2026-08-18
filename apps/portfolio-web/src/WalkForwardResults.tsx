@@ -1,4 +1,5 @@
 import { LineChart } from "./charts";
+import { WalkForwardOptimizationEvidence } from "./WalkForwardOptimizationEvidence";
 import type {
   WalkForwardDecisionResponse,
   WalkForwardMetricValue,
@@ -103,6 +104,7 @@ function DecisionEvidence({
   const configured = decision.configuredUniverse;
   const signal = decision.selectionEvidence;
   const allocation = signal?.allocation;
+  const tuning = signal?.parameterOptimization;
   const provenanceMemberCount = pit?.members.length ?? configured?.members.length ?? decision.eligibleCandidates.length;
   const provenanceLabel = pit ? `${provenanceMemberCount} PIT members` : `${provenanceMemberCount} configured members`;
   const riskyRanking = Array.isArray(signal?.riskyRanking) ? signal.riskyRanking : [];
@@ -203,6 +205,13 @@ function DecisionEvidence({
             </div>
           )}
 
+          {tuning && (
+            <WalkForwardOptimizationEvidence
+              evidence={tuning}
+              refit={signal?.parameterOptimizationRefit}
+            />
+          )}
+
           <details className="wf-evidence-details">
             <summary>查看完整 provenance</summary>
             <div className="wf-provenance-detail-grid">
@@ -213,6 +222,9 @@ function DecisionEvidence({
               <p><strong>Signal contract</strong><span>{signal?.contractVersion ?? "—"}</span></p>
               <p><strong>Signal authority</strong><span>{signal?.signalAuthority ?? "—"}</span></p>
               <p><strong>Fallback reason</strong><span>{signal?.fallbackReason ?? "—"}</span></p>
+              <p><strong>Tuning result hash</strong><span>{audit?.tuning_result_hash ?? "—"}</span></p>
+              <p><strong>Search plan hash</strong><span>{audit?.search_plan_hash ?? "—"}</span></p>
+              <p><strong>Winner parameter hash</strong><span>{audit?.winner_parameter_hash ?? "—"}</span></p>
               <p><strong>Evaluation dataset hash</strong><span>{audit?.evaluation_dataset_hash ?? "—"}</span></p>
             </div>
           </details>
@@ -229,7 +241,8 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
   const auditByDecision = new Map(result.periods.map((period) => [period.decision_hash, period]));
   const oosByDecision = new Map(result.oos.periods.map((period) => [period.decision_hash, period]));
   const isDualMomentum = result.selectorPolicy === "dual-momentum-configured-monthly-v1"
-    || result.selectorPolicy === "dual-momentum-configured-monthly-allocation-v1";
+    || result.selectorPolicy === "dual-momentum-configured-monthly-allocation-v1"
+    || result.selectorPolicy === "dual-momentum-nested-parameter-optimization-v1";
 
   return (
     <section className="workspace-card wf-result-card" aria-labelledby="wf-result-title">
@@ -280,7 +293,7 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
       {isDualMomentum ? (
         <div className="notice info wf-benchmark-boundary">
           <strong>Dual Momentum authority boundary</strong>
-          <p>Momentum ranking、absolute filter、frozen selection 與可選的 Allocation 都由後端 Training evidence 產生；Inverse Vol / ERC 共用正式 Ledoit-Wolf covariance 與 Risk Mathematics authority。瀏覽器不自行重算 signal、risk weights 或績效。</p>
+          <p>Momentum ranking、absolute filter、frozen selection、Allocation 與 Auto Optimize winner 都由後端 Training / inner-OOS evidence 產生；Inverse Vol / ERC 共用正式 Ledoit-Wolf covariance 與 Risk Mathematics authority。瀏覽器不自行重算 signal、candidate ranking、risk weights 或績效。</p>
         </div>
       ) : (
         <div className="notice info wf-benchmark-boundary">
@@ -298,7 +311,7 @@ export function WalkForwardResults({ result }: { result: WalkForwardResultRespon
           <span className="section-index">6</span>
           <div>
             <h2>Decision 與因果證據</h2>
-            <p>每張卡片把 Training、frozen Decision 與 Evaluation 串在一起，並保留 universe、dataset、signal 與 decision identity。</p>
+            <p>每張卡片把 Training、frozen Decision 與 Evaluation 串在一起，並保留 universe、dataset、signal、tuning 與 decision identity。</p>
           </div>
         </div>
       </div>
