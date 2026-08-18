@@ -1,121 +1,117 @@
 # Optimizer Hub Parameter Optimization V1
 
-Status: **Phase 4B-3 candidate contract.** This document defines the methodology boundary for implementation. It does not become production authority until code, tests, exact-head review, merge, and post-main production verification pass.
+Status: **Phase 4B-3 candidate contract.** It becomes production authority only after exact-head implementation verification, independent review, merge, and post-main exact-SHA production gates pass.
 
 ## 1. Purpose
 
-Phase 4B-3 adds a bounded parameter-search stage to the existing Optimizer Hub without allowing the same outer Evaluation period to influence the parameters being evaluated on that outer period.
+Phase 4B-3 adds bounded, reproducible parameter optimization to the existing configured Dual Momentum + Allocation path without allowing the outer Walk-Forward Evaluation/OOS interval to influence parameter choice for the same outer Decision.
 
-Existing production chain:
-
-```text
-configured universe
-→ Dual Momentum Selection
-→ explicit Allocation
-→ DecisionSnapshot
-→ outer Walk-Forward Evaluation
-→ Portfolio v3 continuous OOS ledger
-→ metrics
-→ ResearchRun
-```
-
-Phase 4B-3 chain:
+The target research chain is:
 
 ```text
 configured universe
-→ Outer Training
-   → bounded nested temporal tuning inside Outer Training only
-   → chosen parameter candidate
-   → rerun chosen parameters on full Outer Training
-→ frozen DecisionSnapshot
-→ Outer Evaluation
-→ existing Portfolio v3 continuous OOS ledger
-→ metrics
+→ Outer Training ResearchDataset
+→ deterministic inner temporal folds
+→ bounded ParameterCandidate search
+→ exact continuous inner-OOS evaluation
+→ deterministic winner
+→ winner refit on full Outer Training
+→ frozen outer DecisionSnapshot
+→ outer Evaluation
+→ existing continuous Portfolio v3 OOS ledger
+→ existing metrics
 → ResearchRun
 ```
 
-Parameter optimization is therefore a **Training-only model-selection problem**, not a second performance engine and not a license to reuse outer OOS evidence.
+This contract does not create a second market-data, covariance, Portfolio, metric, Walk-Forward, or persistence authority.
 
 ## 2. Authority boundaries
 
 | Concern | Authority |
 | --- | --- |
 | configured membership | `ConfiguredResearchUniverse` |
-| audited TWD history | `TWDHistoryService` / `ResearchDataset` |
-| Dual Momentum signal | frozen 4B-1 engine |
-| allocation methods | frozen 4B-2 engine |
-| covariance / risk contribution | Risk Mathematics |
-| inner and outer OOS accounting | existing Walk-Forward OOS + Portfolio v3 authority |
-| performance metrics | existing metric authority |
-| final decision identity | existing configured `DecisionSnapshot` seam |
-| durable completed research | D1 ResearchRun |
+| audited TWD history | `ResearchDataset` |
+| Dual Momentum signal | existing 4B-1 Momentum implementation |
+| Equal / Inverse Vol / ERC allocation | existing 4B-2 allocation implementation |
+| covariance / risk decomposition | existing Risk Mathematics authority |
+| inner/outer continuous OOS accounting | existing Walk-Forward OOS ledger + Portfolio v3 |
+| exact performance metrics | existing Portfolio v3 metric authority |
+| final outer Decision identity | existing configured `DecisionSnapshot` |
+| durable completed research | existing D1 ResearchRun authority |
 
-The browser and AI may specify a search space and render backend evidence. They do not calculate authoritative candidate metrics or choose the winner locally.
+The optimizer may orchestrate these authorities, but it must not reimplement them privately.
+
+The browser or a future AI agent may define a bounded search request and render returned evidence. Neither may submit authoritative candidate results, calculate the accepted winner, or bypass backend validation.
 
 ## 3. Versioned identities
 
-Candidate tuning contract:
+Parameter-optimization methodology:
 
 ```text
 optimizer-hub-parameter-optimization-2026-08-18.1
 ```
 
-Candidate job contract:
-
-```text
-walk-forward-dual-momentum-parameter-optimization-job-2026-08-18.1
-```
-
-Candidate selector policy:
-
-```text
-dual-momentum-nested-parameter-optimization-v1
-```
-
-Candidate objective policy:
+Accepted inner objective policy:
 
 ```text
 inner-oos-sortino-lexicographic-v1
 ```
 
-These strings may change before the first production candidate only through an explicit contract update. Once released, later behavior changes require new versions.
+Inner fold calendar policy:
+
+```text
+completed-calendar-month-buckets-v1
+```
+
+Planned configured selector policy:
+
+```text
+dual-momentum-nested-parameter-optimization-v1
+```
+
+Planned public job contract:
+
+```text
+walk-forward-dual-momentum-parameter-optimization-job-2026-08-18.1
+```
+
+Any externally observable methodology change requires explicit versioning rather than silent reinterpretation of an old ResearchRun.
 
 ## 4. Backward compatibility
 
-Legacy replay is mandatory:
+Phase 4B-3 is opt-in.
 
-- Dual Momentum requests without optimization configuration continue through existing 4B-1 or 4B-2 paths unchanged.
-- A legacy request that omits `allocationMethod` remains 4B-1 identity.
-- A request with explicit fixed `allocationMethod` and no optimization remains 4B-2 identity.
-- Only a request with explicit optimization configuration opts into 4B-3.
-- ResearchRun rerun replays the exact stored request; old runs are never upgraded implicitly.
+Existing requests remain frozen:
 
-Phase 4B-3 must not change old normalized request payloads, `jobHash`, selector policy, decision hash, or allocation evidence merely because the new optimizer exists.
+- legacy Dual Momentum request without `allocationMethod` keeps 4B-1 request shape, selector policy and job contract;
+- explicit 4B-2 allocation request keeps its existing request shape, allocation selector policy and job contract;
+- PIT / Exhaustive behavior remains unchanged;
+- ResearchRun rerun replays the exact stored request and therefore does not upgrade old runs into parameter optimization.
+
+A 4B-3 request receives a separately versioned normalized selector/search identity.
+
+Do not add optional tuning fields to an old normalized request in a way that changes an existing `jobHash` or `DecisionSnapshot` identity.
 
 ## 5. V1 tunable dimensions
 
-V1 search space is intentionally narrow:
+V1 automatically chooses only:
 
 ```text
 lookbackMonths
 Top-K
 absoluteThreshold
-allocationMethod
+allocationMethod ∈ {
+  equal,
+  inverse_volatility,
+  risk_parity_erc
+}
 ```
 
-Allowed allocation values reuse 4B-2 exactly:
+The following remain fixed inputs, not optimization dimensions:
 
-```text
-equal
-inverse_volatility
-risk_parity_erc
-```
-
-V1 does not optimize:
-
-- risky universe members;
-- defensive universe members;
-- outer period dates;
+- risky / defensive configured universe membership;
+- outer Walk-Forward period schedule;
+- initial amount;
 - transaction-cost assumption;
 - risk-free-rate context;
 - covariance estimator;
@@ -142,7 +138,7 @@ Rules:
 6. duplicate parameter tuples collapse before capacity accounting;
 7. canonical candidate ordering is independent of request list ordering.
 
-Recommended canonical tuple order:
+Canonical tuple order is:
 
 ```text
 (lookbackMonths, topK, absoluteThreshold, allocationMethodOrder)
@@ -175,9 +171,9 @@ No inner dataset may include an observation later than the outer Training end. O
 
 ## 8. Inner-fold policy
 
-V1 uses a deterministic monthly temporal-validation policy compatible with the current Dual Momentum cadence.
+V1 uses deterministic **completed calendar-month buckets** compatible with the current Dual Momentum monthly cadence.
 
-The API exposes a bounded inner-validation configuration rather than arbitrary date arrays. Initial supported controls are expected to be:
+The bounded inner-validation controls are:
 
 ```text
 foldCount
@@ -192,11 +188,21 @@ evaluationMonths = 1
 stepMonths = 1
 ```
 
+`stepMonths` must be at least `evaluationMonths`, so accepted inner Evaluation windows do not overlap.
+
+Fold construction rules:
+
+1. Evaluation boundaries are calendar-month starts/ends, not arithmetic `DateOffset` intervals anchored to arbitrary month-end day numbers.
+2. If the outer Decision / Training end is the final calendar day of its month, that completed month may be the newest inner Evaluation bucket.
+3. If the outer Decision / Training end occurs before calendar month-end, the partial current month is **not** treated as a completed inner OOS bucket. The newest inner Evaluation therefore ends at the previous calendar month-end.
+4. Any partial current-month observations remain part of the full Outer Training dataset and are used when the chosen winner is refit on full Outer Training before the outer Decision is frozen.
+5. Inner folds are generated newest-first under the configured step, then stored chronologically and validated by the existing Walk-Forward non-overlap schedule authority.
+6. Every candidate uses exactly the same inner fold schedule.
+7. A request fails closed when Outer Training cannot support the maximum requested lookback plus all requested folds.
+
+This policy prevents month-length artifacts such as inclusive `October 31..November 30` / `November 30..December 31` overlap and makes the inner schedule independent of whether neighboring months have 28, 29, 30 or 31 days.
+
 The exact production default and maximum `foldCount` are set only after runtime-capacity benchmarking.
-
-The newest valid folds are preferred so tuning evidence is relevant to the outer Decision while still remaining entirely pre-decision. Fold construction must be deterministic from the normalized request and outer period dates.
-
-A candidate search is rejected when the outer Training interval cannot support every requested candidate's maximum lookback plus the requested inner fold schedule.
 
 ## 9. One download, many audited inner views
 
@@ -211,154 +217,80 @@ one Outer Training TWD history batch for configured members
 → candidate evaluation
 ```
 
-Implementation may add a tested slicing/view helper, but it must remain inside the existing TWD history / ResearchDataset authority and preserve explicit requested/resolved/failure semantics.
+The bounded view helper remains inside the existing ResearchDataset authority:
+
+- it reads only rows already present in the parent audited dataset;
+- it does not download, fill, interpolate, or repair market history;
+- it preserves requested membership and explicit failure accounting;
+- a parent-resolved symbol with no audited availability inside a child interval becomes an explicit child-window failure rather than being silently dropped;
+- a child view has its own deterministic ResearchDataset hash and binds the parent dataset identity in its evidence.
 
 Do not add a second market-data cache, downloader, or optimizer-private price source.
 
-A sliced inner view must have its own deterministic identity for its effective date interval and contents; it may not reuse the parent dataset hash while representing different rows.
-
 ## 10. Candidate execution
 
-For each normalized parameter candidate and each inner fold:
-
-1. build/derive the exact inner Training dataset;
-2. run the existing Dual Momentum methodology with the candidate parameters;
-3. if selected allocation is risk-based, reuse the existing 4B-2 allocation method and Risk Mathematics authority;
-4. freeze the inner Decision;
-5. build/derive the exact inner Evaluation dataset;
-6. validate Evaluation only after the inner Decision exists;
-7. run existing continuous OOS transition / Portfolio v3 ledger semantics;
-8. preserve failures explicitly.
-
-Candidate execution must not introduce proxy return, covariance, turnover, MDD, or Sortino formulas.
-
-## 11. Continuous inner-OOS objective
-
-Inner folds are evidence partitions, not independent portfolios.
-
-A candidate is evaluated using one continuous inner-OOS ledger across its ordered inner folds, reusing the same no-reset semantics as outer Walk-Forward.
-
-The accepted V1 primary objective is:
+For one outer period and one `ParameterCandidate`:
 
 ```text
-maximize exact inner-OOS Sortino
+for each fixed inner fold:
+    child Inner Training ResearchDataset
+    → existing Dual Momentum + existing Allocation
+    → frozen inner DecisionSnapshot
+    → only then child Inner Evaluation ResearchDataset
+
+all inner evaluations
+→ existing continuous Walk-Forward OOS ledger
+→ existing Portfolio v3 metrics
 ```
 
-The Sortino value comes from the existing authoritative metric context for the inner continuous OOS ledger.
+Important rules:
 
-Unavailable Sortino is not coerced to zero; the candidate is ineligible for winning.
+- candidate evaluation does not reset NAV per fold;
+- transaction costs are computed by existing Portfolio v3 semantics;
+- a candidate must complete every required fold to be eligible;
+- candidate-specific missing history or allocation failure is an explicit candidate failure;
+- failures do not authorize alternate data, silent symbol removal, Equal fallback, or shorter validation windows.
 
-## 12. Deterministic V1 ranking
+## 11. Accepted objective policy
 
-Candidate eligibility first requires all required inner folds to complete successfully under the configured strategy and allocation contracts.
+V1 deliberately uses a transparent lexicographic objective instead of creating another opaque composite score.
 
-Among eligible candidates, deterministic ranking is:
-
-1. higher exact inner-OOS Sortino;
-2. lower absolute max drawdown;
-3. higher exact CAGR;
-4. lower exact transaction-cost / turnover evidence available from the existing OOS authority;
-5. canonical parameter hash ascending.
-
-This is a transparent lexicographic policy. It is intentionally not a hidden weighted composite score.
-
-If no candidate is eligible, the outer period fails closed. It does not silently rerun the original manual parameters or Equal Weight.
-
-## 13. Winner refit on full Outer Training
-
-Inner tuning chooses a parameter tuple, not the final outer weights.
-
-After a winner is selected:
+Eligible candidates are ranked by:
 
 ```text
-winner parameters
-+ full Outer Training ResearchDataset
-→ existing Dual Momentum engine
-→ existing chosen allocation method
-→ final outer selected constituents / weights
-→ outer DecisionSnapshot
+1. higher exact continuous inner-OOS Sortino
+2. lower abs(Max Drawdown)
+3. higher CAGR
+4. lower exact transaction costs
+5. lexicographically lower canonical parameter hash
 ```
 
-This mirrors standard model-selection/refit behavior: all information available up to the outer Decision may be used after the hyperparameters are frozen.
-
-The final outer Decision is created before outer Evaluation history is requested or validated.
-
-## 14. Tuning evidence
-
-Backend-produced evidence must include at least:
+The primary objective is therefore:
 
 ```text
-tuningContractVersion
-objectivePolicyVersion
-searchSpaceHash
-innerFoldScheduleHash
-candidateCount
-plannedCandidateFoldEvaluations
-candidate summaries
-winnerParameterHash
-winnerParameters
-winnerRank
-winner objective / tie-break metrics
-trainingDatasetHash
+maximize Sortino
 ```
 
-Each candidate summary should expose enough evidence for debugging and explanation without serializing unnecessary full inner ledgers by default:
+with deterministic tie-breaks rather than a hidden weighted score.
 
-```text
-parameterHash
-parameters
-status
-failedFold / failureReason when applicable
-completedFoldCount
-innerOosMetricSummary
-innerOosIdentity
-```
+If an accepted ranking metric is unavailable or non-finite, that candidate is not silently assigned zero; it fails eligibility.
 
-Detailed inner evidence may be bounded or fetched separately later if response size requires it. A compact response must not discard the identities needed to reproduce it.
+Proxy metrics may later be used only as clearly labelled search acceleration. Any candidate accepted as winner must be exact-revalidated by the authoritative path above.
 
-## 15. Decision identity
+## 12. Search-plan and resource budget
 
-The selected tuning evidence and chosen parameters must be hash-bound before outer Evaluation.
+The system must fail closed before expensive candidate work when the normalized search exceeds the allowed budget.
 
-Preferred composition is through the existing configured selection-evidence / DecisionSnapshot seam rather than creating a second decision object.
-
-The final configured decision identity must therefore distinguish:
-
-- manual 4B-1;
-- explicit fixed allocation 4B-2;
-- explicit nested parameter optimization 4B-3.
-
-A numerically identical final weight vector from different tuning evidence is not the same research decision.
-
-## 16. Job identity
-
-The 4B-3 normalized job hash binds:
-
-- outer period schedule;
-- configured risky/defensive membership;
-- normalized optimization search space;
-- inner validation policy;
-- objective policy version;
-- execution / transaction-cost assumption;
-- all existing versioned methodology identities.
-
-Request list ordering that normalizes to the same canonical search space must not change job identity.
-
-## 17. Capacity model
-
-Current production already limits outer Walk-Forward periods and configured symbols. Parameter search adds another dimension and therefore requires an explicit candidate-fold budget.
-
-Before a release candidate is Ready, benchmark at least:
+At minimum the budget accounts for:
 
 ```text
 candidateCount
-× innerFoldCount
-× outerPeriodCount
-× allocation method mix
-× configured symbol count
+innerFoldCount
+outerPeriodCount
+plannedTuningEvaluations = candidateCount × innerFoldCount × outerPeriodCount
 ```
 
-Release must define and expose versioned hard limits for at least:
+Production caps such as:
 
 ```text
 MAX_PARAMETER_CANDIDATES
@@ -366,183 +298,203 @@ MAX_INNER_FOLDS
 MAX_TUNING_EVALUATIONS_PER_JOB
 ```
 
-The UI/API preflight shows normalized candidate count and planned tuning evaluations before execution.
+must be chosen from empirical runtime/capacity evidence before release. They are not guessed in the methodology contract.
 
-Budget overflow fails closed before market-data work begins when possible.
+Product defaults should remain materially below measured hard ceilings.
 
-Initial defaults must be materially below the measured safe ceiling. Do not infer a production limit from the theoretical method contract alone.
+Unbounded Cartesian search is forbidden.
 
-## 18. No premature asynchronous infrastructure
+## 13. Tuning result identity and evidence
 
-V1 remains synchronous if empirical benchmark evidence shows useful default searches fit the accepted production runtime envelope.
+A completed inner tuning result binds at least:
 
-Only if measured product workloads fail that envelope should a later technical batch add durable asynchronous execution/cancellation/resume.
+```text
+tuningContractVersion
+objectivePolicyVersion
+outerTrainingDatasetHash
+searchSpaceHash / searchPlanHash
+innerFoldScheduleHash
+candidateParameterHashes
+candidate status / failure evidence
+candidate exact inner-OOS metric summaries
+candidate inner-OOS identities
+winnerParameterHash
+winnerParameters
+resultHash
+```
 
-Do not add Redis, queues, distributed workers, or a second persistent result store merely because parameter search can be large.
+Same normalized request + same audited data + same versioned methodology must produce the same ordering and winner identity.
 
-## 19. API direction
+Candidate ordering cannot depend on input list order or runtime completion order.
 
-The public request remains discriminated and backward-compatible.
+## 14. Winner refit on full Outer Training
 
-Conceptual new shape:
+The winner of inner tuning is a **parameter set**, not the final outer portfolio weights.
 
-```json
-{
-  "selector": {
-    "strategy": "dual_momentum",
-    "riskySymbols": ["QQQ", "SMH", "SPY"],
-    "defensiveSymbols": ["BIL"],
-    "optimization": {
-      "method": "nested_grid_v1",
-      "searchSpace": {
-        "lookbackMonths": [6, 9, 12],
-        "topK": [1, 2],
-        "absoluteThreshold": [0.0],
-        "allocationMethod": ["equal", "inverse_volatility", "risk_parity_erc"]
-      },
-      "innerValidation": {
-        "foldCount": 4,
-        "evaluationMonths": 1,
-        "stepMonths": 1
-      },
-      "objective": "sortino"
-    }
+After the winner is selected:
+
+```text
+winner parameters
++ exact full Outer Training ResearchDataset
+→ existing Dual Momentum + Allocation engine
+→ final outer SelectionResult
+→ configured DecisionSnapshot
+```
+
+The refit must use the exact `outerTrainingDatasetHash` that produced the tuning result. A tuning result cannot be applied to a different outer Training dataset.
+
+The outer Decision binds:
+
+- optimization contract identity;
+- objective policy;
+- tuning result hash;
+- search plan hash;
+- inner fold schedule hash;
+- winner parameter hash and parameters;
+- full tuning evidence;
+- full-Outer-Training final selection and allocation evidence;
+- final selected constituents and weights.
+
+Only after this DecisionSnapshot exists may the ordinary outer Evaluation dataset be fetched/validated.
+
+## 15. Outer OOS remains existing authority
+
+Phase 4B-3 does not create a separate final performance engine.
+
+```text
+parameter-optimized outer DecisionSnapshot
+→ existing Evaluation data load
+→ existing continuous Walk-Forward OOS ledger
+→ existing Portfolio v3 costs / metrics
+→ ResearchRun
+```
+
+Outer OOS results may evaluate the frozen optimized methodology, but they cannot retroactively change its search space, inner fold ranking, winning parameters, selected holdings, or weights for that same outer period.
+
+## 16. Public request / job identity
+
+A public 4B-3 request must be explicitly discriminated from manual Dual Momentum.
+
+Recommended semantic shape:
+
+```text
+selector: {
+  strategy: "dual_momentum",
+  ...fixed configured universe...,
+  parameterOptimization: {
+    searchSpace: {...},
+    innerValidation: {...}
   }
 }
 ```
 
-Exact field names may be finalized during implementation, but these semantic rules are fixed:
+The exact API field shape may be refined during implementation, but these rules are fixed:
 
-- optimization is explicit opt-in;
-- fixed manual strategy parameters and an optimization search space must not be ambiguous;
-- unknown dimensions/methods fail closed;
-- server canonicalizes and reports the effective search space;
-- browser cannot submit completed candidate evidence.
+- omission of `parameterOptimization` remains existing manual behavior;
+- an explicit optimization request receives a new job contract and selector policy;
+- normalized search space, validation policy and fixed assumptions enter job identity;
+- old job hashes must remain reconstructable.
 
-## 20. UX direction
+## 17. ResearchRun replay
 
-The existing Walk-Forward / Optimizer Hub workspace gains an explicit mode switch:
+Research Memory continues to persist the exact original execution request plus backend-produced completed result.
+
+For a 4B-3 run:
+
+- stored search dimensions remain immutable;
+- stored inner validation policy remains immutable;
+- rerun does not mutate the winner into a manual request;
+- rerun creates normal ResearchRun lineage under the existing D1 authority;
+- browser-submitted candidate rankings or winner evidence remain forbidden.
+
+## 18. UX requirements
+
+The intended Optimizer Hub UX exposes:
 
 ```text
 Manual parameters | Auto optimize
 ```
 
-V1 UX must show:
+Auto optimize should provide:
 
-- normalized search dimensions;
-- candidate count;
-- planned tuning evaluations;
-- inner-fold schedule;
-- progress / cancellation semantics supported by the current execution model;
-- winner parameters;
-- exact objective and tie-break explanation;
-- candidate leaderboard with explicit failed reasons;
-- final outer OOS results separately labelled from inner tuning evidence;
-- Research Library save/rerun through the existing authority.
+- explicit search-space controls;
+- preflight candidate count and planned candidate-fold evaluations;
+- inner-fold timeline;
+- clear objective policy;
+- progress / failure evidence;
+- winner parameters and explanation;
+- candidate leaderboard;
+- final outer OOS result separated visually from inner tuning evidence;
+- save/rerun through the existing Research Library.
 
-The UI must visually distinguish **Tuning evidence** from **Outer OOS validation**.
+The UI must not imply that inner search metrics are final OOS performance.
 
-## 21. ResearchRun semantics
-
-No new persistence authority is introduced.
-
-- saved run stores the original explicit optimization request;
-- completed backend result is persisted by the existing ResearchRun path;
-- rerun submits the exact original request;
-- rerun creates a new run identity while reproducing deterministic job identity when external data/version authorities are unchanged;
-- browser local state remains convenience only.
-
-## 22. Required regression invariants
+## 19. Required regression invariants
 
 A 4B-3 release must prove:
 
-1. legacy Exhaustive/PIT requests unchanged;
-2. legacy Dual Momentum 4B-1 request identity unchanged;
-3. explicit fixed-allocation 4B-2 request identity unchanged;
-4. optimization request has separate versioned job/selector identity;
-5. outer Evaluation is never read before winner parameters and final outer Decision are frozen;
-6. every candidate for an outer period sees identical inner fold dates;
-7. search-space request ordering does not change canonical candidates or winner;
-8. duplicate parameter inputs do not duplicate budget or evaluations;
-9. insufficient lookback/fold coverage fails closed;
-10. risk-allocation failure remains explicit and never silently becomes Equal Weight;
-11. accepted candidate metrics come from exact continuous inner OOS authority, not proxy metrics;
-12. inner folds use no period-local NAV reset;
-13. winner is refit on full Outer Training only after parameter selection;
-14. tuning evidence is hash-bound into final configured Decision identity;
-15. same normalized request and same underlying versioned data produces deterministic winner/job identity;
-16. browser cannot fabricate authoritative candidate results;
-17. ResearchRun save/load/rerun preserves exact optimization request;
-18. capacity preflight fails before unbounded Cartesian work;
-19. production exact-SHA gates remain fail closed.
+1. legacy Exhaustive, 4B-1 and 4B-2 normalized request / job identity remain unchanged;
+2. outer Evaluation is structurally absent from tuning inputs;
+3. inner Evaluation windows are completed calendar-month buckets, deterministic, ordered, non-overlapping and entirely inside Outer Training;
+4. a partial current outer month is excluded from inner OOS but retained for full-Outer-Training winner refit;
+5. every candidate receives the exact same inner fold schedule;
+6. normalized search identity is invariant to request dimension order and duplicate values;
+7. no candidate causes a new market-data download;
+8. inner child datasets contain no observations outside their requested parent-bounded interval;
+9. candidate failure never silently truncates symbols/dates or falls back to another allocation;
+10. accepted winner ranking uses exact continuous inner-OOS authoritative metrics;
+11. unavailable primary metric is not coerced to zero;
+12. deterministic tie-break ends in canonical parameter hash;
+13. winner is rerun on exact full Outer Training before the outer Decision is frozen;
+14. tuning result / winner evidence is hash-bound into the outer Decision;
+15. only after final outer Decision exists is outer Evaluation loaded;
+16. ResearchRun rerun replays the exact stored optimization request;
+17. browser evidence matches backend results and does not recompute them;
+18. capacity limits reject oversized work before expensive execution.
 
-## 23. Required tests
+## 20. Rejected shortcuts
 
-At minimum:
+Do not:
 
-- temporal-boundary unit tests for inner fold construction;
-- no-outer-OOS spy/fake-history tests;
-- canonical search-space/hash tests;
-- duplicate/reordered input invariance;
-- ranking/tie-break fixtures;
-- candidate failure propagation;
-- continuous inner-OOS no-reset tests;
-- legacy 4B-1 / 4B-2 golden identity regression;
-- winner full-Training refit test;
-- API validation and normalized request tests;
-- UI request/evidence tests;
-- ResearchRun exact-rerun tests;
-- capacity guard tests;
-- browser E2E for Manual ↔ Auto optimize;
-- full existing CI/regression suite.
+- optimize directly against the final outer Evaluation interval;
+- use a full-period historical winner as OOS evidence;
+- let the browser or AI submit authoritative candidate scores;
+- re-download Yahoo/FX data per candidate;
+- silently reduce the search space because execution is slow;
+- silently drop failed symbols or folds;
+- change transaction-cost assumptions per candidate to improve scores;
+- fall back from failed ERC/Inverse Vol to Equal;
+- rank unavailable metrics as zero;
+- create a new blended AI score without a versioned visible methodology;
+- use a proxy winner without exact accepted-path validation;
+- mutate legacy request identity;
+- weaken existing CI, exact-SHA or production smoke gates.
 
-## 24. Open implementation decisions that must close before Ready
+## 21. Capacity / runtime expansion rule
 
-These are implementation parameters, not permission to change the causal contract:
+Optimization does not automatically justify new infrastructure.
 
-1. exact maximum/default inner fold count;
-2. exact maximum/default parameter candidate count;
-3. exact total candidate-fold budget;
-4. concrete audited inner-view/slicing helper placement;
-5. response compaction threshold for candidate evidence;
-6. progress granularity under the current synchronous API;
-7. exact API field names / TypeScript discriminated union.
-
-They must be resolved by code evidence, tests and capacity measurements before the PR moves to Ready.
-
-## 25. Out of scope / rejected shortcuts
-
-Do not include in 4B-3 V1:
-
-- outer-OOS-driven parameter selection;
-- current/latest data outside each outer Training window;
-- tuning risky/defensive membership;
-- Min-Variance / Max-Diversification / HRP / HERC;
-- rebalance cadence optimization;
-- custom risk budgets;
-- arbitrary custom objective formulas;
-- AI-generated executable strategy code;
-- browser optimizer authority;
-- per-candidate market-data downloads;
-- proxy MDD/Sortino used as final candidate ranking;
-- silent history/member/date truncation;
-- silent failed-candidate fallback;
-- alternate Portfolio/metric/covariance engine;
-- unrelated PR #147/security/infrastructure work;
-- CI or production-smoke weakening.
-
-Those belong to later roadmap phases or remain rejected.
-
-## 26. Later extension seam
-
-After 4B-3 is production accepted, the same nested tuning authority may support separately versioned additions:
+Required order:
 
 ```text
-4B-4 robust constraints / Pareto / stability
-4B-5 additional allocation methods
-4B-6 rebalance / execution tuning
-4B-7 stable ensembles / regime-safe model selection
-4C AI Research Autopilot
+1. benchmark real candidate × fold × outer workloads
+2. reuse audited outer datasets
+3. deterministic in-process memoization only where identity-safe
+4. bounded batch/cancellation/resume if required
+5. asynchronous durable jobs only if measured synchronous workloads are insufficient
 ```
 
-Later phases must reuse this causal nested-tuning seam rather than selecting parameters from the outer Evaluation results.
+Do not introduce Redis, task queues or distributed workers before measured product evidence requires them.
+
+## 22. Future extensions
+
+After 4B-3 is production accepted, later separately versioned work may add:
+
+- Pareto / hard constraints / fold stability / parameter-plateau robustness;
+- minimum variance / maximum diversification / custom risk budgets / HRP / HERC;
+- rebalance / execution parameter tuning;
+- robust parameter ensembles;
+- causally defined regime-conditioned choice;
+- AI Research Autopilot that compiles natural-language goals into bounded visible ExperimentSpecs.
+
+None of those are hidden extensions of this V1 contract.
