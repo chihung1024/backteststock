@@ -46,7 +46,9 @@ jobs:
           package = json.loads(Path('package.json').read_text())
           if package != {'name': 'backteststock', 'private': True, 'type': 'module'}:
               raise SystemExit(f'package.json is not minimal: {package}')
-          json.loads(Path('vercel.json').read_text())
+          config = json.loads(Path('vercel.json').read_text())
+          if config.get('git', {}).get('deploymentEnabled', {}).get('main') is not False:
+              raise SystemExit('Vercel main auto-deploy must remain disabled')
           PY
       - name: Syntax-check production Python
         run: python -m compileall -q api apps/api/app
@@ -90,11 +92,3 @@ jobs:
           for cache_id in "${cache_ids[@]}"; do
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}"
           done
-      - name: Remove the final ruleset validation workflow
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/ci.yml
-          git commit -m "chore(sunset): remove final repository validation workflow"
-          git push origin HEAD:main
