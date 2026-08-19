@@ -1,0 +1,93 @@
+name: One-time Sunset Housekeeping
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sunset-housekeeping.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  housekeeping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create recovery and accepted-runtime releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PRE_SHA="ede589c289103089fa77e1a9eb5a24ed882d62ea"
+          RUNTIME_SHA="b90500b20ac1517dd49f63b33e22ab92c06e1d10"
+          PRE_TAG="archive/pre-sunset-2026-08-19"
+          RUNTIME_TAG="runtime/accepted-2026-08-19"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse -q --verify "refs/tags/${PRE_TAG}" >/dev/null; then
+            git tag -a "${PRE_TAG}" "${PRE_SHA}" -m "BacktestStock pre-sunset recovery checkpoint"
+            git push origin "refs/tags/${PRE_TAG}"
+          fi
+          if ! git rev-parse -q --verify "refs/tags/${RUNTIME_TAG}" >/dev/null; then
+            git tag -a "${RUNTIME_TAG}" "${RUNTIME_SHA}" -m "BacktestStock production-accepted frozen runtime"
+            git push origin "refs/tags/${RUNTIME_TAG}"
+          fi
+
+          if ! gh release view "${PRE_TAG}" >/dev/null 2>&1; then
+            gh release create "${PRE_TAG}" \
+              --title "BacktestStock pre-sunset recovery — 2026-08-19" \
+              --notes "Exact recovery checkpoint before runtime-only Sunset cleanup. Commit: ${PRE_SHA}. Contains the full development-era source, tests, docs and deployment tooling needed to reconstruct the former development environment."
+          fi
+          if ! gh release view "${RUNTIME_TAG}" >/dev/null 2>&1; then
+            gh release create "${RUNTIME_TAG}" \
+              --title "BacktestStock frozen runtime accepted — 2026-08-19" \
+              --notes "Production-accepted frozen runtime baseline. Commit: ${RUNTIME_SHA}. Cloudflare Worker/D1 and Vercel exact-SHA production smoke acceptance completed; Cloudflare Cron owns Universe refresh at Monday/Thursday 06:17 UTC."
+          fi
+
+      - name: Delete non-main branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" --jq '.[].name')
+          failures=0
+          for branch in "${branches[@]}"; do
+            if [ "${branch}" = "main" ]; then
+              continue
+            fi
+            echo "Deleting branch: ${branch}"
+            if ! git push origin --delete "${branch}"; then
+              echo "Unable to delete branch: ${branch}" >&2
+              failures=$((failures + 1))
+            fi
+          done
+          echo "Branch deletion failures: ${failures}"
+          if [ "${failures}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Delete Actions artifacts and caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifact_ids < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[].id')
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+          done
+
+          mapfile -t cache_ids < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --jq '.actions_caches[].id')
+          for cache_id in "${cache_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}"
+          done
+
+          echo "Deleted artifacts: ${#artifact_ids[@]}"
+          echo "Deleted caches: ${#cache_ids[@]}"
