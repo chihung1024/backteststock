@@ -1,153 +1,219 @@
-# Metric Authority — Phase 0 Freeze
+# Metric Authority and Reproducibility Contract
 
-Status: Phase 0 authority contract. This document classifies the metric implementations that already exist. It does not change production formulas.
+Status: **Current quantitative metric/reproducibility authority map.**
 
-## 1. Purpose
+Current simple-value metric definition: `METRIC_DEFINITION_VERSION = "2026-08-01.2"`.
 
-Portfolio Refinery must not create a third or fourth independent definition of CAGR, volatility, Sortino, beta, alpha, drawdown, or tail risk. Before shared quantitative primitives are extracted, existing implementations are classified by **semantic role**, not merely by filename.
+This document consolidates the former metric-authority and reproducibility documents. It classifies existing numerical authorities and preserves the shared return, corporate-action and audit semantics without forcing semantically different engines into one implementation.
 
-## 2. Authority classes
+## 1. Authority classes
 
-### A. Production simple-value metric authority
+### Simple-value production metrics
 
-**Implementation:** `api/metrics.py`
+`api/metrics.py` is the production authority for simple adjusted-value metrics used by current Scanner and compatibility/full-period TWD backtest paths.
 
-**Current production consumers:**
+Its semantic object is a total-return value series, optionally paired with a benchmark value series.
 
-- `apps/api/app/scan_service.py` -> production `/api/scan` through `api/scan_v2.py`.
-- `apps/api/app/backtest_service.py` -> compatibility/full-period TWD portfolio service used by `api/index_v2.py`.
-- supporting reproducibility/fingerprint callers.
+### Portfolio v3 ledger metrics
 
-**Semantic object:** an adjusted total-return **value series** (optionally paired with a benchmark value series).
+`apps/api/app/portfolio/metrics.py` is the authority for path-dependent Portfolio v3 reporting after `PortfolioLedger` simulation.
 
-**Authority:** canonical for simple-value/scanner/full-period compatibility metrics until a separately versioned migration replaces it.
+Cashflows, transaction/borrowing costs, distributions, leverage/debt and path-dependent state mean this context must not be replaced by a simple value-series shortcut.
 
-### B. Portfolio v3 ledger metric authority
+### Exhaustive exact historical-search metrics
 
-**Implementation:** `apps/api/app/portfolio/metrics.py`
+`public/exhaustive-optimizer-core.js` owns exact portfolio simulation/metrics inside the full-period Exhaustive search workflow.
 
-**Consumer:** `apps/api/app/portfolio/service.py` after `simulate_portfolio_ledger()`.
+It is a historical search authority, not an OOS-validation authority. Where the resulting NAV/return path and assumptions are genuinely equivalent, common metrics should remain parity-compatible with the simple-value authority.
 
-**Semantic object:** a path-dependent TWD `PortfolioLedger`, including time-weighted return index, external flows, transaction costs, distributions, leverage/debt, and rebalancing events.
+### Legacy compatibility implementations
 
-**Authority:** canonical for Portfolio v3 path-dependent portfolio reporting. It must not be replaced by simple value-series calculations when cashflows/path dependence matter.
+`api/index.py` and `api/scan.py` still support compatibility/runtime dependencies. Their older local metric functions are not authorities for new quantitative work.
 
-### C. Exhaustive exact historical-search metric engine
+### Proxy/heuristic search metrics
 
-**Implementation:** `public/exhaustive-optimizer-core.js::simulateExactPortfolio()` executed by `public/exhaustive-optimizer-worker.js`.
+Any optimizer proxy used only to accelerate candidate search is not an exact performance authority. Proxy output must not be presented as accepted portfolio CAGR/Sortino/MDD or silently replace exact validation.
 
-**Input:** signed TWD price snapshot prepared by `api/exhaustive_optimizer.py`.
+## 2. Market-data and total-return basis
 
-**Semantic object:** exact historical simulated NAV for a specified equal-weight combination and explicit rebalance/cost policy.
+Current production simple-value data uses Yahoo Finance daily history under the pinned runtime contract:
 
-**Authority:** exact metric engine **inside the full-period Exhaustive research/search workflow**. Its common no-flow metrics must remain parity-compatible with the simple-value authority where inputs and assumptions are equivalent.
+```text
+interval = 1d
+auto_adjust = false
+repair = true
+actions = true
+keepna = false
+```
 
-It is not an out-of-sample validation authority.
+The system intentionally retains:
 
-### D. Legacy compatibility implementations — not current production authorities
+- raw `Close` for adjustment/corporate-action audit;
+- `Adj Close` as the native-currency gross total-return value series.
 
-- `api/index.py::calculate_metrics()`
-- `api/scan.py::calculate_metrics()`
+`auto_adjust=false` does not mean unadjusted performance is used. It preserves both raw and adjusted evidence so the adjustment can be audited.
 
-These files remain runtime dependencies for compatibility validation/constants/routes, but Vercel routes production `/api/scan` to `api/scan_v2.py` and wildcard compatibility traffic to `api/index_v2.py`. New quantitative work must not depend on these legacy metric implementations.
+Current return-basis interpretation is gross adjusted total return with distributions reflected through Yahoo adjusted prices. It does not include investor-specific taxes, withholding tax, ADR fees, commissions, bid/ask slippage or other costs unless a specific Portfolio contract explicitly models them.
 
-Notably, legacy `api/scan.py` uses CAGR-based Sharpe/Sortino/alpha semantics that intentionally differ from the current production `api.metrics` implementation. Phase 0 records this as legacy behavior rather than trying to force it into the canonical contract.
+## 3. TWD valuation before performance metrics
 
-### E. Optimizer proxy/heuristic metrics — explicitly not performance authorities
+All cross-market production research follows the shared TWD valuation contract:
 
-**Implementation example:** `public/optimizer-worker.js::proxyMetrics()`.
+```text
+TWD adjusted close[t]
+= native adjusted close[t] × FX(native currency → TWD, t)
+```
 
-The proxy engine approximates training/search objectives from means/covariances and even estimates drawdown from volatility/downside-volatility heuristics. These values exist to accelerate candidate search. They must be labelled and tested as **selection proxies**, not reported or reused as exact portfolio-performance metrics.
+Metric formulas consume the resulting audited TWD evidence where the product contract says TWD is authoritative. Native returns may be used only by a separately scoped diagnostic such as the Refinery factor model.
 
-Likewise, score functions derived from exact metrics (for example `scoreMetrics()` in the Exhaustive core) are ranking formulas, not primitive metric definitions.
+Calendar/forward-fill rules belong to the TWD/data contracts and must never backward-fill from future observations.
 
-## 3. Shared primitive semantics frozen in Phase 0
+## 4. Shared primitive definitions
 
-When two contexts are genuinely equivalent, the following definitions are the shared target semantics for future `apps/api/app/quant/` primitives:
+When contexts are genuinely equivalent, the shared target semantics are:
 
-| Primitive | Frozen definition |
+| Primitive | Definition |
 | --- | --- |
-| Periodic return | arithmetic simple return `V_t / V_(t-1) - 1` |
+| Periodic return | `V_t / V_(t-1) - 1` |
 | Trading-day annualizer | 252 |
-| Daily risk-free rate | `(1 + annual_rf) ** (1/252) - 1` |
+| Daily risk-free | `(1 + annual_rf) ** (1/252) - 1` |
 | Volatility | sample standard deviation of periodic returns (`ddof=1`) × `sqrt(252)` |
-| Annualized excess return | mean of `(r - daily_rf)` × 252 |
+| Annualized excess return | `mean(r - daily_rf) × 252` |
 | Sharpe | annualized arithmetic excess return / annualized volatility |
 | Downside deviation | `sqrt(mean(min(r-daily_rf, 0)^2)) × sqrt(252)` |
 | Sortino | annualized arithmetic excess return / downside deviation |
-| Beta | sample covariance(asset, benchmark) / sample variance(benchmark) |
+| Beta | `cov(asset, benchmark) / var(benchmark)` |
 | Jensen alpha | `[mean(r) - (daily_rf + beta*(mean(rb)-daily_rf))] × 252` |
-| Max drawdown | minimum of `level / running_max(level) - 1` |
+| Max drawdown | `min(level / running_max(level) - 1)` |
 | Historical daily VaR 95% | empirical 5th percentile under the Portfolio v3 historical-simulation convention |
 | Historical daily CVaR 95% | mean of observations `<= VaR` |
 
-Undefined risk ratios are **unavailable**, not economically equal to zero. Python currently represents them as `None`; the browser exact engine uses `NaN` internally. Serialization/UI layers may map unavailable values explicitly, but must not silently turn them into valid zeros.
+Undefined risk ratios are unavailable, not economically equal to zero.
 
-## 4. Known versioned/contextual differences that Phase 0 does not silently change
+## 5. CAGR and context-specific differences
 
-### 4.1 CAGR year-length constant
+Simple-value and current Exhaustive compatibility paths use a 365.25-day year for CAGR.
 
-- `api/metrics.py`: `365.25` days/year.
-- Exhaustive exact worker: `365.25` days/year.
-- Portfolio v3 ledger metrics: `365.2425` days/year.
+Portfolio v3 currently uses 365.2425 days/year.
 
-This produces a small but real CAGR difference on identical levels. The Phase 0 golden fixture records both expected values. No production value is changed in this phase. Any future unification requires an explicit metric-context version bump and regression/compatibility decision.
+This small difference is recorded context, not a reason to silently rewrite accepted historical results. A future unification requires a deliberate methodology/version migration.
 
-For the future shared simple-value primitive layer, **365.25 remains the frozen compatibility baseline** unless a dedicated migration changes the contract.
+Benchmark alignment also differs by semantic object:
 
-### 4.2 Benchmark alignment
+- simple-value comparison may restrict comparable level/return samples to common valid asset/benchmark dates;
+- Portfolio v3 standalone path metrics come from the portfolio ledger, while benchmark availability affects benchmark-relative metrics rather than rewriting the portfolio's own path.
 
-`api/metrics.py` intentionally restricts level metrics to common asset/benchmark price dates when a benchmark is supplied, and derives paired returns without bridging missing price intervals.
+Parity is required only where the actual semantic inputs/assumptions are equivalent.
 
-Portfolio v3 computes standalone portfolio performance from its ledger return index and aligns the benchmark only for benchmark-relative metrics. This is intentional: benchmark availability must not rewrite a path-dependent portfolio's own TWR/CAGR/MDD history.
+## 6. Corporate-action audit
 
-Parity is therefore required only on fixtures where the asset/portfolio and benchmark calendars are already identical.
+Standard Yahoo/yfinance events reflected in adjusted prices may include:
 
-### 4.3 Portfolio-only metrics
+- ordinary and special distributions represented by the vendor;
+- splits/reverse splits;
+- capital-gain distributions;
+- vendor price/action repairs.
 
-XIRR, external-flow accounting, transaction/borrowing costs, income, liquidation status, drawdown-event metadata, period returns, and other ledger-specific outputs remain Portfolio v3 context metrics. They are not candidates for simple-value parity.
+The system records audit evidence such as event counts, repaired rows, adjustment changes and unexplained anomalies.
 
-### 4.4 Exhaustive-specific path
-
-The Exhaustive exact engine includes its own explicit equal-weight rebalance, delay, and transaction-cost mechanics. Exact NAV-path differences created by those rules are not metric-formula drift. Common metrics should match only after the same NAV/return path has been established.
-
-## 5. Required cross-language golden fixture
-
-`tests/fixtures/quant_authority_v1.json` is the Phase 0 shared golden fixture.
-
-It is consumed by:
-
-- Python parity tests for `api.metrics` and the no-flow Portfolio v3 ledger context.
-- JavaScript parity tests for `simulateExactPortfolio()`.
-
-Changing expected values requires an explicit methodology review; the fixture must not be casually regenerated to make a failing test green.
-
-## 6. Future canonical module boundary
-
-Future shared primitives should live under:
+Normal audit state is:
 
 ```text
-apps/api/app/quant/
-├── returns.py
-├── moments.py
-├── tail.py
-├── benchmark.py
-├── covariance.py       # Phase 2
-└── contracts.py
+verified_standard_actions
 ```
 
-Phase 0 **does not migrate production callers** into this namespace. Extraction happens only after parity is proven and must preserve external results unless a separately approved defect/methodology migration is versioned.
+Evidence that needs human review is represented explicitly, for example:
 
-## 7. Change-control rule
+```text
+review_required
+```
 
-A change to a shared primitive must include:
+A review-required state does not authorize the program to invent a replacement price series.
 
-1. methodology/contract version decision;
-2. golden-fixture review;
-3. Python parity tests;
-4. browser Exhaustive parity tests when the primitive exists there;
-5. Portfolio v3 context test when equivalent;
-6. explicit treatment of legacy/proxy engines rather than accidental synchronization;
-7. update to root `to_do_update_list.md`.
+## 7. Non-standard event limitation
 
-No future Portfolio Refinery implementation may redefine these shared primitives locally.
+Yahoo adjusted price history cannot by itself guarantee economically complete treatment of every corporate event, including some:
+
+- spin-offs;
+- rights/warrants;
+- cash/stock mergers;
+- ticker/exchange/share-class transitions;
+- ADR-ratio changes;
+- delisting/liquidation outcomes;
+- investor-specific taxes/fees.
+
+These may require a security master, event terms and old/new instrument mapping that the public price feed does not prove.
+
+Therefore BacktestStock must not claim that every possible corporate action is reconstructed with 100% certainty.
+
+## 8. Price-index benchmark disclosure
+
+Yahoo symbols beginning with `^` are often price indices rather than investable total-return series.
+
+The system may warn that comparing an adjusted total-return asset/portfolio to such an index is not a pure total-return excess-return comparison. It must not silently replace a user-requested benchmark with another symbol.
+
+## 9. Coverage and sample rules
+
+Metrics use explicit effective samples rather than treating missing data as zero.
+
+For simple asset/benchmark comparison, paired risk metrics use matching return observations and must not bridge a missing interval into a false one-day return.
+
+Portfolio comparison contracts may require a complete/common sample for directly comparable portfolios.
+
+Coverage describes observed evidence. Forward-filled alignment used for another legitimate purpose does not retroactively make source observations complete.
+
+## 10. Reproducibility evidence
+
+Depending on the endpoint/context, reproducibility metadata includes applicable:
+
+- metric/methodology version;
+- data-source settings/version;
+- return basis;
+- requested/effective dates;
+- valuation currency and TWD contract version;
+- benchmark;
+- risk-free rate;
+- corporate-action audit;
+- requested/resolved/failure membership;
+- price/history fingerprints;
+- dataset/job/decision identities.
+
+Fingerprints answer whether the same exact inputs were used. They cannot reconstruct a vendor history that the system never stored after the vendor later revises it.
+
+## 11. Upstream revisions
+
+Yahoo/yfinance may revise historical prices/actions.
+
+A deterministic fingerprint can detect that current input differs from an earlier run when the earlier fingerprint/result was persisted. It is not an archival market-data store and cannot recover old vendor bytes by itself.
+
+Research claims must reflect this limitation.
+
+## 12. Biases not solved by adjusted prices
+
+Correct distribution/split adjustment does not solve:
+
+- survivorship bias;
+- look-ahead bias;
+- delisting bias;
+- missing historical Universe/fundamental membership.
+
+Those require PIT/provenance contracts and fail-closed research design. They must not be described as solved merely because `Adj Close` is used.
+
+## 13. Golden parity fixture
+
+`tests/fixtures/quant_authority_v1.json` is the shared cross-language golden fixture for compatible primitive behavior.
+
+It is consumed by Python and JavaScript parity tests. Expected values must not be casually regenerated just to make a changed implementation green; a real methodology change needs explicit review/versioning.
+
+## 14. Change discipline
+
+A material shared-metric semantic change should include:
+
+- explicit methodology/version decision;
+- relevant golden/reference fixture review;
+- targeted Python tests;
+- JavaScript Exhaustive parity where the same primitive exists;
+- Portfolio v3 parity/context tests where equivalent;
+- explicit treatment of legacy/proxy engines.
+
+Do not force synchronization between engines whose semantic objects genuinely differ, and do not create a new local metric definition inside Refinery/Optimizer/Browser code.

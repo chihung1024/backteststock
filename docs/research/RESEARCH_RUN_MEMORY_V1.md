@@ -1,144 +1,105 @@
 # ResearchRun Memory V1
 
-Status: **Batch 4A-7A internal contract candidate.**
+Status: **Current durable completed-research / rerun contract.**
 
-Contract version: `research-run-memory-2026-08-17.1`
+ResearchRun persists successful backend-produced research without becoming a numerical authority.
 
-## Purpose
+## Identity model
 
-ResearchRun Memory turns a successfully completed Walk-Forward request into durable, recoverable research history without changing any quantitative authority.
+Three identities remain distinct:
 
-The durable identities are intentionally distinct:
+- `jobHash` — deterministic completed Walk-Forward result identity;
+- `run_id` — one durable execution/history record;
+- `library_id` — one capability-scoped research library.
 
-- `jobHash` remains the immutable identity of a completed Walk-Forward research result.
-- `run_id` identifies one durable execution/history record. Re-running the same deterministic request may therefore create another `run_id` with the same `jobHash`.
-- `library_id` identifies one capability-scoped research library.
-
-Neither `run_id` nor `library_id` may replace `jobHash` in research-result identity or causal evidence.
+A rerun may create a new `run_id` while reproducing the same `jobHash`.
 
 ## Authority boundary
 
-D1 is the durable ResearchRun authority. Browser localStorage is never a durable run/result authority.
+D1 is durable ResearchRun authority. Browser localStorage is convenience state only.
 
-The browser is not allowed to submit a completed result for persistence. The trusted creation path is:
+Trusted creation path:
 
-1. browser submits a run name plus a normal Walk-Forward request;
-2. Worker invokes the existing public Walk-Forward execution path;
-3. existing PIT / ResearchDataset / SelectionEngine / Exhaustive / OOS ledger / Portfolio metric authorities produce the result;
-4. only a successful `status=completed` backend result may be persisted;
-5. Worker stores the exact request that was accepted for that execution separately from the returned result JSON.
+```text
+browser submits run name + normal research request
+→ existing backend authorities execute the request
+→ only status=completed result with valid jobHash is accepted
+→ Worker persists exact accepted request + exact backend result
+```
 
-ResearchRun Memory must not recalculate, repair, normalize, invent or substitute research evidence.
+The browser cannot upload an authoritative completed result, metric, decision hash or ledger and ask D1 to trust it.
+
+ResearchRun does not recalculate, repair or normalize quantitative evidence.
 
 ## Capability-scoped library
 
-The current public application has no account/session authority. V1 therefore uses a bearer capability rather than introducing a parallel OAuth/account system.
+The current public application uses a bearer capability rather than inventing a parallel account system.
 
-A library capability:
+A capability is cryptographically random, stored in D1 only as a hash, and authorizes one library. The raw capability is a credential and must not appear in logs.
 
-- is generated from 256 bits of cryptographically secure randomness;
-- is returned only when a new library is first created;
-- is stored by D1 only as a SHA-256 hash;
-- authorizes access to exactly one `library_id`;
-- may be exported/imported by the user for cross-device recovery;
-- is treated by the browser as a credential, not as research data.
-
-Future account authentication may attach ownership to an existing `library_id`; it must not require changing existing `run_id` or `jobHash` semantics.
-
-No endpoint exists to create an empty durable library. A new library is created only as part of persisting a successfully completed first run.
+Future account/auth integration may attach ownership to the existing library without changing `run_id`/`jobHash` semantics.
 
 ## Public API
 
 Base path:
 
-`/api/v1/research/runs`
-
-### POST `/api/v1/research/runs`
-
-Body:
-
-```json
-{
-  "name": "SOXX walk-forward baseline",
-  "request": { "...": "normal Walk-Forward API request" }
-}
+```text
+/api/v1/research/runs
 ```
 
-If `Authorization: Bearer <library capability>` is supplied, the completed run is appended to that library. If no Authorization header is supplied, a new library is created only after successful execution and the response includes the one-time raw `libraryCapability`.
+Supported behavior includes:
 
-The body has no `result`, `jobHash`, `decisionHash`, metrics or ledger input fields. Such client-supplied fields are not persistence authority.
+- create a completed named run;
+- list bounded summaries for the authorized library;
+- fetch one exact persisted request/result;
+- rerun a source run using its stored execution request.
 
-### GET `/api/v1/research/runs`
+Rerun loads the immutable stored request. The browser cannot replace it with current UI defaults.
 
-Requires the library bearer capability. Returns bounded run summaries newest first. It does not expose the raw capability.
+## Persistence
 
-### GET `/api/v1/research/runs/{run_id}`
+D1 stores library capability metadata and run records including applicable:
 
-Requires the library bearer capability and returns the exact persisted accepted request plus the completed result for that run.
-
-A run in another library must not be distinguishable from a nonexistent run.
-
-### POST `/api/v1/research/runs/{run_id}/rerun`
-
-Requires the library bearer capability. The Worker loads `execution_request_json` from D1 and executes that stored request. The browser cannot replace the stored request in this operation.
-
-A successful rerun creates a new `run_id`, stores `source_run_id`, and may legitimately reproduce the same `jobHash`.
-
-## D1 persistence
-
-`research_libraries` stores:
-
-- `library_id`;
-- hashed capability + hash contract version;
-- creation and last-used timestamps.
-
-`research_runs` stores:
-
-- `run_id`;
-- owning `library_id`;
-- optional `source_run_id` for reruns;
+- `run_id` / `library_id`;
+- optional `source_run_id`;
 - user-facing name;
-- authoritative backend-produced `job_hash`;
-- exact accepted `execution_request_json`;
-- exact completed `result_json`;
-- result contract version and decision count;
-- creation timestamp.
+- authoritative `job_hash`;
+- exact accepted execution request JSON;
+- exact completed result JSON;
+- result contract/decision metadata;
+- timestamps.
 
-V1 has no global public run listing and no cross-library lookup by `jobHash`.
+There is no public global run listing or cross-library lookup by job hash.
 
 ## Failure semantics
 
-Fail closed when:
+A failed research execution does not create a partial durable run.
 
-- D1 is unavailable;
-- the capability is malformed or unknown;
-- request JSON/name is invalid or over bounds;
-- Walk-Forward execution fails or does not return `completed` with a valid `jobHash`;
-- the completed result exceeds the V1 persistence payload bound, which is conservatively below D1's 2,000,000-byte row/string ceiling after reserving the full request budget and row metadata;
-- durable insertion fails.
-
-A failed Walk-Forward execution must not create an empty library or a partial durable run.
+Fail closed on invalid/unknown capability, malformed request/name, D1 failure, non-completed/invalid backend result, payload bounds or insertion failure.
 
 ## Security invariants
 
-- raw library capabilities are never written to D1 or logs;
-- `Authorization` is consumed only at the ResearchRun edge and is never forwarded to the Vercel research backend;
-- unknown-library and wrong-library run access return the same not-found semantics after authentication;
-- client-supplied completed results are never accepted;
-- response headers remain `no-store`;
-- there is no cookie/session side authority in V1.
+- raw capabilities are never stored in D1 or logs;
+- ResearchRun authorization is consumed at its owning edge boundary and not forwarded as a backend data-authority credential;
+- cross-library run access does not reveal whether a foreign run exists;
+- responses are no-store where the current runtime contract requires;
+- browser-supplied result evidence is never persistence authority.
+
+## Replay invariant
+
+Existing stored requests remain reconstructable.
+
+New methodology versions do not silently mutate an old stored request during rerun. Explicit optimization requests retain their search/validation inputs; rerun does not rewrite them to the historical winning manual tuple.
 
 ## Non-goals
 
-V1 does not add:
+ResearchRun is not:
 
-- OAuth or user accounts;
-- sharing/collaboration/ACLs;
-- arbitrary result upload/import;
-- mutable quantitative evidence;
+- OAuth/account/ACL design;
+- arbitrary result upload;
+- mutable evidence;
+- automatic strategy deployment;
 - scheduled research;
-- AI strategy generation;
-- cross-run comparison UI;
-- PIT fundamentals.
+- a second quantitative engine.
 
-Those are later product batches and must consume ResearchRun truth rather than create a second persistence authority.
+Tests and Worker/D1 implementation are authoritative for exact limits and endpoint details.
