@@ -5,6 +5,7 @@ import {
   WALK_FORWARD_WORKSPACE_STORAGE_KEY,
   createBlankWalkForwardPeriod,
   createDefaultWalkForwardModel,
+  createDualMomentumAutoPeriods,
   createDualMomentumMonthlyPeriods,
   createDualMomentumWalkForwardModel,
   createExampleWalkForwardModel,
@@ -15,6 +16,7 @@ import {
   validateWalkForwardModel,
 } from "./walkForwardModel";
 import { ResearchLibraryPanel } from "./ResearchLibraryPanel";
+import { WalkForwardOptimizationControls } from "./WalkForwardOptimizationControls";
 import { WalkForwardResults } from "./WalkForwardResults";
 import type {
   WalkForwardAllocationMethod,
@@ -232,11 +234,20 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
   }
 
   function regenerateDualMomentumPeriods() {
-    mutateModel((current) => ({
-      ...current,
-      periods: createDualMomentumMonthlyPeriods(current.lookbackMonths),
-    }));
-    setMessage("已依目前 Lookback 重新產生最近 6 個月的月度 Decision / OOS 區間。 ");
+    try {
+      const periods = model.optimizationMode === "auto"
+        ? createDualMomentumAutoPeriods(
+            model.optimizationSearchSpace,
+            model.optimizationInnerValidation,
+          )
+        : createDualMomentumMonthlyPeriods(model.lookbackMonths);
+      mutateModel((current) => ({ ...current, periods }));
+      setMessage(model.optimizationMode === "auto"
+        ? "已依 Auto Optimize 最大 Lookback + inner folds 需求重新產生最近 6 個月區間。 "
+        : "已依目前 Lookback 重新產生最近 6 個月的月度 Decision / OOS 區間。 ");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? `無法產生月度區間：${caught.message}` : "無法產生月度區間。 ");
+    }
   }
 
   async function copyRequest() {
@@ -267,7 +278,9 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
     setBusy(true);
     setResult(null);
     setError("");
-    setMessage("正在同步執行 Training → frozen Decision → Evaluation → continuous OOS ledger。後端會重新驗證全部因果與資料條件，請勿重複送出。 ");
+    setMessage(model.strategy === "dual_momentum" && model.optimizationMode === "auto"
+      ? "正在同步執行 Outer Training → nested inner tuning → full-Training refit → frozen Decision → Evaluation → continuous OOS。後端會重新驗證因果與 search budget，請勿重複送出。 "
+      : "正在同步執行 Training → frozen Decision → Evaluation → continuous OOS ledger。後端會重新驗證全部因果與資料條件，請勿重複送出。 ");
 
     try {
       const response = await runWalkForward(request, controller.signal);
@@ -337,8 +350,15 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
           <>
             <span>Strategy <strong>Dual Momentum</strong></span>
             <span>Risky <strong>{riskyCount}</strong> · Defensive <strong>{defensiveCount}</strong></span>
-            <span>Top K <strong>{model.topK}</strong></span>
-            <span>Allocation <strong>{model.allocationMethod === "equal" ? "Equal" : model.allocationMethod === "inverse_volatility" ? "Inverse Vol" : "Risk Parity / ERC"}</strong></span>
+            <span>Mode <strong>{model.optimizationMode === "auto" ? "Auto Optimize" : "Manual"}</strong></span>
+            {model.optimizationMode === "manual" ? (
+              <>
+                <span>Top K <strong>{model.topK}</strong></span>
+                <span>Allocation <strong>{model.allocationMethod === "equal" ? "Equal" : model.allocationMethod === "inverse_volatility" ? "Inverse Vol" : "Risk Parity / ERC"}</strong></span>
+              </>
+            ) : (
+              <span>Nested tuning <strong>Training-only</strong></span>
+            )}
           </>
         ) : (
           <>
@@ -427,40 +447,45 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
                 <input aria-label="Dual Momentum 防禦資產" value={model.defensiveSymbolsText} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, defensiveSymbolsText: event.target.value }))} />
                 <small>風險資產全部未通過 absolute hurdle 時，才從此集合依 relative momentum 選取。</small>
               </label>
+              <WalkForwardOptimizationControls
+                model={model}
+                disabled={workspaceBusy}
+                onPatch={(patch) => mutateModel((current) => ({ ...current, ...patch }))}
+              />
               <label className="field">
                 <span>Momentum Lookback</span>
                 <div className="input-with-suffix">
-                  <input type="number" aria-label="Dual Momentum Lookback 月數" min={1} max={60} step={1} value={model.lookbackMonths} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, lookbackMonths: numericValue(event.target.value, 0) }))} />
+                  <input type="number" aria-label="Dual Momentum Lookback 月數" min={1} max={60} step={1} value={model.lookbackMonths} disabled={workspaceBusy || model.optimizationMode === "auto"} onChange={(event) => mutateModel((current) => ({ ...current, lookbackMonths: numericValue(event.target.value, 0) }))} />
                   <span>月</span>
                 </div>
-                <small>Server 使用 audited TWD adjusted total-return levels；不由瀏覽器自行算績效。</small>
+                <small>{model.optimizationMode === "auto" ? "Auto 模式由上方 Search Space 決定；此 Manual 值不會送進 request。" : "Server 使用 audited TWD adjusted total-return levels；不由瀏覽器自行算績效。"}</small>
               </label>
               <label className="field">
                 <span>Top K</span>
-                <input type="number" aria-label="Dual Momentum Top K" min={1} max={Math.max(1, riskyCount)} step={1} value={model.topK} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, topK: numericValue(event.target.value, 0) }))} />
-                <small>先通過 absolute filter，再按 relative momentum 排名前 K；Allocation 只對 frozen selection 決定權重。</small>
+                <input type="number" aria-label="Dual Momentum Top K" min={1} max={Math.max(1, riskyCount)} step={1} value={model.topK} disabled={workspaceBusy || model.optimizationMode === "auto"} onChange={(event) => mutateModel((current) => ({ ...current, topK: numericValue(event.target.value, 0) }))} />
+                <small>{model.optimizationMode === "auto" ? "Auto 模式由 Search Space 決定；Manual Top K 不會進 request。" : "先通過 absolute filter，再按 relative momentum 排名前 K；Allocation 只對 frozen selection 決定權重。"}</small>
               </label>
               <label className="field">
                 <span>Allocation / Weighting</span>
                 <select
                   aria-label="Dual Momentum Allocation Method"
                   value={model.allocationMethod}
-                  disabled={workspaceBusy}
+                  disabled={workspaceBusy || model.optimizationMode === "auto"}
                   onChange={(event) => mutateModel((current) => ({ ...current, allocationMethod: event.target.value as WalkForwardAllocationMethod }))}
                 >
                   <option value="equal">Equal Weight</option>
                   <option value="inverse_volatility">Inverse Volatility</option>
                   <option value="risk_parity_erc">Risk Parity / ERC</option>
                 </select>
-                <small>Risk-based allocation 只讀 Training 的 TWD daily returns，需至少 60 個完整共同觀察值；Ledoit-Wolf covariance 與 ERC risk contribution 均由後端 Risk Mathematics authority 計算。</small>
+                <small>{model.optimizationMode === "auto" ? "Auto 模式只使用 Search Space 內勾選的 Allocation methods。" : "Risk-based allocation 只讀 Training 的 TWD daily returns，需至少 60 個完整共同觀察值；Ledoit-Wolf covariance 與 ERC risk contribution 均由後端 Risk Mathematics authority 計算。"}</small>
               </label>
               <label className="field">
                 <span>Absolute Threshold</span>
                 <div className="input-with-suffix">
-                  <input type="number" aria-label="Dual Momentum Absolute Threshold" step={0.1} value={model.absoluteThresholdPct} disabled={workspaceBusy} onChange={(event) => mutateModel((current) => ({ ...current, absoluteThresholdPct: numericValue(event.target.value, 0) }))} />
+                  <input type="number" aria-label="Dual Momentum Absolute Threshold" step={0.1} value={model.absoluteThresholdPct} disabled={workspaceBusy || model.optimizationMode === "auto"} onChange={(event) => mutateModel((current) => ({ ...current, absoluteThresholdPct: numericValue(event.target.value, 0) }))} />
                   <span>%</span>
                 </div>
-                <small>0% 代表正報酬 hurdle；正式 cash / trend hurdle 留給後續版本化擴充。</small>
+                <small>{model.optimizationMode === "auto" ? "Auto 模式由 Search Space 決定；Manual threshold 不會進 request。" : "0% 代表正報酬 hurdle；正式 cash / trend hurdle 留給後續版本化擴充。"}</small>
               </label>
             </>
           )}
@@ -491,13 +516,15 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
             <div>
               <h2 id="wf-periods-title">Training / Decision / Evaluation</h2>
               <p>{model.strategy === "dual_momentum"
-                ? "Dual Momentum v1 採月度 Decision。Training 必須涵蓋完整 Lookback；每期 frozen Decision 只影響之後的 OOS 月度區間。"
+                ? model.optimizationMode === "auto"
+                  ? "Auto Optimize 只在每一期 Outer Training 內建立 completed-calendar-month inner folds；winner 會在完整 Outer Training refit 後才凍結，outer Evaluation 不參與 tuning。"
+                  : "Dual Momentum v1 採月度 Decision。Training 必須涵蓋完整 Lookback；每期 frozen Decision 只影響之後的 OOS 月度區間。"
                 : "Period 按輸入順序執行。Decision 必須遞增，Evaluation 不得重疊，Evaluation 起始日必須嚴格晚於 Decision。"}</p>
             </div>
           </div>
           <div className="section-actions">
             {model.strategy === "dual_momentum" && (
-              <button type="button" className="secondary" disabled={workspaceBusy || !Number.isInteger(model.lookbackMonths) || model.lookbackMonths < 1 || model.lookbackMonths > 60} onClick={regenerateDualMomentumPeriods}>產生最近 6 個月</button>
+              <button type="button" className="secondary" disabled={workspaceBusy} onClick={regenerateDualMomentumPeriods}>產生最近 6 個月</button>
             )}
             <button type="button" className="secondary" disabled={workspaceBusy || model.periods.length >= MAX_WALK_FORWARD_PERIODS} onClick={addPeriod}>新增 Period</button>
           </div>
@@ -534,7 +561,9 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
         {request ? (
           <>
             <div className="notice info"><strong>瀏覽器因果檢查通過</strong><p>{model.strategy === "dual_momentum"
-              ? "這代表 configured universe、Momentum / Allocation 參數與月度日期結構可送出；Training history、signal boundary、risk allocation evidence 與 OOS execution 仍以後端實際證據為準。"
+              ? model.optimizationMode === "auto"
+                ? "這代表 parameterOptimization search space、inner validation、Training coverage 與總工作量可送出；candidate ranking、winner、refit、risk weights 與 outer OOS 仍完全以後端 authoritative evidence 為準。"
+                : "這代表 configured universe、Momentum / Allocation 參數與月度日期結構可送出；Training history、signal boundary、risk allocation evidence 與 OOS execution 仍以後端實際證據為準。"
               : "這代表 request 結構可送出；PIT membership、候選數、行情與 Exhaustive capacity 仍以後端實際證據為準。"}</p></div>
             <details className="wf-request-preview">
               <summary>查看標準化 API Request</summary>
@@ -563,7 +592,9 @@ export function WalkForwardWorkspace({ onBusyChange }: { onBusyChange?: (busy: b
         <div className="wf-run-guidance">
           <span><strong>請勿重複送出：</strong>正式 API 每分鐘最多 2 次研究 request。</span>
           <span><strong>Fail closed：</strong>{model.strategy === "dual_momentum"
-            ? "任一 configured asset 缺少完整 Training signal history、日期不連續或資料證據失敗時會明確拒絕，不會縮短 Lookback。"
+            ? model.optimizationMode === "auto"
+              ? "Search budget 先於 market-data 工作驗證；任一 candidate 若無法完成 authoritative inner OOS metrics 會留下明確 failure evidence，所有 candidate 失敗則整體拒絕。"
+              : "任一 configured asset 缺少完整 Training signal history、日期不連續或資料證據失敗時會明確拒絕，不會縮短 Lookback。"
             : "歷史 Universe 超過 100 candidates、PIT 證據非 authoritative、資料缺失或組合數超過上限都會明確失敗，不會偷偷截斷。"}</span>
         </div>
         {busy && <div className="wf-progress" role="status" aria-live="polite"><i /><span>後端正在建立可重現的研究證據；完成前不會產生部分績效結論。</span></div>}

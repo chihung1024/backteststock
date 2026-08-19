@@ -59,6 +59,10 @@ function suggestedRunName(request: WalkForwardApiRequest | null): string {
   if ("universe" in request.selector) {
     return `${request.selector.universe.toUpperCase()} · ${decision}`;
   }
+  const risky = request.selector.riskySymbols.slice(0, 3).join("/");
+  if ("parameterOptimization" in request.selector) {
+    return `Dual Momentum ${risky || "Configured"} Auto Optimize · ${decision}`;
+  }
   return `Dual Momentum ${request.selector.topK}/${request.selector.riskySymbols.length} · ${decision}`;
 }
 

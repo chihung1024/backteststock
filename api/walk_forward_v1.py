@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import threading
 import time
@@ -18,14 +19,23 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api import date_policy
+from apps.api.app.research.parameter_optimization import (
+    InnerValidationSpec,
+    ParameterSearchSpace,
+)
 from apps.api.app.research.pit_client import PITResolverError
 from apps.api.app.research.walk_forward import WalkForwardPeriod
 from apps.api.app.research.walk_forward_job import (
     DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION,
     DUAL_MOMENTUM_JOB_CONTRACT_VERSION,
+    DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_JOB_CONTRACT_VERSION,
     MAX_CONFIGURED_STRATEGY_SYMBOLS,
+    MAX_INNER_FOLDS,
+    MAX_PARAMETER_CANDIDATES,
+    MAX_TUNING_EVALUATIONS_PER_JOB,
     MAX_WALK_FORWARD_PERIODS,
     WALK_FORWARD_JOB_CONTRACT_VERSION,
+    DualMomentumParameterOptimizationSpec,
     DualMomentumSelectorSpec,
     WalkForwardExecutionSpec,
     WalkForwardJobService,
@@ -36,7 +46,7 @@ from apps.api.app.research.walk_forward_job import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-17.3"
+WALK_FORWARD_API_CONTRACT_VERSION = "walk-forward-api-2026-08-18.4"
 WALK_FORWARD_PATH = "/api/v1/research/walk-forward"
 WALK_FORWARD_HEALTH_PATH = f"{WALK_FORWARD_PATH}/health"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -85,11 +95,63 @@ class PeriodRequest(StrictModel):
         return cleaned
 
 
+AllocationMethodRequest = Literal[
+    "equal",
+    "inverse_volatility",
+    "risk_parity_erc",
+]
+
+
+class ParameterSearchSpaceRequest(StrictModel):
+    lookback_months: Annotated[
+        list[Annotated[int, Field(ge=1, le=60)]],
+        Field(alias="lookbackMonths", min_length=1, max_length=60),
+    ]
+    top_k: Annotated[
+        list[Annotated[int, Field(ge=1, le=20)]],
+        Field(alias="topK", min_length=1, max_length=20),
+    ]
+    absolute_thresholds: Annotated[
+        list[float],
+        Field(alias="absoluteThresholds", min_length=1, max_length=64),
+    ]
+    allocation_methods: Annotated[
+        list[AllocationMethodRequest],
+        Field(alias="allocationMethods", min_length=1, max_length=3),
+    ]
+
+    @field_validator("absolute_thresholds")
+    @classmethod
+    def finite_thresholds(cls, values: list[float]) -> list[float]:
+        if any(not math.isfinite(float(value)) for value in values):
+            raise ValueError("absoluteThresholds must contain only finite values")
+        return values
+
+
+class InnerValidationRequest(StrictModel):
+    fold_count: Annotated[int, Field(alias="foldCount", ge=1, le=MAX_INNER_FOLDS)]
+    evaluation_months: Annotated[
+        int,
+        Field(alias="evaluationMonths", ge=1, le=60),
+    ] = 1
+    step_months: Annotated[
+        int,
+        Field(alias="stepMonths", ge=1, le=60),
+    ] = 1
+
+
+class ParameterOptimizationRequest(StrictModel):
+    search_space: ParameterSearchSpaceRequest = Field(alias="searchSpace")
+    inner_validation: InnerValidationRequest = Field(alias="innerValidation")
+
+
 class SelectorRequest(StrictModel):
     """Backward-compatible tagged selector request.
 
     Requests saved before 4B-1 omit ``strategy`` and therefore keep the existing
     Exhaustive behavior. New Dual Momentum requests must opt in explicitly.
+    Phase 4B-3 uses a separate nested ``parameterOptimization`` object so manual
+    4B-1/4B-2 fields retain their frozen omission/identity semantics.
     """
 
     strategy: Literal["exhaustive", "dual_momentum"] = "exhaustive"
@@ -109,9 +171,14 @@ class SelectorRequest(StrictModel):
     lookback_months: Annotated[int, Field(alias="lookbackMonths", ge=1, le=60)] = 12
     top_k: Annotated[int, Field(alias="topK", ge=1, le=20)] = 1
     absolute_threshold: float = Field(alias="absoluteThreshold", default=0.0)
-    allocation_method: Literal[
-        "equal", "inverse_volatility", "risk_parity_erc"
-    ] | None = Field(alias="allocationMethod", default=None)
+    allocation_method: AllocationMethodRequest | None = Field(
+        alias="allocationMethod",
+        default=None,
+    )
+    parameter_optimization: ParameterOptimizationRequest | None = Field(
+        alias="parameterOptimization",
+        default=None,
+    )
 
     @field_validator("universe")
     @classmethod
@@ -136,6 +203,14 @@ class SelectorRequest(StrictModel):
             raise ValueError("configured strategy symbols must be unique within each role")
         return canonical
 
+    @field_validator("absolute_threshold")
+    @classmethod
+    def finite_manual_threshold(cls, value: float) -> float:
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError("absoluteThreshold must be finite")
+        return numeric
+
     @model_validator(mode="after")
     def validate_strategy_fields(self) -> "SelectorRequest":
         if self.strategy == "exhaustive":
@@ -148,6 +223,10 @@ class SelectorRequest(StrictModel):
             if self.allocation_method is not None:
                 raise ValueError(
                     "allocationMethod requires strategy=dual_momentum"
+                )
+            if self.parameter_optimization is not None:
+                raise ValueError(
+                    "parameterOptimization requires strategy=dual_momentum"
                 )
             return self
 
@@ -165,6 +244,29 @@ class SelectorRequest(StrictModel):
             raise ValueError(
                 f"Dual Momentum supports at most {MAX_CONFIGURED_STRATEGY_SYMBOLS} total symbols"
             )
+
+        if self.parameter_optimization is not None:
+            manual_fields = {
+                "lookback_months",
+                "top_k",
+                "absolute_threshold",
+                "allocation_method",
+            }
+            conflicting = sorted(manual_fields.intersection(self.model_fields_set))
+            if conflicting:
+                aliases = {
+                    "lookback_months": "lookbackMonths",
+                    "top_k": "topK",
+                    "absolute_threshold": "absoluteThreshold",
+                    "allocation_method": "allocationMethod",
+                }
+                names = ", ".join(aliases[item] for item in conflicting)
+                raise ValueError(
+                    "parameterOptimization cannot be combined with explicit manual tuning fields: "
+                    + names
+                )
+            return self
+
         if self.top_k > len(self.risky_symbols):
             raise ValueError("Dual Momentum topK cannot exceed riskySymbols count")
         return self
@@ -269,7 +371,7 @@ def get_service() -> WalkForwardJobService:
 
 
 @app.get(WALK_FORWARD_HEALTH_PATH)
-def health() -> dict[str, str]:
+def health() -> dict[str, str | int]:
     return {
         "status": "ok",
         "service": "backteststock-walk-forward-v1",
@@ -279,6 +381,12 @@ def health() -> dict[str, str]:
         "dual_momentum_allocation_job_contract_version": (
             DUAL_MOMENTUM_ALLOCATION_JOB_CONTRACT_VERSION
         ),
+        "dual_momentum_parameter_optimization_job_contract_version": (
+            DUAL_MOMENTUM_PARAMETER_OPTIMIZATION_JOB_CONTRACT_VERSION
+        ),
+        "max_parameter_candidates": MAX_PARAMETER_CANDIDATES,
+        "max_inner_folds": MAX_INNER_FOLDS,
+        "max_tuning_evaluations_per_job": MAX_TUNING_EVALUATIONS_PER_JOB,
         "deployment_sha": os.getenv("VERCEL_GIT_COMMIT_SHA", ""),
     }
 
@@ -320,7 +428,11 @@ def _domain_spec(payload: WalkForwardRequest) -> WalkForwardJobSpec:
         )
         for item in payload.periods
     )
-    selector: WalkForwardSelectorSpec | DualMomentumSelectorSpec
+    selector: (
+        WalkForwardSelectorSpec
+        | DualMomentumSelectorSpec
+        | DualMomentumParameterOptimizationSpec
+    )
     if payload.selector.strategy == "exhaustive":
         if payload.selector.universe is None:
             raise ValueError("universe is required for exhaustive selection")
@@ -328,6 +440,29 @@ def _domain_spec(payload: WalkForwardRequest) -> WalkForwardJobSpec:
             universe_id=payload.selector.universe,
             benchmark_symbol=payload.selector.benchmark,
             holding_count=payload.selector.holding_count,
+        )
+    elif payload.selector.parameter_optimization is not None:
+        optimization = payload.selector.parameter_optimization
+        selector = DualMomentumParameterOptimizationSpec(
+            risky_symbols=tuple(payload.selector.risky_symbols),
+            defensive_symbols=tuple(payload.selector.defensive_symbols),
+            search_space=ParameterSearchSpace(
+                lookback_months=tuple(optimization.search_space.lookback_months),
+                top_k=tuple(optimization.search_space.top_k),
+                absolute_thresholds=tuple(
+                    optimization.search_space.absolute_thresholds
+                ),
+                allocation_methods=tuple(
+                    optimization.search_space.allocation_methods
+                ),
+            ),
+            inner_validation=InnerValidationSpec(
+                fold_count=optimization.inner_validation.fold_count,
+                evaluation_months=(
+                    optimization.inner_validation.evaluation_months
+                ),
+                step_months=optimization.inner_validation.step_months,
+            ),
         )
     else:
         selector = DualMomentumSelectorSpec(

@@ -3,6 +3,9 @@ import type {
   WalkForwardAllocationMethod,
   WalkForwardApiRequest,
   WalkForwardApiSelectorRequest,
+  WalkForwardOptimizationMode,
+  WalkForwardParameterOptimizationInnerValidation,
+  WalkForwardParameterOptimizationSearchSpace,
   WalkForwardPeriodDraft,
   WalkForwardStrategy,
   WalkForwardValidationIssue,
@@ -15,7 +18,16 @@ export const MAX_WALK_FORWARD_HOLDING_COUNT = 20;
 export const MAX_WALK_FORWARD_TRANSITION_COST_BPS = 1000;
 export const MAX_CONFIGURED_STRATEGY_SYMBOLS = 50;
 export const MAX_MOMENTUM_LOOKBACK_MONTHS = 60;
+export const MAX_PARAMETER_CANDIDATES = 48;
+export const MAX_INNER_FOLDS = 6;
+export const MAX_TUNING_EVALUATIONS_PER_JOB = 216;
 export const DEFAULT_DUAL_MOMENTUM_PERIODS = 6;
+
+const ALLOCATION_METHOD_ORDER: WalkForwardAllocationMethod[] = [
+  "equal",
+  "inverse_volatility",
+  "risk_parity_erc",
+];
 
 function uid(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -97,6 +109,23 @@ function createPeriodFromOffsets(
   };
 }
 
+function defaultOptimizationSearchSpace(): WalkForwardParameterOptimizationSearchSpace {
+  return {
+    lookbackMonths: [6, 12],
+    topK: [1, 3],
+    absoluteThresholds: [0],
+    allocationMethods: [...ALLOCATION_METHOD_ORDER],
+  };
+}
+
+function defaultOptimizationInnerValidation(): WalkForwardParameterOptimizationInnerValidation {
+  return {
+    foldCount: 3,
+    evaluationMonths: 1,
+    stepMonths: 1,
+  };
+}
+
 function baseWorkspaceFields(): Pick<
   WalkForwardWorkspaceModel,
   | "universe"
@@ -108,6 +137,9 @@ function baseWorkspaceFields(): Pick<
   | "topK"
   | "absoluteThresholdPct"
   | "allocationMethod"
+  | "optimizationMode"
+  | "optimizationSearchSpace"
+  | "optimizationInnerValidation"
   | "initialAmountTwd"
   | "transitionCostBps"
 > {
@@ -121,6 +153,9 @@ function baseWorkspaceFields(): Pick<
     topK: 3,
     absoluteThresholdPct: 0,
     allocationMethod: "equal",
+    optimizationMode: "manual",
+    optimizationSearchSpace: defaultOptimizationSearchSpace(),
+    optimizationInnerValidation: defaultOptimizationInnerValidation(),
     initialAmountTwd: 100000,
     transitionCostBps: 5,
   };
@@ -129,7 +164,7 @@ function baseWorkspaceFields(): Pick<
 export function createDefaultWalkForwardModel(): WalkForwardWorkspaceModel {
   const latestComplete = latestCompleteUtcDate();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     strategy: "exhaustive",
     ...baseWorkspaceFields(),
     periods: [createPeriodFromOffsets("period-1", latestComplete, -3, 0)],
@@ -143,7 +178,7 @@ export function createWalkForwardModelFromAdmission(
   if (!recommendation) return null;
   const decisionDate = recommendation.decisionDate;
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     strategy: "exhaustive",
     ...baseWorkspaceFields(),
     universe: recommendation.universe,
@@ -164,8 +199,6 @@ export function createWalkForwardModelFromAdmission(
 }
 
 export function createExampleWalkForwardModel(): WalkForwardWorkspaceModel {
-  // Until the PIT archive has enough historical depth for multiple independent
-  // OOS segments, the legacy example remains executable rather than fabricating history.
   return createDefaultWalkForwardModel();
 }
 
@@ -202,10 +235,57 @@ export function createDualMomentumMonthlyPeriods(
   return periods;
 }
 
+export function requiredOptimizationTrainingStart(
+  decisionDate: string,
+  searchSpace: WalkForwardParameterOptimizationSearchSpace,
+  innerValidation: WalkForwardParameterOptimizationInnerValidation,
+): string {
+  const normalized = normalizeOptimizationSearchSpace(searchSpace);
+  const maximumLookback = Math.max(...normalized.lookbackMonths);
+  const decisionMonthEnd = monthEndUtc(decisionDate);
+  const newestCompletedMonthEnd = decisionDate === decisionMonthEnd
+    ? decisionDate
+    : monthEndUtc(shiftUtcMonthsClamped(monthStartUtc(decisionDate), -1));
+  const earliestEvaluationEnd = shiftUtcMonthsClamped(
+    newestCompletedMonthEnd,
+    -(innerValidation.foldCount - 1) * innerValidation.stepMonths,
+  );
+  const earliestEvaluationStart = monthStartUtc(
+    shiftUtcMonthsClamped(
+      earliestEvaluationEnd,
+      -(innerValidation.evaluationMonths - 1),
+    ),
+  );
+  const earliestInnerDecision = shiftUtcDays(earliestEvaluationStart, -1);
+  return shiftUtcMonthsClamped(earliestInnerDecision, -maximumLookback);
+}
+
+export function createDualMomentumAutoPeriods(
+  searchSpace: WalkForwardParameterOptimizationSearchSpace,
+  innerValidation: WalkForwardParameterOptimizationInnerValidation,
+  periodCount = DEFAULT_DUAL_MOMENTUM_PERIODS,
+  latestComplete = latestCompleteUtcDate(),
+): WalkForwardPeriodDraft[] {
+  const normalized = normalizeOptimizationSearchSpace(searchSpace);
+  const periods = createDualMomentumMonthlyPeriods(
+    Math.max(...normalized.lookbackMonths),
+    periodCount,
+    latestComplete,
+  );
+  return periods.map((period) => ({
+    ...period,
+    trainingStart: requiredOptimizationTrainingStart(
+      period.decisionDate,
+      normalized,
+      innerValidation,
+    ),
+  }));
+}
+
 export function createDualMomentumWalkForwardModel(): WalkForwardWorkspaceModel {
   const base = baseWorkspaceFields();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     strategy: "dual_momentum",
     ...base,
     periods: createDualMomentumMonthlyPeriods(base.lookbackMonths),
@@ -250,10 +330,58 @@ function allocationMethodValue(record: Record<string, unknown>): WalkForwardAllo
   return "equal";
 }
 
+function optimizationModeValue(record: Record<string, unknown>): WalkForwardOptimizationMode {
+  return record.optimizationMode === "auto" ? "auto" : "manual";
+}
+
+function finiteNumberArray(value: unknown, fallback: number[]): number[] {
+  if (!Array.isArray(value)) return [...fallback];
+  const values = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+  return values.length ? values : [...fallback];
+}
+
+function allocationMethodsValue(
+  value: unknown,
+  fallback: WalkForwardAllocationMethod[],
+): WalkForwardAllocationMethod[] {
+  if (!Array.isArray(value)) return [...fallback];
+  const methods = value.filter((item): item is WalkForwardAllocationMethod => (
+    item === "equal" || item === "inverse_volatility" || item === "risk_parity_erc"
+  ));
+  return methods.length ? methods : [...fallback];
+}
+
+function optimizationSearchSpaceValue(
+  record: Record<string, unknown>,
+  fallback: WalkForwardParameterOptimizationSearchSpace,
+): WalkForwardParameterOptimizationSearchSpace {
+  const raw = asRecord(record.optimizationSearchSpace);
+  if (!raw) return { ...fallback, allocationMethods: [...fallback.allocationMethods] };
+  return {
+    lookbackMonths: finiteNumberArray(raw.lookbackMonths, fallback.lookbackMonths),
+    topK: finiteNumberArray(raw.topK, fallback.topK),
+    absoluteThresholds: finiteNumberArray(raw.absoluteThresholds, fallback.absoluteThresholds),
+    allocationMethods: allocationMethodsValue(raw.allocationMethods, fallback.allocationMethods),
+  };
+}
+
+function optimizationInnerValidationValue(
+  record: Record<string, unknown>,
+  fallback: WalkForwardParameterOptimizationInnerValidation,
+): WalkForwardParameterOptimizationInnerValidation {
+  const raw = asRecord(record.optimizationInnerValidation);
+  if (!raw) return { ...fallback };
+  return {
+    foldCount: numberValue(raw, "foldCount", fallback.foldCount),
+    evaluationMonths: numberValue(raw, "evaluationMonths", fallback.evaluationMonths),
+    stepMonths: numberValue(raw, "stepMonths", fallback.stepMonths),
+  };
+}
+
 export function migrateWalkForwardModel(value: unknown): WalkForwardWorkspaceModel {
   const fallback = createDefaultWalkForwardModel();
   const record = asRecord(value);
-  if (!record || ![1, 2, 3].includes(Number(record.schemaVersion))) return fallback;
+  if (!record || ![1, 2, 3, 4].includes(Number(record.schemaVersion))) return fallback;
 
   const periodsValue = Array.isArray(record.periods) ? record.periods.slice(0, MAX_WALK_FORWARD_PERIODS) : [];
   const periods = periodsValue.map((item, index) => {
@@ -269,10 +397,24 @@ export function migrateWalkForwardModel(value: unknown): WalkForwardWorkspaceMod
     } satisfies WalkForwardPeriodDraft;
   });
 
+  const optimizationSearchSpace = optimizationSearchSpaceValue(
+    record,
+    fallback.optimizationSearchSpace,
+  );
+  const optimizationInnerValidation = optimizationInnerValidationValue(
+    record,
+    fallback.optimizationInnerValidation,
+  );
+
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     strategy: record.schemaVersion === 1 ? "exhaustive" : strategyValue(record),
     allocationMethod: allocationMethodValue(record),
+    optimizationMode: Number(record.schemaVersion) >= 4
+      ? optimizationModeValue(record)
+      : "manual",
+    optimizationSearchSpace,
+    optimizationInnerValidation,
     universe: stringValue(record, "universe", fallback.universe),
     benchmark: stringValue(record, "benchmark", fallback.benchmark),
     holdingCount: numberValue(record, "holdingCount", fallback.holdingCount),
@@ -336,6 +478,80 @@ function validateExhaustiveSettings(
   }
 }
 
+function sortedUniqueNumbers(values: number[]): number[] {
+  return [...new Set(values.map((value) => (Object.is(value, -0) ? 0 : value)))].sort((a, b) => a - b);
+}
+
+export function normalizeOptimizationSearchSpace(
+  searchSpace: WalkForwardParameterOptimizationSearchSpace,
+): WalkForwardParameterOptimizationSearchSpace {
+  const methodSet = new Set(searchSpace.allocationMethods);
+  return {
+    lookbackMonths: sortedUniqueNumbers(searchSpace.lookbackMonths),
+    topK: sortedUniqueNumbers(searchSpace.topK),
+    absoluteThresholds: sortedUniqueNumbers(searchSpace.absoluteThresholds),
+    allocationMethods: ALLOCATION_METHOD_ORDER.filter((method) => methodSet.has(method)),
+  };
+}
+
+export function parameterOptimizationCandidateCount(
+  searchSpace: WalkForwardParameterOptimizationSearchSpace,
+): number {
+  const normalized = normalizeOptimizationSearchSpace(searchSpace);
+  return normalized.lookbackMonths.length
+    * normalized.topK.length
+    * normalized.absoluteThresholds.length
+    * normalized.allocationMethods.length;
+}
+
+export function parameterOptimizationPlannedEvaluations(model: WalkForwardWorkspaceModel): number {
+  return parameterOptimizationCandidateCount(model.optimizationSearchSpace)
+    * model.optimizationInnerValidation.foldCount
+    * model.periods.length;
+}
+
+function validateAutoOptimizationSettings(
+  model: WalkForwardWorkspaceModel,
+  risky: string[],
+  issues: WalkForwardValidationIssue[],
+): void {
+  const search = normalizeOptimizationSearchSpace(model.optimizationSearchSpace);
+  if (!search.lookbackMonths.length || search.lookbackMonths.some((value) => (
+    !Number.isInteger(value) || value < 1 || value > MAX_MOMENTUM_LOOKBACK_MONTHS
+  ))) {
+    issues.push({ field: "optimizationSearchSpace.lookbackMonths", message: `Auto Optimize Lookback 必須包含 1–${MAX_MOMENTUM_LOOKBACK_MONTHS} 的整數。` });
+  }
+  if (!search.topK.length || search.topK.some((value) => (
+    !Number.isInteger(value) || value < 1 || value > risky.length
+  ))) {
+    issues.push({ field: "optimizationSearchSpace.topK", message: `Auto Optimize Top K 必須介於 1–${Math.max(1, risky.length)}。` });
+  }
+  if (!search.absoluteThresholds.length || search.absoluteThresholds.some((value) => !Number.isFinite(value))) {
+    issues.push({ field: "optimizationSearchSpace.absoluteThresholds", message: "Auto Optimize Threshold 必須包含有限數值。" });
+  }
+  if (!search.allocationMethods.length) {
+    issues.push({ field: "optimizationSearchSpace.allocationMethods", message: "Auto Optimize 至少需要 1 種 Allocation 方法。" });
+  }
+  const validation = model.optimizationInnerValidation;
+  if (!Number.isInteger(validation.foldCount) || validation.foldCount < 1 || validation.foldCount > MAX_INNER_FOLDS) {
+    issues.push({ field: "optimizationInnerValidation.foldCount", message: `Inner Fold 必須介於 1–${MAX_INNER_FOLDS}。` });
+  }
+  if (!Number.isInteger(validation.evaluationMonths) || validation.evaluationMonths < 1 || validation.evaluationMonths > 60) {
+    issues.push({ field: "optimizationInnerValidation.evaluationMonths", message: "Inner Evaluation Months 必須是 1–60 的整數。" });
+  }
+  if (!Number.isInteger(validation.stepMonths) || validation.stepMonths < validation.evaluationMonths || validation.stepMonths > 60) {
+    issues.push({ field: "optimizationInnerValidation.stepMonths", message: "Inner Step Months 必須大於等於 Evaluation Months，且不超過 60。" });
+  }
+  const candidates = parameterOptimizationCandidateCount(search);
+  if (candidates < 1 || candidates > MAX_PARAMETER_CANDIDATES) {
+    issues.push({ field: "optimizationSearchSpace", message: `Auto Optimize 正規化後候選數必須介於 1–${MAX_PARAMETER_CANDIDATES}，目前 ${candidates}。` });
+  }
+  const planned = candidates * validation.foldCount * model.periods.length;
+  if (planned > MAX_TUNING_EVALUATIONS_PER_JOB) {
+    issues.push({ field: "optimizationSearchSpace", message: `Auto Optimize 預計 ${planned} 次 candidate-fold 評估，超過目前同步上限 ${MAX_TUNING_EVALUATIONS_PER_JOB}。` });
+  }
+}
+
 function validateDualMomentumSettings(
   model: WalkForwardWorkspaceModel,
   issues: WalkForwardValidationIssue[],
@@ -350,6 +566,10 @@ function validateDualMomentumSettings(
   if (overlap.length) issues.push({ field: "defensiveSymbolsText", message: `風險與防禦資產不可重疊：${[...new Set(overlap)].join(", ")}。` });
   if (risky.length + defensive.length > MAX_CONFIGURED_STRATEGY_SYMBOLS) {
     issues.push({ field: "riskySymbolsText", message: `Dual Momentum 合計最多 ${MAX_CONFIGURED_STRATEGY_SYMBOLS} 檔資產。` });
+  }
+  if (model.optimizationMode === "auto") {
+    validateAutoOptimizationSettings(model, risky, issues);
+    return;
   }
   if (!Number.isInteger(model.lookbackMonths) || model.lookbackMonths < 1 || model.lookbackMonths > MAX_MOMENTUM_LOOKBACK_MONTHS) {
     issues.push({ field: "lookbackMonths", message: `Momentum Lookback 必須是 1–${MAX_MOMENTUM_LOOKBACK_MONTHS} 個月的整數。` });
@@ -420,7 +640,19 @@ export function validateWalkForwardModel(model: WalkForwardWorkspaceModel): Walk
       if (calendarDaySpan(period.decisionDate, period.evaluationEnd) > 35) {
         issues.push({ field: `${period.id}.evaluationEnd`, message: `${period.periodId}：Dual Momentum 每個 OOS 月度區間最多 35 個日曆日。` });
       }
-      if (Number.isInteger(model.lookbackMonths) && model.lookbackMonths >= 1 && model.lookbackMonths <= MAX_MOMENTUM_LOOKBACK_MONTHS) {
+      if (model.optimizationMode === "auto") {
+        const normalized = normalizeOptimizationSearchSpace(model.optimizationSearchSpace);
+        if (normalized.lookbackMonths.length && model.optimizationInnerValidation.foldCount >= 1) {
+          const requiredStart = requiredOptimizationTrainingStart(
+            period.decisionDate,
+            normalized,
+            model.optimizationInnerValidation,
+          );
+          if (period.trainingStart > requiredStart) {
+            issues.push({ field: `${period.id}.trainingStart`, message: `${period.periodId}：Auto Optimize Training 起始日不足以涵蓋最大 Lookback 與 Inner Folds，至少需到 ${requiredStart}。` });
+          }
+        }
+      } else if (Number.isInteger(model.lookbackMonths) && model.lookbackMonths >= 1 && model.lookbackMonths <= MAX_MOMENTUM_LOOKBACK_MONTHS) {
         const requiredStart = shiftUtcMonthsClamped(period.decisionDate, -model.lookbackMonths);
         if (period.trainingStart > requiredStart) {
           issues.push({ field: `${period.id}.trainingStart`, message: `${period.periodId}：Training 起始日必須涵蓋完整 ${model.lookbackMonths} 個月 Momentum Lookback。` });
@@ -456,15 +688,25 @@ export function validateWalkForwardModel(model: WalkForwardWorkspaceModel): Walk
 
 export function toWalkForwardApiRequest(model: WalkForwardWorkspaceModel): WalkForwardApiRequest {
   const selector: WalkForwardApiSelectorRequest = model.strategy === "dual_momentum"
-    ? {
-        strategy: "dual_momentum",
-        riskySymbols: parseWalkForwardSymbols(model.riskySymbolsText),
-        defensiveSymbols: parseWalkForwardSymbols(model.defensiveSymbolsText),
-        lookbackMonths: model.lookbackMonths,
-        topK: model.topK,
-        absoluteThreshold: model.absoluteThresholdPct / 100,
-        allocationMethod: model.allocationMethod,
-      }
+    ? model.optimizationMode === "auto"
+      ? {
+          strategy: "dual_momentum",
+          riskySymbols: parseWalkForwardSymbols(model.riskySymbolsText),
+          defensiveSymbols: parseWalkForwardSymbols(model.defensiveSymbolsText),
+          parameterOptimization: {
+            searchSpace: normalizeOptimizationSearchSpace(model.optimizationSearchSpace),
+            innerValidation: { ...model.optimizationInnerValidation },
+          },
+        }
+      : {
+          strategy: "dual_momentum",
+          riskySymbols: parseWalkForwardSymbols(model.riskySymbolsText),
+          defensiveSymbols: parseWalkForwardSymbols(model.defensiveSymbolsText),
+          lookbackMonths: model.lookbackMonths,
+          topK: model.topK,
+          absoluteThreshold: model.absoluteThresholdPct / 100,
+          allocationMethod: model.allocationMethod,
+        }
     : {
         universe: model.universe.trim().toLowerCase(),
         benchmark: model.benchmark.trim().toUpperCase(),
