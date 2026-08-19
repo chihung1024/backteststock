@@ -1,66 +1,38 @@
 # BacktestStock Documentation Index
 
-Status: **Canonical documentation navigation. Not a live project-status tracker.**
+`docs/` 保存解決實際工程問題時才需要的知識：architecture、contracts、runbooks、RCA、research methodology、closeouts 與歷史證據。它不是第二套治理系統。
 
-## Start here
+## Active work
 
-| Need | Read |
-| --- | --- |
-| Engineering governance / AI workflow | `../AI_PROJECT_PLAYBOOK.md` |
-| Product / architecture / run / test / deploy | `../README.md` |
-| Current Phase / Batch / blocker / exact resume point | `../to_do_update_list.md` |
-| Documentation authority / freshness / cleanup rules | `PROJECT_DOCUMENTATION_POLICY.md` |
-| Portfolio v3 ledger/API semantics | `PORTFOLIO_V3_CONTRACT.md` |
-| Research contract map | `research/README.md` |
+目前工作只需要依序取得：
 
-## Current architecture / operations
+`AGENTS.md → to_do_update_list.md → relevant code/contracts/docs → current Git/PR/CI/runtime truth`
 
-- `adr/0001-runtime-and-quant-authority.md` — durable runtime/quant architecture decision.
-- `UNIFIED_TWD_CONTRACT.md` — cross-market TWD valuation contract.
-- `METRICS_REPRODUCIBILITY.md` — metric reproducibility/provenance rules.
-- `PORTFOLIO_V3_CONTRACT.md` — current Portfolio v3 ledger/API/analytics/Edge semantic contract.
-- `DEPLOYMENT.md` — deployment/runtime environment procedures.
-- `UNIVERSE_SCANNER_V2.md` — Scanner/Universe behavior and maintenance contract.
-- `EXHAUSTIVE_OPTIMIZER_V3.md` — current exhaustive historical-search contract.
+- `../AGENTS.md` — 唯一 Active Governance。
+- `../to_do_update_list.md` — 唯一持續執行記憶：CURRENT / NEXT / ROADMAP / durable decisions-risks。
+- `../README.md` — 產品、架構、開發、測試與部署導覽。
+- `DEPLOYMENT.md` — deployment / production 操作需要時才讀的 runbook。
+- `research/README.md` — research / Walk-Forward / Refinery contracts 導覽。
 
-Current engineering governance is `../AI_PROJECT_PLAYBOOK.md`; current runtime architecture is README + ADR + implementation. Superseded phase-governance and migration snapshots are reconstructed from Git history rather than kept in the active documentation tree.
+Remote/runtime truth 高於 stale status prose；versioned contracts/tests/code 共同定義 semantic truth。若三者漂移，視為工程缺陷，不以舊文件猜測。
 
-## Quantitative contracts
+## Canonical technical documents
 
-Directory: `quant/`
+- `adr/0001-runtime-and-quant-authority.md` — durable runtime/quant architecture decision。
+- `UNIFIED_TWD_CONTRACT.md` — cross-market TWD valuation contract。
+- `METRICS_REPRODUCIBILITY.md` — metric reproducibility/provenance。
+- `PORTFOLIO_V3_CONTRACT.md` — Portfolio v3 ledger/API/analytics semantics。
+- `UNIVERSE_SCANNER_V2.md` — Scanner/Universe behavior。
+- `EXHAUSTIVE_OPTIMIZER_V3.md` — exhaustive historical-search contract。
+- `quant/` — metric/return/risk mathematics contracts。
+- `research/` — ResearchDataset / Walk-Forward / Refinery / Optimizer Hub contracts and evidence。
 
-- `METRIC_AUTHORITY.md`
-- `RETURN_SEMANTICS.md`
-- `RISK_MODEL_POLICY.md`
-- `RISK_MATHEMATICS_V1.md`
+## Documentation rule
 
-These define mathematical/data semantics, not investment recommendations.
+優先更新既有權威文件。只有內容具有獨立長期價值時才新增 durable document，例如 contract/specification、architecture decision、reusable runbook、material RCA、methodology evidence 或重要 closeout evidence。
 
-## Research / Portfolio Refinery
+不要為 transient hypothesis、單次 CI、每個 shell command、一般 formatting 或重複摘要建立新文件。
 
-Directory: `research/`.
+歷史紀錄保留其當時事實，不為了配合現在架構而重寫；current execution state 回到 `to_do_update_list.md`，即時事實回到 Git/PR/CI/runtime。
 
-Use `research/README.md` for authority and reading order.
-
-Current main contracts include:
-
-- `research/RESEARCH_DATASET_V1.md`
-- `research/REFINERY_API_V1.md`
-- `research/REFINERY_UI_V1.md`
-- `research/REFINERY_CLUSTERING_V1.md`
-
-Phase 5 clustering/redundancy methodology is preserved by the current versioned contract, implementation and regression tests. Closed implementation/closeout narratives are reconstructed from Git/PR/Issue/Actions history instead of retained as parallel status documents.
-
-## Historical documents
-
-Historical documents stay in the active tree only when they retain unique current audit or semantic value. Superseded migration fixtures, rollout/status drafts and self-referential migration checks are removed after their durable semantics are represented by current contracts and runtime-facing tests; Git history remains the historical evidence source.
-
-## Maintenance rules
-
-1. Identify the document's authority class before editing.
-2. Keep volatile status only in `to_do_update_list.md`.
-3. Keep semantic versions aligned with code/tests/public schema.
-4. Remove stale redundant snapshots rather than accumulating warnings around them.
-5. Preserve unresolved decisions/root causes; rely on Git history for obsolete drafts.
-6. A merged contract may be authoritative while a post-main operational closeout is still pending; state those separately.
-7. Update this index when canonical documents are added/removed or change authority class.
+Machine-readable tests、deployment controls、security/data/quant invariants 不因 prose governance 簡化而移除。
