@@ -38,6 +38,8 @@ scripts/         runtime-imported code only
 worker/          Cloudflare production runtime + Universe scheduler
 ```
 
+Active tree 已移除開發測試、部署 workflow、smoke tooling、前端 source toolchain、backup branches 與暫存 artifacts；歷史與重建資訊只保留於 Git history / Release。
+
 ## 凍結原則
 
 - TWD canonical valuation、quantitative semantics、Portfolio v3、PIT / Walk-Forward causality 與 ResearchRun authorities 保持 production-accepted 行為。
