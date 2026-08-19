@@ -2,7 +2,7 @@
 
 BacktestStock 是一個以 **TWD 統一估值**為核心的多市場投資研究平台，包含 Universe / Scanner、Exhaustive historical search、Portfolio v3、Portfolio Refinery 與 Walk-Forward research workspace。
 
-> **文件權威**：本 README 回答「專案是什麼、怎麼跑、怎麼測、怎麼部署」。目前 Phase / Batch / PR / blocker / exact resume point 以 [`to_do_update_list.md`](to_do_update_list.md) 為 repository 內的 live handoff；GitHub / Vercel / Cloudflare 的即時遠端狀態是 operational truth。文件分類與衝突處理見 [`docs/PROJECT_DOCUMENTATION_POLICY.md`](docs/PROJECT_DOCUMENTATION_POLICY.md)，完整索引見 [`docs/README.md`](docs/README.md)。
+> **文件權威**：本 README 回答「專案是什麼、怎麼跑、怎麼測、怎麼部署」。工程工作原則以 [`AGENTS.md`](AGENTS.md) 為唯一 Active Governance；目前 Goal / Batch / blocker / exact resume point 以 [`to_do_update_list.md`](to_do_update_list.md) 為持續執行記憶；GitHub / Vercel / Cloudflare / runtime 是 operational truth。完整技術文件索引見 [`docs/README.md`](docs/README.md)。
 
 ## 1. 架構
 
@@ -159,7 +159,7 @@ npx wrangler d1 migrations apply backteststock-universe --local
 npx wrangler deploy --dry-run
 ```
 
-本機 PASS 不取代 required GitHub checks。驗證強度與 merge/review gate 依 [`AI_PROJECT_PLAYBOOK.md`](AI_PROJECT_PLAYBOOK.md) 的 V3.0 risk-proportional governance 執行。
+本機 PASS 不取代 applicable remote checks。驗證強度依 [`AGENTS.md`](AGENTS.md) 的 risk-proportional first-principles rule，並以實際 failure consequence 決定 targeted / broader / production verification。
 
 ## 6. Scanner / Universe
 
@@ -205,28 +205,23 @@ Current main contracts / active review work見 [`docs/research/README.md`](docs/
 
 完整 production smoke / rollback / environment 說明見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
-## 11. 文件閱讀順序
+## 11. AI 接手順序
 
-新的 ChatGPT / Codex / Agent 接手時：
+新的 ChatGPT / Work / Codex / Agent 接手時：
 
-1. [`AI_PROJECT_PLAYBOOK.md`](AI_PROJECT_PLAYBOOK.md)
-2. `README.md`
-3. [`to_do_update_list.md`](to_do_update_list.md)
-4. [`docs/PROJECT_DOCUMENTATION_POLICY.md`](docs/PROJECT_DOCUMENTATION_POLICY.md)
-5. [`docs/README.md`](docs/README.md) / [`docs/research/README.md`](docs/research/README.md)
-6. 當前 Phase 對應 contract / ADR / tests
-7. 重新查詢 GitHub current main、active PR、checks、ruleset、release/deployment state
+1. [`AGENTS.md`](AGENTS.md)
+2. [`to_do_update_list.md`](to_do_update_list.md)
+3. 只讀目前工作需要的 README / contract / ADR / tests
+4. 重新查詢 current main、active PR、checks、Vercel / Cloudflare / runtime truth
+5. 從 Exact Next Action resume，不重建整個 Master Plan
 
-若 live roadmap 與 remote state 衝突，先分類 documentation drift 並重新取證，不可猜測。
+若 live handoff 與 remote state 衝突，以 current truth 修正 handoff，不可猜測。
 
-## 12. Governance
+## 12. Engineering principles
 
-- `AI_PROJECT_PLAYBOOK.md` V3.0 是工程治理 authority，並處於 Governance Freeze。
-- `main` 視為 potential production candidate。
-- Risk Class 決定 validation/review/backup/deployment gate，不以檔案類型或 diff 大小機械判定。
-- Independent Review 的核心是 independent reasoning + relevant competence，不是不同 GitHub 帳號。
-- Required check、security/data-integrity gate 不得為了方便或 quota 問題偷偷 bypass。
-- Externally observable methodology/schema change 必須 versioned，並同步 code、tests、contract、roadmap。
+Active Governance 只有 [`AGENTS.md`](AGENTS.md)。它只保存 Reality & Product、Loop Engineering、First-Principles Debug、Verify & Self Review、Protect the System、Continue & Handoff 等最低必要工程不變量。
+
+Quant / financial correctness、PIT / Walk-Forward causality、data integrity、security、rollback 與 versioned methodology contracts 不因治理簡化而降低；真正的系統保護由 code、tests、contracts、CI 與 runtime evidence 負責。
 
 ## 13. 安全與研究限制
 
