@@ -36,8 +36,8 @@ api/             Vercel production entrypoints / compatibility runtime
 apps/api/app/    data / portfolio / research / quant / refinery runtime
 migrations/      D1 schema reconstruction history
 public/          frozen production browser assets
-scripts/         only runtime/operational code that is still required
-worker/          Cloudflare production runtime
+scripts/         runtime-imported code only
+worker/          Cloudflare production runtime + Universe scheduler
 ```
 
 ## 凍結原則
@@ -50,7 +50,9 @@ worker/          Cloudflare production runtime
 
 ## 必要營運依賴
 
-Universe membership 必須持續取得最新來源並以 fail-closed 規則發布到 D1；在 production-native scheduler 完成並驗證以前，既有 Universe scheduled maintenance 仍屬必要營運依賴，不視為 active development。
+Universe membership 由 Cloudflare Worker Cron 直接取得四個既有來源、執行 freshness / member-count / churn / checksum fail-closed 驗證後發布到 D1。正式排程為每週一、四 `06:17 UTC`。
+
+2026-08-19 production acceptance 已實際證明 Cloudflare Cron 可自主刷新全部四個 Universe；GitHub scheduled updater 已退出 production authority。
 
 ## Recovery
 
