@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "git": {
-    "deploymentEnabled": {
-      "internal-*": false
-    }
-  },
   "builds": [
     { "src": "api/index_v2.py", "use": "@vercel/python" },
     { "src": "api/scan_v2.py", "use": "@vercel/python" },
