@@ -3,12 +3,14 @@ name: Validate Frozen Runtime
 on:
   pull_request:
     branches: [main]
-
-permissions:
-  contents: read
+  push:
+    branches: [main]
 
 jobs:
   validate:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,8 +29,11 @@ jobs:
           forbidden = [
               '.dev.vars.example', 'AGENTS.md', 'to_do_update_list.md', 'docs',
               'tests', 'apps/api/tests', 'apps/portfolio-web',
-              'requirements-dev.txt', 'playwright.config.mjs',
-              'scripts/update_universes.py', '.github/workflows/update-universes.yml',
+              'requirements-dev.txt', 'playwright.config.mjs', 'package-lock.json',
+              '.github/workflows/deploy-cloudflare.yml',
+              '.github/workflows/update-universes.yml',
+              '.github/workflows/verify-walk-forward-production.yml',
+              '.github/workflows/sunset-housekeeping.yml',
           ]
           missing = [path for path in required if not Path(path).exists()]
           present = [path for path in forbidden if Path(path).exists()]
@@ -38,7 +43,9 @@ jobs:
                   f'frozen runtime structure invalid: missing={missing}, '
                   f'forbidden_present={present}, sourcemaps={[str(p) for p in maps]}'
               )
-          json.loads(Path('package.json').read_text())
+          package = json.loads(Path('package.json').read_text())
+          if package != {'name': 'backteststock', 'private': True, 'type': 'module'}:
+              raise SystemExit(f'package.json is not minimal: {package}')
           json.loads(Path('vercel.json').read_text())
           PY
       - name: Syntax-check production Python
@@ -47,3 +54,47 @@ jobs:
         run: |
           find worker public scripts api -type f \( -name '*.js' -o -name '*.mjs' \) -print0 \
             | xargs -0 -n1 node --check
+
+  finalize:
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Delete remaining non-main branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" --jq '.[].name')
+          for branch in "${branches[@]}"; do
+            if [ "${branch}" != "main" ]; then
+              git push origin --delete "${branch}"
+            fi
+          done
+      - name: Clear Actions artifacts and caches created during finalization
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifact_ids < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[].id')
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+          done
+          mapfile -t cache_ids < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --jq '.actions_caches[].id')
+          for cache_id in "${cache_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}"
+          done
+      - name: Remove the final ruleset validation workflow
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/ci.yml
+          git commit -m "chore(sunset): remove final repository validation workflow"
+          git push origin HEAD:main
