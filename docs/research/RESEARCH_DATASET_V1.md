@@ -1,163 +1,98 @@
-# ResearchDatasetV1
+# ResearchDataset V1
 
-Status: Phase 1 implementation contract. This layer is additive and does not switch any current production consumer.
+Status: **Current reproducible research-data boundary.**
 
-## Purpose
-
-`ResearchDatasetV1` is the reproducible data boundary between audited TWD market histories and later research engines such as Portfolio Refinery. It consolidates calendar, coverage, return-matrix, audit, fingerprint, and export/hash semantics that were previously assembled independently around the Exhaustive research path.
-
-The dataset is **not** a portfolio strategy, selection model, covariance estimator, or validation engine.
+`ResearchDataset` is the deterministic bridge between audited TWD market histories and research engines. It owns membership accounting, requested/effective date boundaries, aligned daily/weekly matrices, audit/fingerprint evidence and dataset identity. It is not a strategy, selector, covariance model, Portfolio engine or downloader.
 
 ## Source authority
 
-The dataset consumes `PartialTWDHistories` produced by `TWDHistoryService`. It does not implement a second Yahoo/FX downloader.
+Input is `PartialTWDHistories` from `TWDHistoryService`.
 
-Existing source authorities remain unchanged:
+The dataset does not re-download Yahoo/FX data. TWD valuation, instrument lifecycle, return components and source audits remain owned by `apps/api/app/data/` and the shared TWD contract.
 
-- `apps/api/app/data/history_service.py` — per-symbol partial-success history service;
-- `apps/api/app/data/twd_valuation.py` — native × FX -> TWD valuation;
-- `apps/api/app/data/return_components.py` — TWD price/distribution/total-return decomposition;
-- `apps/api/app/backtest_service.py::align_twd_price_frame()` — current daily multi-asset union-calendar alignment used for Phase 1 parity;
-- `api/metrics.py::series_fingerprint()` — current canonical level-series fingerprint.
+Current identity/policy constants live in `apps/api/app/research/dataset.py`.
 
-## Contract identity
+## Membership
+
+Every requested symbol has exactly one outcome:
 
 ```text
-RESEARCH_DATASET_CONTRACT_VERSION = research-dataset-twd-2026-08-09.1
-RESEARCH_DATASET_HASH_ALGORITHM    = sha256-canonical-json-v1
-RESEARCH_DAILY_RETURN_POLICY       = aligned-twd-level-pct-change-exclude-opening-v1
-RESEARCH_WEEKLY_POLICY             = w-fri-period-last-actual-twd-observation-v1
+resolved history
+or
+explicit HistoryFailure
 ```
 
-## Membership semantics
+A partial dataset is valid evidence but `is_complete == false`. Consumers that require full membership must reject it; they may not silently redefine the requested universe as the resolved subset.
 
-The dataset preserves three distinct concepts:
+Requested order is preserved after canonical normalization/deduplication at the owning data-service boundary.
 
-1. `requested_symbols` — normalized/deduplicated order returned by `TWDHistoryService`;
-2. `resolved_symbols` — successful histories in requested order;
-3. `failures` — explicit per-symbol failure objects.
+## Requested-window isolation
 
-A partial dataset is valid research data, but `is_complete == false`. A consumer that requires every requested symbol must reject the partial dataset explicitly. It must not silently treat the resolved subset as the original requested universe.
+All retained native/FX/TWD observations must stay within the dataset's requested inclusive interval.
 
-Every requested symbol must have **exactly one** explicit outcome: success or failure. A requested symbol that appears in neither `histories` nor `failures` is rejected, and a symbol that appears in both is also rejected. The dataset therefore never resolves an ambiguous membership outcome by precedence or silent omission.
+A caller that owns a wider parent history must create an explicit bounded view; `ResearchDataset` does not silently accept future/pre-window rows and trust downstream code to ignore them.
 
-## Date/calendar semantics
+Requested dates and effective dates are separate evidence.
 
-### Requested-window isolation
+## Daily matrix
 
-The service requests an inclusive `[start, end]` history interval from `TWDHistoryService`, and the pure builder independently validates that native adjusted close, FX-to-TWD levels, and TWD adjusted levels contain no observations outside that requested interval.
+Daily TWD levels use the existing multi-asset alignment policy:
 
-This repeated guard is intentional. A future walk-forward or cached-history caller must not pass a wider history object into a narrower research window and accidentally include pre-window or post-window information. Wider histories must be explicitly sliced/re-fetched before dataset construction; they are not silently accepted or truncated by `ResearchDatasetV1`.
+- union the usable TWD valuation calendars;
+- forward-fill only after a real prior observation;
+- never backward-fill before inception/first evidence;
+- trim opening rows until the selected resolved set has valid aligned levels.
 
-### Reference calendar
+Daily returns are arithmetic `pct_change(fill_method=None)` of aligned TWD levels and exclude the synthetic opening row.
 
-Union of the individual successful TWD valuation calendars before complete-case alignment. It is used to audit first/last availability and coverage.
+## Weekly structural matrix
 
-### Daily TWD level matrix
+Weekly structural evidence groups daily aligned TWD levels by `W-FRI` period and retains the last actual available research date in each period.
 
-Uses the existing `align_twd_price_frame()` policy:
+The timestamp is not relabelled to a future Friday. This prevents a partial week ending Wednesday from being represented as evidence available Friday.
 
-- union the selected TWD valuation calendars;
-- forward-fill only after a previously observed value;
-- never backward-fill a pre-listing/pre-data opening;
-- trim opening rows until all resolved assets have a usable value.
+## Availability / coverage
 
-The requested start/end dates remain stored separately from the effective matrix start/end so any shortening is visible.
+Availability and coverage describe source evidence, not forward-filled convenience rows.
 
-### Daily TWD returns
+A consumer may use aligned levels for valid cross-market valuation, but it must not claim that forward-filled dates were fresh source observations.
 
-Arithmetic `pct_change(fill_method=None)` of the aligned daily TWD level matrix, excluding the synthetic opening row. The research return matrix therefore contains actual return observations only; it does not add an opening zero observation.
+## Reproducibility identity
 
-### Structural weekly matrix
+Dataset export/hash binds material evidence such as:
 
-Daily aligned TWD levels are grouped by `W-FRI` periods and the **last actual available research date** inside each period is retained. The timestamp is not relabelled to a future Friday.
+- contract/policy versions;
+- requested/resolved/failure membership;
+- requested/effective ranges;
+- daily/weekly matrices;
+- native/FX/TWD audit/fingerprint evidence;
+- applicable source/valuation identities.
 
-This policy is specifically intended to avoid representing a Wednesday research cutoff as if a Friday observation already existed. Phase 2 may use the resulting weekly returns for structural cross-market correlation/clustering.
+Identity is deterministic canonical JSON + SHA-256 under the implementation contract.
 
-## Availability and coverage
+The dataset hash means “same complete ResearchDataset evidence,” not “same downstream model sample.” A downstream primitive may need its own narrower effective-sample identity and must not repurpose the dataset hash.
 
-For each resolved symbol, the availability mask matches the current Exhaustive audit convention: observations are available continuously from the first real TWD valuation date through the last real TWD valuation date on the union reference calendar. Cross-market non-trading days inside that interval are valid valuation dates and are not counted as missing quotes.
+## Parent-bounded views
 
-Per-symbol diagnostics include:
+Nested research such as parameter tuning may create deterministic child views from one audited parent dataset when methodology permits.
 
-- overall reference-calendar coverage;
-- missing day count;
-- first available position;
-- last available position.
+Child views:
 
-The dataset also reports `_global_complete_case` diagnostics across resolved symbols.
+- use only parent evidence;
+- do not download, interpolate or privately repair data;
+- remain inside parent/requested bounds;
+- preserve requested membership/outcome accounting;
+- receive their own deterministic identity and parent provenance.
 
-This is intentionally separate from Scanner's user-facing coverage threshold and from Exhaustive's current 98% strict acceptance policy. `ResearchDatasetV1` reports evidence; the consumer decides the acceptance threshold.
+## Fail-closed semantics
 
-## Native / FX / TWD separation
+Reject or expose explicit failure rather than:
 
-For every resolved asset the dataset retains:
+- silently dropping requested members;
+- using rows outside the requested window;
+- replacing unavailable data with zero;
+- backfilling from future observations;
+- changing calendar/coverage policy without versioning;
+- using the dataset hash as a generic identity for unrelated downstream samples.
 
-- aligned TWD levels and returns;
-- per-asset native return series;
-- per-asset FX-to-TWD return series;
-- quote-currency metadata;
-- native, FX, original TWD, and aligned-TWD level fingerprints.
-
-These components support later diagnostic decomposition without changing the rule that TWD returns are the Taiwanese investor-risk authority.
-
-## Audits and reproducibility
-
-Per-asset metadata carries:
-
-- corporate-action audit;
-- FX audit;
-- return-component audit;
-- quote currency / raw quote currency / native price scale;
-- first/last TWD history date;
-- fingerprints.
-
-Dataset-level export also carries:
-
-- market-data contract version;
-- TWD valuation contract version;
-- return-components contract version;
-- corporate-action policy version;
-- fingerprint algorithm;
-- daily/weekly calendar policies;
-- requested/effective dates;
-- failures and coverage.
-
-## Deterministic hash
-
-`dataset_hash` is SHA-256 over a canonical JSON representation of the full exportable dataset excluding the hash field itself. Dictionary keys are sorted, set/frozenset values are deterministically ordered, NumPy scalar types are normalized, separators are canonical, non-finite numeric values serialize as JSON `null`, and dates are ISO strings.
-
-The hash is intended to answer: "Are these research matrices + metadata exactly the same dataset under the same contract?"
-
-Changing a level, failure, audit, requested membership/order, coverage/calendar output, or contract metadata changes the hash.
-
-`ResearchDataset` contains mutable pandas/NumPy objects for efficient research use, so `export_payload()` is deliberately fail-closed: it recomputes the current dataset hash and refuses export when the content no longer matches the hash recorded at construction time. Consumers must rebuild a dataset after mutation instead of exporting changed content with a stale identity.
-
-## Export
-
-`ResearchDataset.export_payload()` returns a JSON-safe object containing daily/weekly TWD matrices, native/FX returns, audits, coverage, availability masks, methodology versions, and `datasetHash` **only when the current content still matches the stored hash**.
-
-Phase 1 does not expose this export through a public API and does not define server persistence. Later phases may serialize/compress it for durable user research snapshots after size/security review.
-
-## Exhaustive parity boundary
-
-Current Exhaustive production preparation remains unchanged in Phase 1.
-
-Parity tests prove, for the same complete in-window histories:
-
-- ResearchDataset daily TWD levels equal the current Exhaustive common TWD frame;
-- reference calendar and availability coverage semantics agree;
-- native/FX/aligned-TWD fingerprints agree with current preparation semantics;
-- requested membership is never silently reduced.
-
-Only after parity is accepted may a later PR migrate Exhaustive to consume `ResearchDatasetV1`. Phase 1 itself does not perform that migration.
-
-## Explicit non-goals
-
-- No covariance estimator.
-- No correlation/clustering.
-- No Portfolio Refinery API or UI.
-- No stock selection/ranking.
-- No sizing/HRP/risk-budget optimization.
-- No OOS validation.
-- No point-in-time Universe/fundamental reconstruction.
+Tests and code are authoritative for exact serialization fields and policy constants.

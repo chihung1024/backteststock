@@ -12,7 +12,7 @@ def test_metric_version_is_synchronized_across_runtime_browser_and_docs():
     browser_source = (ROOT / "public" / "scan-score-formulas.js").read_text(
         encoding="utf-8"
     )
-    documentation = (ROOT / "docs" / "METRICS_REPRODUCIBILITY.md").read_text(
+    documentation = (ROOT / "docs" / "quant" / "METRIC_AUTHORITY.md").read_text(
         encoding="utf-8"
     )
 
