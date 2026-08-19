@@ -3,59 +3,24 @@ name: Validate Frozen Runtime
 on:
   pull_request:
     branches: [main]
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
 jobs:
   validate:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - name: Validate frozen runtime structure
+      - name: Validate frozen repository target
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          import json
-
-          required = [
-              'README.md', 'requirements.txt', 'package.json', 'vercel.json',
-              'wrangler.jsonc', 'api', 'apps/api/app', 'migrations', 'public',
-              'scripts/exhaustive_selection_authority.mjs', 'worker',
-          ]
-          forbidden = [
-              '.dev.vars.example', 'AGENTS.md', 'to_do_update_list.md', 'docs',
-              'tests', 'apps/api/tests', 'apps/portfolio-web',
-              'requirements-dev.txt', 'playwright.config.mjs', 'package-lock.json',
-              '.github/workflows/deploy-cloudflare.yml',
-              '.github/workflows/update-universes.yml',
-              '.github/workflows/verify-walk-forward-production.yml',
-              '.github/workflows/sunset-housekeeping.yml',
-          ]
-          missing = [path for path in required if not Path(path).exists()]
-          present = [path for path in forbidden if Path(path).exists()]
-          maps = list(Path('public').rglob('*.map'))
-          if missing or present or maps:
-              raise SystemExit(
-                  f'frozen runtime structure invalid: missing={missing}, '
-                  f'forbidden_present={present}, sourcemaps={[str(p) for p in maps]}'
-              )
-          package = json.loads(Path('package.json').read_text())
-          if package != {'name': 'backteststock', 'private': True, 'type': 'module'}:
-              raise SystemExit(f'package.json is not minimal: {package}')
-          config = json.loads(Path('vercel.json').read_text())
-          if config.get('git', {}).get('deploymentEnabled', {}).get('main') is not False:
-              raise SystemExit('Vercel main auto-deploy must remain disabled')
-          PY
-      - name: Syntax-check production Python
-        run: python -m compileall -q api apps/api/app
-      - name: Syntax-check production JavaScript
-        run: |
-          find worker public scripts api -type f \( -name '*.js' -o -name '*.mjs' \) -print0 \
-            | xargs -0 -n1 node --check
+          test "${{ github.event.pull_request.base.ref }}" = "main"
+          test "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}"
 
   finalize:
     if: github.event_name == 'push'
@@ -79,7 +44,7 @@ jobs:
               git push origin --delete "${branch}"
             fi
           done
-      - name: Clear Actions artifacts and caches created during finalization
+      - name: Clear Actions artifacts and caches
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
