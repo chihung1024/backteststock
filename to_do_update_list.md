@@ -7,39 +7,33 @@ Last updated: **2026-08-19 Asia/Taipei**
 ## CURRENT
 
 **Primary Goal**
-- 以已 production-accepted 的 Optimizer Hub 4B-3 為穩定產品基線；完成 first-principles repository simplification 後，下一個 implementation 只從 current evidence 選一個直接 user-facing capability。
+- 以已 production-accepted 的 Optimizer Hub 4B-3 為穩定產品基線；Repository simplification 收斂後，下一個 implementation 只從 current evidence 選一個直接 user-facing capability。
 
 **Current Batch**
-- Repository simplification — consolidate duplicated technical contracts, remove stale process artifacts, close stale active PR/roadmap state, preserve runtime/quant/PIT behavior.
+- Repository simplification closeout — PR #180 是唯一 cleanup candidate；沒有 application implementation batch 與本批並行。
 
 **Stable State**
 - 4B-3 Nested Parameter Optimization V1 已 merged / production accepted。
-- Product/runtime baseline before cleanup: `main@85071b4c46e0a75f472a2dacb2703ba050c2ff8f`。
+- Cleanup baseline: `main@85071b4c46e0a75f472a2dacb2703ba050c2ff8f`。
 - PR #147 已 closed / not merged；歷史 implementation/evidence 保留於 Git/PR history，不再是 active candidate。
 - Issue #173 stale master roadmap 已 closed；未來 product planning 回到本文件與 current user/evidence。
+- Cleanup 將 phase-oriented/stale documents 收斂為 domain contracts，並移除 redundant release-backup workflow / redeploy marker；不改 application runtime、quant methodology、PIT/Walk-Forward causality 或 schema。
 
-**Branch / PR / HEAD**
-- Cleanup branch: `cleanup/first-principles-repository-simplification`
-- Base: `85071b4c46e0a75f472a2dacb2703ba050c2ff8f`
-- Cleanup PR: #180 `chore: first-principles repository simplification`
-- Current cleanup head before this checkpoint update: `879eb9539e884c86948f9be04e66ff3d4d5a026f`.
-
-**Verified**
-- 4B-3 production acceptance evidence remains preserved in Git/PR/Actions history.
-- Cleanup is intentionally documentation/process/test-reference only; application runtime methodology is out of scope unless dead-code reachability is independently proven.
+**Branch / PR**
+- `cleanup/first-principles-repository-simplification`
+- PR #180 `chore: first-principles repository simplification`
 
 **Blocker**
-- NONE known.
+- NONE known. Exact-head checks/runtime truth 決定是否可 merge。
 
 **Exact Next Action**
-- Complete cleanup diff → run CI → inspect any failure evidence → merge only after relevant verification → verify new main → resume product selection.
+- 若 PR #180 尚未 merge：只處理 exact-head verification 的真實 blocker，通過後 merge；若已 merge：重新讀 current main/runtime truth，直接選下一個高價值 user-facing batch。
 
 ## NEXT
 
-1. [ ] Finish and merge first-principles repository simplification without changing runtime/quant/PIT semantics.
-2. [ ] Re-evaluate the highest-value user-facing Optimizer Hub / AI-automation capability from current product evidence.
-3. [ ] Keep 4B-4 Robust Objective / Pareto concepts as a candidate, not an automatic roadmap commitment.
-4. [ ] Elevate technical work only when it materially blocks functionality, UX, correctness, data/security, PIT/Walk-Forward causality or deployment.
+1. [ ] 從 current product evidence 選下一個最高價值 Optimizer Hub / AI-automation user-facing capability。
+2. [ ] 4B-4 Robust Objective / Pareto 保留為 candidate，不因舊 roadmap 自動成為 commitment。
+3. [ ] 技術工作只有在 materially blocking functionality、UX、correctness、data/security、PIT/Walk-Forward causality 或 deployment 時才升級為主線。
 
 ## ROADMAP
 
