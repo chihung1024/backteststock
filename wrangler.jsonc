@@ -3,7 +3,7 @@
   "name": "backteststock",
   "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./worker/walk_forward_router.js",
+  "main": "./worker/scheduled_entry.js",
   "vars": {
     "BACKEND_ORIGIN": "https://stockbacktest.vercel.app"
   },
@@ -19,6 +19,9 @@
       "database_name": "backteststock-universe"
     }
   ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
   "observability": {
     "enabled": true
   }
