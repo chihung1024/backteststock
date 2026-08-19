@@ -58,7 +58,7 @@ jobs:
       - name: Verify committed Portfolio production assets
         run: git diff --exit-code -- package-lock.json public/portfolio
       - name: Install browser for end-to-end tests
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Test browser user flow
         run: npm run test:e2e -- --reporter=line,html
       - name: Upload browser diagnostics
