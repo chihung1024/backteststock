@@ -21,7 +21,8 @@ Last updated: **2026-08-19 Asia/Taipei**
 **Branch / PR / HEAD**
 - Cleanup branch: `cleanup/first-principles-repository-simplification`
 - Base: `85071b4c46e0a75f472a2dacb2703ba050c2ff8f`
-- Cleanup PR: pending until consolidated diff is committed.
+- Cleanup PR: #180 `chore: first-principles repository simplification`
+- Current cleanup head before this checkpoint update: `879eb9539e884c86948f9be04e66ff3d4d5a026f`.
 
 **Verified**
 - 4B-3 production acceptance evidence remains preserved in Git/PR/Actions history.
