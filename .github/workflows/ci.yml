@@ -1,0 +1,48 @@
+name: Validate Frozen Runtime
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate frozen runtime structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          required = [
+              'README.md', 'requirements.txt', 'package.json', 'vercel.json',
+              'wrangler.jsonc', 'api', 'apps/api/app', 'migrations', 'public',
+              'scripts/exhaustive_selection_authority.mjs', 'worker',
+          ]
+          forbidden = [
+              '.dev.vars.example', 'AGENTS.md', 'to_do_update_list.md', 'docs',
+              'tests', 'apps/api/tests', 'apps/portfolio-web',
+              'requirements-dev.txt', 'playwright.config.mjs',
+          ]
+          missing = [path for path in required if not Path(path).exists()]
+          present = [path for path in forbidden if Path(path).exists()]
+          maps = list(Path('public').rglob('*.map'))
+          if missing or present or maps:
+              raise SystemExit(
+                  f'frozen runtime structure invalid: missing={missing}, '
+                  f'forbidden_present={present}, sourcemaps={[str(p) for p in maps]}'
+              )
+          json.loads(Path('package.json').read_text())
+          json.loads(Path('vercel.json').read_text())
+          PY
+      - name: Syntax-check production Python
+        run: python -m compileall -q api apps/api/app scripts/update_universes.py
+      - name: Syntax-check production JavaScript
+        run: |
+          find worker public scripts api -type f \( -name '*.js' -o -name '*.mjs' \) -print0 \
+            | xargs -0 -n1 node --check
