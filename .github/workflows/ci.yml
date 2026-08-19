@@ -88,3 +88,41 @@ jobs:
         run: |
           npm ci
           npx wrangler deploy --dry-run
+      - name: Prove production Cron refreshed all Universe snapshots
+        run: |
+          node --input-type=module <<'JS'
+          const endpoint = 'https://backteststock.chired.workers.dev/api/v2/universes';
+          const deployedAfter = Date.parse('2026-08-19T12:39:23Z');
+          const expected = new Set(['sp500', 'nasdaq100', 'soxx', 'russell2000']);
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 30; attempt += 1) {
+            const response = await fetch(endpoint, {
+              headers: { accept: 'application/json' },
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!response.ok) throw new Error(`Universe catalog HTTP ${response.status}`);
+            const payload = await response.json();
+            const rows = Array.isArray(payload?.data) ? payload.data : [];
+            const byId = new Map(rows.map((row) => [row.id, row]));
+            const evidence = [...expected].map((id) => ({
+              id,
+              fetchedAt: byId.get(id)?.fetchedAt || null,
+              version: byId.get(id)?.version || null,
+              memberCount: byId.get(id)?.memberCount ?? null,
+            }));
+            console.log(JSON.stringify({ attempt, evidence }));
+            const refreshed = evidence.every(({ id, fetchedAt, memberCount }) => (
+              expected.has(id)
+              && Number.isFinite(Date.parse(fetchedAt || ''))
+              && Date.parse(fetchedAt) > deployedAfter
+              && Number(memberCount) > 0
+            ));
+            if (refreshed) {
+              console.log('Production Cloudflare Cron independently refreshed all four Universe snapshots.');
+              process.exit(0);
+            }
+            if (attempt < 30) await sleep(20_000);
+          }
+          throw new Error('Cloudflare Cron did not refresh all four Universe snapshots after the scheduled-entry deployment.');
+          JS
