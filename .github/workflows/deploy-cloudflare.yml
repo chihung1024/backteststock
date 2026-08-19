@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-cloudflare.yml"
-      - ".vercel-redeploy-trigger"
       - "worker/**"
       - "public/**"
       - "migrations/**"
@@ -109,7 +108,7 @@ jobs:
           BACKEND_ORIGIN: https://stockbacktest.vercel.app
           EXPECTED_DEPLOYMENT_SHA: ${{ github.sha }}
         run: node scripts/smoke_test_walk_forward_v1.mjs "$WORKER_ORIGIN"
-      - name: Smoke test production Refinery v1 Phase 5 flow
+      - name: Smoke test production Refinery v1 flow
         env:
           WORKER_ORIGIN: ${{ steps.deploy.outputs.url }}
         run: node scripts/smoke_test_refinery_v1.mjs "$WORKER_ORIGIN"
