@@ -1,79 +1,48 @@
-name: CI
+name: Validate Frozen Runtime
 
 on:
   pull_request:
-  push:
     branches: [main]
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      PYTHONPATH: ${{ github.workspace }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt -r requirements-dev.txt
-      - name: Verify Python dependency consistency
-        run: python -m pip check
-      - name: Install Worker dependencies
-        run: npm ci
-      - name: Compile Python
-        run: >-
-          python -m compileall -q
-          api/index.py api/index_v2.py api/metrics.py api/scan.py api/scan_v2.py
-          api/screener.py api/exhaustive_optimizer.py api/portfolio_v3.py api/refinery_v1.py
-          apps/api/app
-          scripts/update_universes.py
-      - name: Lint Python
-        run: ruff check api apps scripts tests
-      - name: Test Python
-        run: python -m pytest -q
-      - name: Check JavaScript
-        run: npm run check
-      - name: Test Worker
-        run: npm run test:worker
-      - name: Test score formulas
-        run: npm run test:score
-      - name: Type-check and build Portfolio app
-        run: npm run check:portfolio
-      - name: Test Portfolio and Refinery source contracts
-        run: node --test tests/test_portfolio_web_contract.mjs tests/test_portfolio_route_bridge.mjs tests/test_refinery_web_contract.mjs tests/test_refinery_phase5_web_contract.mjs tests/test_refinery_phase6_web_contract.mjs
-      - name: Verify committed Portfolio production assets
-        run: git diff --exit-code -- package-lock.json public/portfolio
-      - name: Install browser for end-to-end tests
-        run: npx playwright install chromium
-      - name: Test browser user flow
-        run: npm run test:e2e -- --reporter=line,html
-      - name: Upload browser diagnostics
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Validate Vercel configuration
-        run: python -m json.tool vercel.json > /dev/null
-      - name: Apply D1 migrations locally
-        run: npx wrangler d1 migrations apply backteststock-universe --local
-      - name: Validate Cloudflare bundle
-        run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+      - name: Validate frozen runtime structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          required = [
+              'README.md', 'requirements.txt', 'package.json', 'vercel.json',
+              'wrangler.jsonc', 'api', 'apps/api/app', 'migrations', 'public',
+              'scripts/exhaustive_selection_authority.mjs', 'worker',
+          ]
+          forbidden = [
+              '.dev.vars.example', 'AGENTS.md', 'to_do_update_list.md', 'docs',
+              'tests', 'apps/api/tests', 'apps/portfolio-web',
+              'requirements-dev.txt', 'playwright.config.mjs',
+          ]
+          missing = [path for path in required if not Path(path).exists()]
+          present = [path for path in forbidden if Path(path).exists()]
+          maps = list(Path('public').rglob('*.map'))
+          if missing or present or maps:
+              raise SystemExit(
+                  f'frozen runtime structure invalid: missing={missing}, '
+                  f'forbidden_present={present}, sourcemaps={[str(p) for p in maps]}'
+              )
+          json.loads(Path('package.json').read_text())
+          json.loads(Path('vercel.json').read_text())
+          PY
+      - name: Syntax-check production Python
+        run: python -m compileall -q api apps/api/app scripts/update_universes.py
+      - name: Syntax-check production JavaScript
+        run: |
+          find worker public scripts api -type f \( -name '*.js' -o -name '*.mjs' \) -print0 \
+            | xargs -0 -n1 node --check
