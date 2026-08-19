@@ -1,6 +1,8 @@
 name: Validate Frozen Runtime
 
 on:
+  pull_request:
+    branches: [main]
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -9,7 +11,7 @@ on:
 
 jobs:
   validate:
-    if: github.event_name == 'pull_request_target'
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
     permissions:
       contents: read
     runs-on: ubuntu-latest
