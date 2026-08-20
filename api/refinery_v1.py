@@ -67,16 +67,12 @@ _analyze_limiter = MinuteRateLimiter(ANALYZE_REQUESTS_PER_MINUTE)
 app = FastAPI(
     title="Backteststock Portfolio Refinery V1 API",
     version=REFINERY_API_SCHEMA_VERSION,
-    docs_url=None if os.getenv("VERCEL") else "/api/v1/refinery/docs",
+    docs_url=None,
     redoc_url=None,
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://backteststock.chired.workers.dev",
-        "http://localhost:8787",
-        "http://localhost:5173",
-    ],
+    allow_origins=["https://backteststock.chired.workers.dev"],
     allow_credentials=False,
     allow_methods=["POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-Id"],
