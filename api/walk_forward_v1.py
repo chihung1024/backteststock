@@ -148,10 +148,10 @@ class ParameterOptimizationRequest(StrictModel):
 class SelectorRequest(StrictModel):
     """Backward-compatible tagged selector request.
 
-    Requests saved before 4B-1 omit ``strategy`` and therefore keep the existing
-    Exhaustive behavior. New Dual Momentum requests must opt in explicitly.
-    Phase 4B-3 uses a separate nested ``parameterOptimization`` object so manual
-    4B-1/4B-2 fields retain their frozen omission/identity semantics.
+    Requests that omit ``strategy`` retain the existing Exhaustive behavior.
+    Dual Momentum requests opt in explicitly, and parameter optimization uses a
+    separate nested object so previously persisted manual fields retain their
+    frozen omission and identity semantics.
     """
 
     strategy: Literal["exhaustive", "dual_momentum"] = "exhaustive"
@@ -295,16 +295,12 @@ class WalkForwardRequest(StrictModel):
 app = FastAPI(
     title="Backteststock Walk-Forward Research API",
     version=WALK_FORWARD_API_CONTRACT_VERSION,
-    docs_url=None if os.getenv("VERCEL") else "/api/v1/research/walk-forward/docs",
+    docs_url=None,
     redoc_url=None,
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://backteststock.chired.workers.dev",
-        "http://localhost:8787",
-        "http://localhost:5173",
-    ],
+    allow_origins=["https://backteststock.chired.workers.dev"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-Id"],

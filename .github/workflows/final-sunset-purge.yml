@@ -1,0 +1,190 @@
+name: Final Sunset Purge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/final-sunset-purge.yml"
+
+permissions:
+  actions: write
+  contents: write
+  deployments: write
+  issues: write
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify canonical recovery authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PRE_TAG="archive/pre-sunset-2026-08-19"
+          PRE_SHA="ede589c289103089fa77e1a9eb5a24ed882d62ea"
+          RUNTIME_TAG="runtime/accepted-2026-08-19"
+          RUNTIME_SHA="b90500b20ac1517dd49f63b33e22ab92c06e1d10"
+
+          git fetch --force --tags origin
+          for spec in "${PRE_TAG}:${PRE_SHA}" "${RUNTIME_TAG}:${RUNTIME_SHA}"; do
+            tag="${spec%%:*}"
+            expected="${spec##*:}"
+            gh release view "${tag}" >/dev/null
+            resolved="$(git rev-list -n 1 "refs/tags/${tag}")"
+            if [ "${resolved}" != "${expected}" ]; then
+              echo "Canonical recovery tag ${tag} resolved to ${resolved}, expected ${expected}." >&2
+              exit 1
+            fi
+          done
+
+      - name: Purge historical Actions runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t run_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+              --jq '.workflow_runs[].id'
+          )
+          deleted=0
+          for run_id in "${run_ids[@]}"; do
+            if [ "${run_id}" = "${GITHUB_RUN_ID}" ]; then
+              continue
+            fi
+            if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"; then
+              deleted=$((deleted + 1))
+            fi
+          done
+          echo "Deleted historical workflow runs: ${deleted}"
+
+      - name: Purge Actions artifacts and caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifact_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+              --jq '.artifacts[].id'
+          )
+          for artifact_id in "${artifact_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+          done
+
+          mapfile -t cache_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+              --jq '.actions_caches[].id'
+          )
+          for cache_id in "${cache_ids[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}"
+          done
+
+          echo "Deleted artifacts: ${#artifact_ids[@]}"
+          echo "Deleted caches: ${#cache_ids[@]}"
+
+      - name: Purge noncanonical releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PRE_TAG="archive/pre-sunset-2026-08-19"
+          RUNTIME_TAG="runtime/accepted-2026-08-19"
+
+          mapfile -t release_tags < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[].tag_name'
+          )
+          for tag in "${release_tags[@]}"; do
+            if [ "${tag}" = "${PRE_TAG}" ] || [ "${tag}" = "${RUNTIME_TAG}" ]; then
+              continue
+            fi
+            gh release delete "${tag}" --yes
+          done
+
+          git fetch --force --tags origin
+          mapfile -t tags < <(git for-each-ref --format='%(refname:strip=2)' refs/tags)
+          for tag in "${tags[@]}"; do
+            if [ "${tag}" = "${PRE_TAG}" ] || [ "${tag}" = "${RUNTIME_TAG}" ]; then
+              continue
+            fi
+            git push origin ":refs/tags/${tag}"
+          done
+
+      - name: Purge labels and milestones
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t labels < <(gh label list --limit 1000 --json name --jq '.[].name')
+          for label in "${labels[@]}"; do
+            gh label delete "${label}" --yes
+          done
+
+          mapfile -t milestones < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/milestones?state=all&per_page=100" \
+              --jq '.[].number'
+          )
+          for milestone in "${milestones[@]}"; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/milestones/${milestone}"
+          done
+
+      - name: Purge GitHub deployment records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t deployments < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/deployments?per_page=100" \
+              --jq '.[].id'
+          )
+          deleted=0
+          for deployment_id in "${deployments[@]}"; do
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}/statuses" \
+              -f state=inactive >/dev/null 2>&1 || true
+            if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}" >/dev/null 2>&1; then
+              deleted=$((deleted + 1))
+            fi
+          done
+          echo "Deleted GitHub deployment records: ${deleted}/${#deployments[@]}"
+
+      - name: Best-effort remove retired GitHub production environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/environments/production" >/dev/null 2>&1; then
+            echo "Deleted GitHub environment: production"
+          else
+            echo "GitHub token could not delete the production environment; manual admin cleanup may still be required."
+          fi
+
+      - name: Delete all non-main branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" --jq '.[].name'
+          )
+          for branch in "${branches[@]}"; do
+            if [ "${branch}" = "main" ]; then
+              continue
+            fi
+            git push origin --delete "${branch}"
+          done
+
+      - name: Remove one-time workflow from main
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/final-sunset-purge.yml
+          git commit -m "chore(sunset): remove one-time purge workflow"
+          git push origin HEAD:main
