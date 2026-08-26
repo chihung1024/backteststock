@@ -208,6 +208,40 @@ def _twd_failure_warning(failures: list[PortfolioFailure]) -> str | None:
     return "以下投組未產生結果，但其他投組已保留：" + "；".join(items)
 
 
+def _effective_period_warning(
+    results: list[dict], benchmark_result: dict | None
+) -> str | None:
+    """Warn when side-by-side standalone metrics do not share one period."""
+
+    series = [
+        (
+            str(result.get("name") or "投組"),
+            result.get("metric_start"),
+            result.get("metric_end"),
+        )
+        for result in results
+    ]
+    if benchmark_result is not None:
+        series.append(
+            (
+                f"{benchmark_result.get('name') or '基準'}（基準）",
+                benchmark_result.get("metric_start"),
+                benchmark_result.get("metric_end"),
+            )
+        )
+    valid = [item for item in series if item[1] and item[2]]
+    if len(valid) < 2 or len({(start, end) for _, start, end in valid}) <= 1:
+        return None
+
+    details = "；".join(
+        f"{name} {start}～{end}" for name, start, end in valid
+    )
+    return (
+        "各績效有效期間不同；CAGR、總報酬、MDD 等 standalone 指標不可直接"
+        "橫向比較：" + details
+    )
+
+
 def _return_semantics_payload() -> dict:
     return {
         "basis": BACKTEST_RETURN_SEMANTICS,
@@ -260,6 +294,11 @@ def backtest_handler():
             )
 
         warning_parts = [BACKTEST_GROSS_WARNING]
+        effective_period_warning = _effective_period_warning(
+            batch.results, batch.benchmark
+        )
+        if effective_period_warning:
+            warning_parts.append(effective_period_warning)
         portfolio_failure_warning = _twd_failure_warning(batch.failures)
         if portfolio_failure_warning:
             warning_parts.append(portfolio_failure_warning)
