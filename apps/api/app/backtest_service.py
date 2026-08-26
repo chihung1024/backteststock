@@ -35,8 +35,7 @@ ALLOWED_REBALANCING_PERIODS = frozenset(
     {"never", "annually", "quarterly", "monthly"}
 )
 TWD_PORTFOLIO_CALENDAR_POLICY = (
-    "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-"
-    "portfolio_constituents_only-v2"
+    "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1"
 )
 BACKTEST_BENCHMARK_POLICY = "comparison_only_relative_metrics-v1"
 
