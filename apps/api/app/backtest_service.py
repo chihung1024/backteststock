@@ -35,8 +35,10 @@ ALLOWED_REBALANCING_PERIODS = frozenset(
     {"never", "annually", "quarterly", "monthly"}
 )
 TWD_PORTFOLIO_CALENDAR_POLICY = (
-    "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-v1"
+    "union_twd_valuation_calendar_forward_fill_after_observation_complete_case-"
+    "portfolio_constituents_only-v2"
 )
+BACKTEST_BENCHMARK_POLICY = "comparison_only_relative_metrics-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +82,17 @@ class TWDBacktestBatch:
 class TWDPortfolioBacktestService:
     """Run only full-period portfolio backtests on daily TWD adjusted levels.
 
-    The calendar intentionally takes the union of every selected asset's TWD
-    valuation calendar.  Each asset carries its *previous observed* TWD value
-    forward on another market's trading or FX-only day.  Initial observations
-    are never filled backward, and the shared calendar begins only after every
-    selected asset has a real history.  Thus currency movement remains visible
-    on days a local equity market is closed without introducing look-ahead.
+    A portfolio calendar is derived only from that portfolio's constituents.
+    The benchmark is a comparison series and therefore must not change the
+    portfolio NAV path, standalone effective period, or standalone metrics.
+
+    The constituent calendar intentionally takes the union of every selected
+    asset's TWD valuation calendar.  Each asset carries its *previous observed*
+    TWD value forward on another market's trading or FX-only day.  Initial
+    observations are never filled backward, and the shared calendar begins only
+    after every selected asset has a real history.  Thus currency movement
+    remains visible on days a local equity market is closed without introducing
+    look-ahead.
     """
 
     def __init__(self, *, history_service: TWDHistoryService | None = None) -> None:
@@ -142,8 +149,6 @@ class TWDPortfolioBacktestService:
                 continue
 
             required = [*spec.tickers]
-            if benchmark_history is not None and benchmark_symbol is not None:
-                required.append(benchmark_symbol)
             prices = align_twd_price_frame(histories.histories, required)
             if len(prices) < 2:
                 failures.append(
@@ -167,8 +172,11 @@ class TWDPortfolioBacktestService:
                 rebalancing_period=spec.rebalancing_period,
             )
             benchmark_values = (
-                _normalized_value_history(prices[benchmark_symbol], initial_amount)
-                if benchmark_history is not None and benchmark_symbol is not None
+                _normalized_value_history(
+                    benchmark_history.adjusted_close_twd,
+                    initial_amount,
+                )
+                if benchmark_history is not None
                 else None
             )
             results.append(
@@ -353,13 +361,35 @@ def _serialize_portfolio(
         ticker: series_fingerprint(histories[ticker].fx_to_twd)
         for ticker in spec.tickers
     }
-    metrics = calculate_metrics(values, benchmark_values, risk_free_rate=risk_free_rate)
+
+    # Standalone metrics belong to the portfolio NAV itself.  The benchmark is
+    # joined only for benchmark-relative metrics so benchmark availability can
+    # never rewrite CAGR, total return, drawdown, volatility, Sharpe or Sortino.
+    metrics = calculate_metrics(values, risk_free_rate=risk_free_rate)
+    benchmark_comparison_period = None
+    if benchmark_values is not None:
+        relative_metrics = calculate_metrics(
+            values,
+            benchmark_values,
+            risk_free_rate=risk_free_rate,
+        )
+        metrics["beta"] = relative_metrics["beta"]
+        metrics["alpha"] = relative_metrics["alpha"]
+        benchmark_comparison_period = {
+            "start": relative_metrics["metric_start"],
+            "end": relative_metrics["metric_end"],
+            "price_observations": relative_metrics["metric_price_observations"],
+            "return_observations": relative_metrics["metric_return_observations"],
+        }
+
     metadata = reproducibility_metadata(
         risk_free_rate=risk_free_rate,
         extra={
             "valuation_currency": VALUATION_CURRENCY,
             "twd_valuation_contract_version": TWD_VALUATION_CONTRACT_VERSION,
             "twd_portfolio_calendar_policy": TWD_PORTFOLIO_CALENDAR_POLICY,
+            "benchmark_policy": BACKTEST_BENCHMARK_POLICY,
+            "benchmark_comparison_period": benchmark_comparison_period,
             "rebalancing_execution": "previous_close_before_period_start",
             "asset_quote_currencies": asset_quote_currencies,
             "asset_fx_audits": asset_fx_audits,
@@ -382,6 +412,8 @@ def _serialize_portfolio(
         "valuationCurrency": VALUATION_CURRENCY,
         "twdValuationContractVersion": TWD_VALUATION_CONTRACT_VERSION,
         "calendarPolicy": TWD_PORTFOLIO_CALENDAR_POLICY,
+        "benchmarkPolicy": BACKTEST_BENCHMARK_POLICY,
+        "benchmarkComparisonPeriod": benchmark_comparison_period,
         "assetQuoteCurrencies": asset_quote_currencies,
         "assetFxAudits": asset_fx_audits,
         "assetCorporateActionAudits": asset_corporate_action_audits,
