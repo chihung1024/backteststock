@@ -24,6 +24,7 @@ from apps.api.app.portfolio.models import (
 
 PORTFOLIO_SERVICE_CONTRACT_VERSION = "portfolio-service-twd-2026-08-11.2"
 COMPARISON_WINDOW_POLICY = "common-runnable-portfolios-v1"
+EXECUTION_CLOCK_AUDIT_POLICY = "valuation-calendar-native-observation-audit-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +220,19 @@ class PortfolioLedgerService:
                     )
                 )
                 continue
-            warnings = tuple(dict.fromkeys([*batch_warnings, *ledger.warnings]))
+            execution_clock_warning = _execution_clock_audit_warning(
+                ledger,
+                simulation_histories,
+            )
+            warnings = tuple(
+                dict.fromkeys(
+                    [
+                        *batch_warnings,
+                        *ledger.warnings,
+                        *([execution_clock_warning] if execution_clock_warning else []),
+                    ]
+                )
+            )
             results.append(
                 PortfolioRunResult(
                     name=portfolio.name,
@@ -237,6 +250,68 @@ class PortfolioLedgerService:
             comparison_context=comparison_context,
             effective_benchmark_history=benchmark_history,
         )
+
+
+def _execution_clock_audit_warning(
+    ledger: PortfolioLedger,
+    histories: Mapping[str, TWDAssetHistory],
+) -> str | None:
+    """Flag real trade events that use carry-forward native prices.
+
+    The current ledger deliberately remains valuation-calendar-driven.  This
+    audit only observes whether a rebalance with non-zero traded notional occurs
+    on a date when every constituent has a fresh native-market observation.
+    Unknown provenance is ignored so synthetic/legacy fixtures keep their
+    established warning surface.
+    """
+
+    audited_events = 0
+    mismatches: list[tuple[str, str, tuple[str, ...]]] = []
+    for event in ledger.events:
+        if event.type != "rebalance":
+            continue
+        traded_notional = float(event.details.get("traded_notional") or 0.0)
+        if traded_notional <= 1e-12:
+            continue
+        timestamp = pd.Timestamp(event.date).normalize()
+        missing_observations: list[str] = []
+        complete_provenance = True
+        for symbol in ledger.symbols:
+            history = histories.get(symbol)
+            mask = (
+                getattr(history.valuation, "native_observation_mask", None)
+                if history is not None
+                else None
+            )
+            if not isinstance(mask, pd.Series):
+                complete_provenance = False
+                break
+            observed = bool(mask.get(timestamp, False))
+            if not observed:
+                missing_observations.append(symbol)
+        if not complete_provenance:
+            continue
+        audited_events += 1
+        if missing_observations:
+            trigger = str(event.details.get("trigger") or "unknown")
+            mismatches.append(
+                (event.date, trigger, tuple(missing_observations))
+            )
+
+    if not mismatches:
+        return None
+
+    examples = "; ".join(
+        f"{event_date} ({trigger}): {','.join(symbols)}"
+        for event_date, trigger, symbols in mismatches[:3]
+    )
+    return (
+        f"execution-clock audit ({EXECUTION_CLOCK_AUDIT_POLICY}): "
+        f"{len(mismatches)}/{audited_events} non-zero rebalance events occurred "
+        "without a fresh native-market observation for every constituent; "
+        f"examples {examples}. Metrics are unchanged; the current ledger still "
+        "executes on the union TWD valuation calendar."
+    )
 
 
 def _require_history_coverage(
