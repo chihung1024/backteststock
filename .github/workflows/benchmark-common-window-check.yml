@@ -1,0 +1,108 @@
+name: Benchmark Common Window Check
+
+on:
+  push:
+    branches:
+      - fix/portfolio-benchmark-common-window-20260827
+    paths:
+      - ".github/workflows/benchmark-common-window-check.yml"
+      - "apps/api/app/portfolio/service.py"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/portfolio-benchmark-common-window-20260827
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+      - name: Verify common comparison window semantics
+        run: |
+          python - <<'PY'
+          from types import SimpleNamespace
+          from unittest.mock import patch
+
+          import pandas as pd
+
+          from apps.api.app.portfolio.models import PortfolioSpec, SimulationConfig
+          from apps.api.app.portfolio.service import PortfolioComparisonContext, PortfolioLedgerService
+
+          def history(start, end):
+              index = pd.DatetimeIndex([pd.Timestamp(start), pd.Timestamp(end)])
+              return SimpleNamespace(
+                  adjusted_close_twd=pd.Series([100.0, 110.0], index=index),
+                  daily_returns=pd.Series([0.0, 0.1], index=index),
+              )
+
+          def bound_history(self, item):
+              index = pd.DatetimeIndex([self.start, self.end])
+              return SimpleNamespace(
+                  adjusted_close_twd=pd.Series([100.0, 110.0], index=index),
+                  daily_returns=pd.Series([0.0, 0.1], index=index),
+              )
+
+          portfolio = PortfolioSpec.from_weights("P1", {"VFLO": 1.0})
+          config = SimulationConfig()
+          ledger = SimpleNamespace(name="P1", warnings=(), events=(), symbols=("VFLO",))
+          report = SimpleNamespace()
+
+          service = PortfolioLedgerService()
+
+          # Benchmark has longer history: portfolio inception must control the common start.
+          with (
+              patch("apps.api.app.portfolio.service.align_portfolio_components", return_value=SimpleNamespace(start=pd.Timestamp("2023-06-22"), end=pd.Timestamp("2026-08-26"))),
+              patch.object(PortfolioComparisonContext, "bound_history", autospec=True, side_effect=bound_history),
+              patch("apps.api.app.portfolio.service.simulate_portfolio_ledger", return_value=ledger) as simulate,
+              patch("apps.api.app.portfolio.service.compute_metric_report", return_value=report),
+          ):
+              result = service.run(
+                  (portfolio,),
+                  {"VFLO": history("2023-06-22", "2026-08-26"), "SPY": history("2016-08-26", "2026-08-26")},
+                  config,
+                  benchmark="SPY",
+              )
+              assert result.comparison_context is not None
+              assert result.comparison_context.start == pd.Timestamp("2023-06-22")
+              assert result.comparison_context.end == pd.Timestamp("2026-08-26")
+              assert result.effective_benchmark_history.adjusted_close_twd.index[0] == pd.Timestamp("2023-06-22")
+              assert simulate.call_args.args[1]["VFLO"].adjusted_close_twd.index[0] == pd.Timestamp("2023-06-22")
+
+          # Benchmark has shorter history: benchmark inception must control every result start.
+          with (
+              patch("apps.api.app.portfolio.service.align_portfolio_components", return_value=SimpleNamespace(start=pd.Timestamp("2016-08-26"), end=pd.Timestamp("2026-08-26"))),
+              patch.object(PortfolioComparisonContext, "bound_history", autospec=True, side_effect=bound_history),
+              patch("apps.api.app.portfolio.service.simulate_portfolio_ledger", return_value=ledger) as simulate,
+              patch("apps.api.app.portfolio.service.compute_metric_report", return_value=report),
+          ):
+              result = service.run(
+                  (portfolio,),
+                  {"VFLO": history("2016-08-26", "2026-08-26"), "SPY": history("2023-06-22", "2026-08-26")},
+                  config,
+                  benchmark="SPY",
+              )
+              assert result.comparison_context is not None
+              assert result.comparison_context.start == pd.Timestamp("2023-06-22")
+              assert simulate.call_args.args[1]["VFLO"].adjusted_close_twd.index[0] == pd.Timestamp("2023-06-22")
+
+          # One portfolio without a benchmark must retain standalone semantics.
+          with (
+              patch("apps.api.app.portfolio.service.align_portfolio_components", return_value=SimpleNamespace(start=pd.Timestamp("2023-06-22"), end=pd.Timestamp("2026-08-26"))),
+              patch("apps.api.app.portfolio.service.simulate_portfolio_ledger", return_value=ledger),
+              patch("apps.api.app.portfolio.service.compute_metric_report", return_value=report),
+          ):
+              result = service.run(
+                  (portfolio,),
+                  {"VFLO": history("2023-06-22", "2026-08-26")},
+                  config,
+              )
+              assert result.comparison_context is None
+
+          print("benchmark common-window invariants: OK")
+          PY
