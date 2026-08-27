@@ -17,6 +17,8 @@ from apps.api.app.portfolio.models import (
     CashflowType,
     LeverageConfig,
     LeverageType,
+    MAX_ASSETS_PER_PORTFOLIO,
+    MAX_PORTFOLIOS,
     MAX_TARGET_GROSS_EXPOSURE,
     PortfolioSpec,
     RebalanceConfig,
@@ -61,7 +63,10 @@ class PortfolioDefinitionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=60)
-    assets: list[AssetAllocationInput] = Field(min_length=1, max_length=20)
+    assets: list[AssetAllocationInput] = Field(
+        min_length=1,
+        max_length=MAX_ASSETS_PER_PORTFOLIO,
+    )
 
     @model_validator(mode="after")
     def validate_assets(self) -> PortfolioDefinitionInput:
@@ -155,7 +160,10 @@ class PortfolioRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contract_version: Literal["portfolio-v3"] = PORTFOLIO_API_CONTRACT_VERSION
-    portfolios: list[PortfolioDefinitionInput] = Field(min_length=1, max_length=5)
+    portfolios: list[PortfolioDefinitionInput] = Field(
+        min_length=1,
+        max_length=MAX_PORTFOLIOS,
+    )
     benchmark: TickerSymbol | None = None
     start_date: date
     end_date: date
