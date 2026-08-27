@@ -839,8 +839,15 @@ def _rebalance(
         target = policy.target_exposures * net_equity
         return target, 0.0, 0.0, cost, traded_notional
 
-    def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
-        return _target_state(net_equity, policy, leverage)
+    if policy.fixed_debt:
+        preserved_debt = max(float(debt), 0.0)
+
+        def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
+            target_gross = max(net_equity + preserved_debt, 0.0)
+            return policy.target_asset_mix * target_gross, preserved_debt, 0.0
+    else:
+        def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
+            return _target_state(net_equity, policy, leverage)
 
     return _solve_trade_target(
         asset_values,
