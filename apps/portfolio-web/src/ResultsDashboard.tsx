@@ -227,6 +227,8 @@ export function ResultsDashboard({
   }));
   const drawdown = drawdownSeries(selected);
   const allocation = allocationRows(selected);
+  const selectedResultStart = selected.series[0]?.date ?? "—";
+  const selectedResultEnd = selected.series[selected.series.length - 1]?.date ?? "—";
 
   return (
     <section className="workspace-card results-card" id="portfolio-results" aria-labelledby="results-title">
@@ -235,7 +237,7 @@ export function ResultsDashboard({
           <span className="section-index">03</span>
           <div>
             <h2 id="results-title">回測結果</h2>
-            <p>{response.requested_start} 至 {response.effective_end} · TWD · {response.schema_version}</p>
+            <p>要求期間 {response.requested_start} → {response.requested_end} · 有效截止 {response.effective_end} · TWD · {response.schema_version}</p>
           </div>
         </div>
         <div className="section-actions">
@@ -254,6 +256,7 @@ export function ResultsDashboard({
           </select>
         </label>
         <div className="result-meta" aria-label="回測執行資訊">
+          <span>結果期間 {selectedResultStart} → {selectedResultEnd}</span>
           <span>Request {response.request_id.slice(0, 8)}</span>
           <span>市場資料 {number(response.timing.market_ms)} ms</span>
           <span>計算 {number(response.timing.compute_ms)} ms</span>
