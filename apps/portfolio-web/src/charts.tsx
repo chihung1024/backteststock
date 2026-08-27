@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useId } from "react";
 
 export interface ChartSeries {
   name: string;
@@ -21,6 +21,14 @@ function percent(value: number): string {
   }).format(value);
 }
 
+function dateTimestamp(value: string): number {
+  return Date.parse(`${value}T00:00:00Z`);
+}
+
+function monthLabel(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 7);
+}
+
 export function LineChart({
   series,
   yFormat = "number",
@@ -37,18 +45,34 @@ export function LineChart({
   const titleId = useId();
   const width = 1000;
   const padding = { top: 26, right: 24, bottom: 54, left: 84 };
-  const values = series.flatMap((item) => item.points.map((point) => point.value));
+  const drawablePoints = series.flatMap((item) =>
+    item.points.filter(
+      (point) =>
+        Number.isFinite(point.value) &&
+        Number.isFinite(dateTimestamp(point.date)) &&
+        (!logScale || point.value > 0),
+    ),
+  );
+  const values = drawablePoints.map((point) => point.value);
+  const timestamps = drawablePoints.map((point) => dateTimestamp(point.date));
   const usableValues = logScale ? values.filter((value) => value > 0) : values;
   const minimum = usableValues.length ? Math.min(...usableValues) : 0;
   const maximum = usableValues.length ? Math.max(...usableValues) : 1;
   const low = logScale ? Math.log(Math.max(minimum, Number.MIN_VALUE)) : minimum;
   const high = logScale ? Math.log(Math.max(maximum, Number.MIN_VALUE)) : maximum;
   const span = Math.max(high - low, Math.abs(high) * 0.02, 1e-9);
-  const maxPoints = Math.max(...series.map((item) => item.points.length), 2);
+  const domainStart = timestamps.length ? Math.min(...timestamps) : 0;
+  const domainEnd = timestamps.length ? Math.max(...timestamps) : domainStart;
+  const domainSpan = domainEnd - domainStart;
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const x = (index: number, length: number) =>
-    padding.left + (index / Math.max(length - 1, 1)) * innerWidth;
+  const x = (date: string) => {
+    const timestamp = dateTimestamp(date);
+    if (!Number.isFinite(timestamp) || domainSpan <= 0) {
+      return padding.left + innerWidth / 2;
+    }
+    return padding.left + ((timestamp - domainStart) / domainSpan) * innerWidth;
+  };
   const y = (value: number) => {
     const transformed = logScale ? Math.log(Math.max(value, Number.MIN_VALUE)) : value;
     return padding.top + (1 - (transformed - low) / span) * innerHeight;
@@ -58,18 +82,15 @@ export function LineChart({
     const transformed = high - ratio * span;
     return logScale ? Math.exp(transformed) : transformed;
   });
-  const dateLabels = useMemo(() => {
-    const longest = series.reduce<ChartSeries | null>(
-      (current, item) => (!current || item.points.length > current.points.length ? item : current),
-      null,
-    );
-    if (!longest?.points.length) return [];
-    const indices = [0, Math.round((maxPoints - 1) / 2), maxPoints - 1];
-    return indices.map((index) => {
-      const point = longest.points[Math.min(index, longest.points.length - 1)];
-      return { index, label: point?.date.slice(0, 7) ?? "" };
-    });
-  }, [maxPoints, series]);
+  const dateLabels = domainSpan > 0
+    ? [
+        { timestamp: domainStart, anchor: "start" as const },
+        { timestamp: domainStart + domainSpan / 2, anchor: "middle" as const },
+        { timestamp: domainEnd, anchor: "end" as const },
+      ]
+    : timestamps.length
+      ? [{ timestamp: domainStart, anchor: "middle" as const }]
+      : [];
 
   if (!series.length || !values.length) {
     return <div className="empty-chart">尚無可繪製資料。</div>;
@@ -101,20 +122,29 @@ export function LineChart({
           })}
           {dateLabels.map((label) => (
             <text
-              key={`${label.index}-${label.label}`}
-              x={x(label.index, maxPoints)}
+              key={`${label.timestamp}-${label.anchor}`}
+              x={
+                domainSpan > 0
+                  ? padding.left + ((label.timestamp - domainStart) / domainSpan) * innerWidth
+                  : padding.left + innerWidth / 2
+              }
               y={height - 18}
-              textAnchor={label.index === 0 ? "start" : label.index === maxPoints - 1 ? "end" : "middle"}
+              textAnchor={label.anchor}
               className="chart-axis"
             >
-              {label.label}
+              {monthLabel(label.timestamp)}
             </text>
           ))}
         </g>
         {series.map((item, seriesIndex) => {
-          const path = item.points
-            .filter((point) => !logScale || point.value > 0)
-            .map((point, index, points) => `${index ? "L" : "M"}${x(index, points.length).toFixed(2)},${y(point.value).toFixed(2)}`)
+          const points = item.points.filter(
+            (point) =>
+              Number.isFinite(point.value) &&
+              Number.isFinite(dateTimestamp(point.date)) &&
+              (!logScale || point.value > 0),
+          );
+          const path = points
+            .map((point, index) => `${index ? "L" : "M"}${x(point.date).toFixed(2)},${y(point.value).toFixed(2)}`)
             .join(" ");
           return (
             <path
