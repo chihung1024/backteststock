@@ -32,6 +32,10 @@ class TWDValuation:
     valuation calendar as ``adjusted_close_twd``.  They are forward-filled only
     after their own first valid observation.  This gives callers the exact
     factors behind every displayed TWD value.
+
+    ``native_observation_mask`` is audit-only provenance.  It records which
+    valuation-calendar rows came from a real native-market price observation
+    before any FX-calendar forward fill.  It does not alter valuation returns.
     """
 
     source_currency: str
@@ -39,6 +43,7 @@ class TWDValuation:
     fx_to_twd: pd.Series
     adjusted_close_twd: pd.Series
     daily_returns: pd.Series
+    native_observation_mask: pd.Series | None = None
 
     @property
     def first_date(self) -> pd.Timestamp:
@@ -71,10 +76,17 @@ def value_adjusted_close_in_twd(
 
     currency = _normalize_currency(source_currency)
     native = _clean_positive_series(native_adjusted_close, label="native adjusted close")
+    native_observation_index = native.index
 
     if currency == VALUATION_CURRENCY:
         fx = pd.Series(1.0, index=native.index, dtype=float, name="fx_to_twd")
         twd = native.rename("adjusted_close_twd")
+        native_observation_mask = pd.Series(
+            True,
+            index=native.index,
+            dtype=bool,
+            name="native_market_observation",
+        )
     else:
         if fx_to_twd is None:
             raise TWDValuationError(
@@ -82,6 +94,12 @@ def value_adjusted_close_in_twd(
             )
         source_fx = _clean_positive_series(fx_to_twd, label="FX to TWD")
         valuation_index = native.index.union(source_fx.index).sort_values().unique()
+        native_observation_mask = pd.Series(
+            valuation_index.isin(native_observation_index),
+            index=valuation_index,
+            dtype=bool,
+            name="native_market_observation",
+        )
         native = native.reindex(valuation_index).ffill()
         fx = source_fx.reindex(valuation_index).ffill()
 
@@ -91,6 +109,7 @@ def value_adjusted_close_in_twd(
         usable = native.notna() & fx.notna()
         native = native.loc[usable]
         fx = fx.loc[usable]
+        native_observation_mask = native_observation_mask.loc[usable]
         if native.empty:
             raise TWDValuationError(
                 f"{currency} adjusted close and {currency}/TWD FX have no usable overlap"
@@ -104,6 +123,7 @@ def value_adjusted_close_in_twd(
         fx_to_twd=fx.rename("fx_to_twd"),
         adjusted_close_twd=twd,
         daily_returns=daily_returns,
+        native_observation_mask=native_observation_mask,
     )
 
 
