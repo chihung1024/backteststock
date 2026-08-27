@@ -41,6 +41,7 @@ from apps.api.app.portfolio.ledger import (  # noqa: E402
 from apps.api.app.portfolio.metrics import (  # noqa: E402
     PORTFOLIO_METRIC_CONTEXT_VERSION,
 )
+from apps.api.app.portfolio.models import MAX_PORTFOLIOS  # noqa: E402
 from apps.api.app.portfolio.service import (  # noqa: E402
     PORTFOLIO_SERVICE_CONTRACT_VERSION,
 )
@@ -124,6 +125,14 @@ def _apply_as_of_headers(response: Response, period: date_policy.CompletePeriod)
     response.headers["X-As-Of-Policy"] = period.as_of_policy
 
 
+def _request_schema_max_portfolios() -> int | None:
+    """Return the effective Pydantic request limit deployed in this runtime."""
+
+    schema = PortfolioRequest.model_json_schema()
+    value = schema.get("properties", {}).get("portfolios", {}).get("maxItems")
+    return int(value) if isinstance(value, int) else None
+
+
 @app.middleware("http")
 async def request_guard(request: Request, call_next: Any) -> Response:
     path = request.url.path
@@ -159,7 +168,7 @@ async def request_guard(request: Request, call_next: Any) -> Response:
 
 
 @app.get("/api/v3/portfolio/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "backteststock-portfolio-v3",
@@ -170,6 +179,8 @@ def health() -> dict[str, str]:
         "service_contract_version": PORTFOLIO_SERVICE_CONTRACT_VERSION,
         "analytics_contract_version": PORTFOLIO_ANALYTICS_CONTRACT_VERSION,
         "deployment_sha": os.getenv("VERCEL_GIT_COMMIT_SHA", ""),
+        "max_portfolios": MAX_PORTFOLIOS,
+        "request_schema_max_portfolios": _request_schema_max_portfolios(),
     }
 
 
