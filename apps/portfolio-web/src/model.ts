@@ -65,6 +65,10 @@ export function createDefaultModel(): WorkspaceModel {
       annualInterestRatePercent: 0,
       maintenanceMarginPercent: 25,
     },
+    exposureMaintenance: {
+      mode: "band",
+      tolerancePercent: 10,
+    },
     analytics: {
       factorAnalysis: false,
       styleAnalysis: false,
@@ -133,13 +137,13 @@ export function portfolioExposureSummary(total: number): PortfolioExposureSummar
     return {
       kind: "cash",
       label: `${total.toFixed(1)}% · 現金 ${(100 - total).toFixed(1)}%`,
-      detail: "每日重設總曝險；內部比例依再平衡設定",
+      detail: "現金部位自然漂移；內部比例依再平衡設定",
     };
   }
   return {
     kind: "leveraged",
     label: `${total.toFixed(1)}% · ${(total / 100).toFixed(2)}× · 融資 ${(total - 100).toFixed(1)}%`,
-    detail: "每日重設總曝險；內部比例依再平衡設定",
+    detail: "融資曝險依維持模式控制；內部比例依再平衡設定",
   };
 }
 
@@ -203,6 +207,13 @@ export function validateModel(model: WorkspaceModel): ValidationIssue[] {
   if (model.leverage.type === "fixed_debt" && model.leverage.debtAmount <= 0) {
     issues.push({ field: "leverage", message: "固定借款金額必須大於 0。" });
   }
+  if (
+    !Number.isFinite(model.exposureMaintenance.tolerancePercent)
+    || model.exposureMaintenance.tolerancePercent <= 0
+    || model.exposureMaintenance.tolerancePercent > 100
+  ) {
+    issues.push({ field: "exposureMaintenance", message: "曝險容忍帶必須介於 0% 到 100% 之間。" });
+  }
   return issues;
 }
 
@@ -246,6 +257,10 @@ export function toApiRequest(model: WorkspaceModel): PortfolioApiRequest {
       annual_interest_rate_percent: model.leverage.annualInterestRatePercent,
       maintenance_margin_percent: model.leverage.maintenanceMarginPercent,
     },
+    exposure_maintenance: {
+      mode: model.exposureMaintenance.mode,
+      tolerance_percent: model.exposureMaintenance.tolerancePercent,
+    },
     analytics: {
       factor_analysis: model.analytics.factorAnalysis,
       style_analysis: model.analytics.styleAnalysis,
@@ -285,6 +300,10 @@ export function migrateModel(value: unknown): WorkspaceModel {
     cashflow: { ...fallback.cashflow, ...(raw.cashflow || {}) },
     rebalancing: { ...fallback.rebalancing, ...(raw.rebalancing || {}) },
     leverage: { ...fallback.leverage, ...(raw.leverage || {}) },
+    exposureMaintenance: {
+      ...fallback.exposureMaintenance,
+      ...(raw.exposureMaintenance || {}),
+    },
     analytics: { ...fallback.analytics, ...(raw.analytics || {}) },
   };
 }

@@ -134,9 +134,18 @@ export function SettingsPanels({
 
       <SettingGroup title="再平衡與融資">
         <div className="notice info" style={{ gridColumn: "1 / -1", margin: 0 }}>
-          <strong>總曝險與內部再平衡分開計算</strong>
-          <p>每組權重總和就是該投組的目標總曝險。非 100% 投組每日只重設總曝險；資產內部比例只有定期或偏離門檻再平衡觸發時才回到目標。</p>
+          <strong>融資持倉與槓桿 ETF 分開建模</strong>
+          <p>權重總和高於 100% 時代表真實融資持倉：價格變動不會自動改變股數或借款本金。預設只有單一標的相對目標曝險偏離達容忍帶時才建立訊號，並在下一個所有成分股共同可交易日只修復超限標的。每日固定曝險僅供槓桿 ETF 式研究。</p>
         </div>
+        <label className="field">
+          <span>融資曝險維持</span>
+          <select value={model.exposureMaintenance.mode} onChange={(event) => setModel((current) => ({ ...current, exposureMaintenance: { ...current.exposureMaintenance, mode: event.target.value as WorkspaceModel["exposureMaintenance"]["mode"] } }))}>
+            <option value="band">容忍帶（建議）</option>
+            <option value="none">自然漂移，不自動維持</option>
+            <option value="daily">每日固定曝險（槓桿 ETF 式）</option>
+          </select>
+        </label>
+        {model.exposureMaintenance.mode === "band" && <NumberField label="曝險相對容忍帶" value={model.exposureMaintenance.tolerancePercent} min={0.1} max={100} step={0.1} suffix="%" onChange={(value) => setModel((current) => ({ ...current, exposureMaintenance: { ...current.exposureMaintenance, tolerancePercent: value } }))} />}
         <label className="field">
           <span>定期再平衡</span>
           <select value={model.rebalancing.frequency} onChange={(event) => setModel((current) => ({ ...current, rebalancing: { ...current.rebalancing, frequency: event.target.value as WorkspaceModel["rebalancing"]["frequency"] } }))}>

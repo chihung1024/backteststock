@@ -12,6 +12,7 @@ from apps.api.app.data.history_service import TWDAssetHistory
 from apps.api.app.portfolio.models import (
     CashflowTiming,
     CashflowType,
+    ExposureMaintenanceMode,
     LedgerEvent,
     LeverageConfig,
     LeverageType,
@@ -21,7 +22,7 @@ from apps.api.app.portfolio.models import (
     WEIGHT_TOLERANCE,
 )
 
-PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-27.1"
+PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-27.2"
 _EPSILON = 1e-12
 _TRADE_SOLVER_TOLERANCE = 1e-10
 _TRADE_SOLVER_MAX_ITERATIONS = 64
@@ -50,7 +51,6 @@ class ExposurePolicy:
     target_asset_mix: np.ndarray
     target_gross_ratio: float
     target_cash_ratio: float
-    daily_reset_ratio: float | None
     fixed_debt: bool
 
 
@@ -206,9 +206,10 @@ def simulate_portfolio_ledger(
     """Run one portfolio under the published daily event-order contract.
 
     Asset weights are equity-relative target exposures. Totals below 1.0 leave
-    residual cash; totals above 1.0 create financed gross exposure. Any
-    non-100% gross exposure is reset at each close while preserving the
-    current asset mix unless allocation rebalance independently fires.
+    residual cash; totals above 1.0 create margin-financed gross exposure.
+    Market movement alone never changes shares or loan principal. Exposure
+    maintenance is an explicit policy: margin-band repair is the default for
+    financed portfolios, while daily constant exposure remains opt-in.
     """
 
     symbols = portfolio.symbols
@@ -240,6 +241,8 @@ def simulate_portfolio_ledger(
     rebalance_count = 0
     exposure_reset_count = 0
     liquidated = False
+    pending_band_repair: np.ndarray | None = None
+    pending_band_signal_date: str | None = None
     events: list[LedgerEvent] = []
     warnings: list[str] = []
 
@@ -377,7 +380,8 @@ def simulate_portfolio_ledger(
         annual_interest_rate = config.leverage.annual_interest_rate_percent / 100.0
         interest = debt * annual_interest_rate * calendar_days / 365.2425
         if interest > 0.0:
-            cash -= interest
+            debt_before_interest = debt
+            debt += interest
             borrowing_costs += interest
             events.append(
                 LedgerEvent(
@@ -385,7 +389,8 @@ def simulate_portfolio_ledger(
                     type="borrowing_interest",
                     details={
                         "amount": interest,
-                        "debt_before_interest": debt,
+                        "debt_before_interest": debt_before_interest,
+                        "debt_after_interest": debt,
                         "calendar_days": calendar_days,
                         "annual_interest_rate_percent": (
                             config.leverage.annual_interest_rate_percent
@@ -471,6 +476,8 @@ def simulate_portfolio_ledger(
                 )
                 transaction_costs += cost
                 rebalance_count += 1
+                pending_band_repair = None
+                pending_band_signal_date = None
                 events.append(
                     LedgerEvent(
                         date=timestamp.date().isoformat(),
@@ -489,42 +496,136 @@ def simulate_portfolio_ledger(
                         },
                     )
                 )
-            elif policy.daily_reset_ratio is not None and execution_eligible[position]:
-                gross_before = _gross_exposure(asset_values)
-                debt_before = debt
-                (
-                    asset_values,
-                    debt,
-                    cash,
-                    cost,
-                    traded_notional,
-                ) = _reset_gross_exposure(
-                    asset_values,
-                    debt,
-                    cash,
-                    policy,
-                    config.transaction_cost_bps,
+            else:
+                maintenance_mode = config.exposure_maintenance.mode
+                financed = (
+                    not policy.fixed_debt
+                    and policy.target_gross_ratio > 1.0 + WEIGHT_TOLERANCE
                 )
-                transaction_costs += cost
-                if traded_notional > _EPSILON:
-                    exposure_reset_count += 1
-                    events.append(
-                        LedgerEvent(
-                            date=timestamp.date().isoformat(),
-                            type="exposure_reset",
-                            details={
-                                "target_gross_ratio": policy.daily_reset_ratio,
-                                "gross_exposure_before": gross_before,
-                                "gross_exposure_after": _gross_exposure(asset_values),
-                                "debt_before": debt_before,
-                                "debt_after": debt,
-                                "traded_notional": traded_notional,
-                                "transaction_cost": cost,
-                                "asset_allocation_preserved": True,
-                                "execution_clock": "common_native_market_observation",
-                            },
-                        )
+                if (
+                    financed
+                    and maintenance_mode == ExposureMaintenanceMode.DAILY
+                    and execution_eligible[position]
+                ):
+                    gross_before = _gross_exposure(asset_values)
+                    debt_before = debt
+                    (
+                        asset_values,
+                        debt,
+                        cash,
+                        cost,
+                        traded_notional,
+                    ) = _reset_gross_exposure(
+                        asset_values,
+                        debt,
+                        cash,
+                        policy,
+                        config.transaction_cost_bps,
                     )
+                    transaction_costs += cost
+                    if traded_notional > _EPSILON:
+                        exposure_reset_count += 1
+                        events.append(
+                            LedgerEvent(
+                                date=timestamp.date().isoformat(),
+                                type="exposure_reset",
+                                details={
+                                    "mode": "daily_constant_exposure",
+                                    "target_gross_ratio": policy.target_gross_ratio,
+                                    "gross_exposure_before": gross_before,
+                                    "gross_exposure_after": _gross_exposure(asset_values),
+                                    "debt_before": debt_before,
+                                    "debt_after": debt,
+                                    "traded_notional": traded_notional,
+                                    "transaction_cost": cost,
+                                    "asset_allocation_preserved": True,
+                                    "execution_clock": "common_native_market_observation",
+                                },
+                            )
+                        )
+                elif financed and maintenance_mode == ExposureMaintenanceMode.BAND:
+                    if pending_band_repair is not None and execution_eligible[position]:
+                        gross_before = _gross_exposure(asset_values)
+                        debt_before = debt
+                        breached_symbols = [
+                            symbol
+                            for symbol, breached in zip(
+                                symbols, pending_band_repair, strict=True
+                            )
+                            if breached
+                        ]
+                        (
+                            asset_values,
+                            debt,
+                            cash,
+                            cost,
+                            traded_notional,
+                        ) = _repair_exposure_band(
+                            asset_values,
+                            debt,
+                            cash,
+                            policy,
+                            pending_band_repair,
+                            config.transaction_cost_bps,
+                        )
+                        transaction_costs += cost
+                        if traded_notional > _EPSILON:
+                            exposure_reset_count += 1
+                            events.append(
+                                LedgerEvent(
+                                    date=timestamp.date().isoformat(),
+                                    type="exposure_band_repair",
+                                    details={
+                                        "signal_date": pending_band_signal_date,
+                                        "breached_symbols": breached_symbols,
+                                        "tolerance_percent": config.exposure_maintenance.tolerance_percent,
+                                        "gross_exposure_before": gross_before,
+                                        "gross_exposure_after": _gross_exposure(asset_values),
+                                        "debt_before": debt_before,
+                                        "debt_after": debt,
+                                        "traded_notional": traded_notional,
+                                        "transaction_cost": cost,
+                                        "repair_scope": "breached_assets_only",
+                                        "execution_clock": "next_common_native_market_observation",
+                                    },
+                                )
+                            )
+                        pending_band_repair = None
+                        pending_band_signal_date = None
+                    elif pending_band_repair is None:
+                        breached, deviations = _exposure_band_breaches(
+                            asset_values,
+                            debt,
+                            cash,
+                            policy,
+                            config.exposure_maintenance.tolerance_percent / 100.0,
+                        )
+                        if bool(breached.any()):
+                            pending_band_repair = breached
+                            pending_band_signal_date = timestamp.date().isoformat()
+                            events.append(
+                                LedgerEvent(
+                                    date=pending_band_signal_date,
+                                    type="exposure_band_signal",
+                                    details={
+                                        "breached_symbols": [
+                                            symbol
+                                            for symbol, flag in zip(
+                                                symbols, breached, strict=True
+                                            )
+                                            if flag
+                                        ],
+                                        "relative_deviations": {
+                                            symbol: float(deviation)
+                                            for symbol, deviation in zip(
+                                                symbols, deviations, strict=True
+                                            )
+                                        },
+                                        "tolerance_percent": config.exposure_maintenance.tolerance_percent,
+                                        "execution_policy": "next_common_native_market_observation",
+                                    },
+                                )
+                            )
 
             liquidation_reason = _liquidation_reason(
                 asset_values,
@@ -631,18 +732,11 @@ def _exposure_policy(
         if leverage.type != LeverageType.FIXED_DEBT
         else 0.0
     )
-    daily_reset = (
-        target_gross
-        if leverage.type != LeverageType.FIXED_DEBT
-        and abs(target_gross - 1.0) > WEIGHT_TOLERANCE
-        else None
-    )
     return ExposurePolicy(
         target_exposures=target_exposures,
         target_asset_mix=target_mix,
         target_gross_ratio=target_gross,
         target_cash_ratio=target_cash,
-        daily_reset_ratio=daily_reset,
         fixed_debt=leverage.type == LeverageType.FIXED_DEBT,
     )
 
@@ -698,7 +792,10 @@ def _apply_external_flow(
     if equity <= _EPSILON:
         return np.zeros_like(asset_values), 0.0, 0.0
 
-    if policy.daily_reset_ratio is not None:
+    if (
+        not policy.fixed_debt
+        and policy.target_gross_ratio > 1.0 + WEIGHT_TOLERANCE
+    ):
         fraction = min(remaining / equity, 1.0)
         asset_values *= 1.0 - fraction
         debt *= 1.0 - fraction
@@ -760,8 +857,8 @@ def _reset_gross_exposure(
     policy: ExposurePolicy,
     transaction_cost_bps: float,
 ) -> tuple[np.ndarray, float, float, float, float]:
-    target_ratio = policy.daily_reset_ratio
-    if target_ratio is None:
+    target_ratio = policy.target_gross_ratio
+    if abs(target_ratio - 1.0) <= WEIGHT_TOLERANCE or policy.fixed_debt:
         return asset_values, debt, cash, 0.0, 0.0
 
     equity = _state_equity(asset_values, cash, debt)
@@ -783,6 +880,63 @@ def _reset_gross_exposure(
             return target_assets, 0.0, target_cash
         target_debt = target_gross + preserved_cash - net_equity
         return target_assets, max(target_debt, 0.0), preserved_cash
+
+    return _solve_trade_target(
+        asset_values,
+        equity,
+        transaction_cost_bps,
+        target_builder,
+    )
+
+
+def _exposure_band_breaches(
+    asset_values: np.ndarray,
+    debt: float,
+    cash: float,
+    policy: ExposurePolicy,
+    tolerance: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return equity-relative exposure breaches and their relative deviations."""
+
+    equity = _state_equity(asset_values, cash, debt)
+    deviations = np.zeros_like(policy.target_exposures, dtype=float)
+    if equity <= _EPSILON:
+        return np.zeros_like(policy.target_exposures, dtype=bool), deviations
+    current_exposures = asset_values / equity
+    deviations = np.abs(
+        current_exposures / policy.target_exposures - 1.0
+    )
+    breached = deviations + _EPSILON >= tolerance
+    return breached.astype(bool), deviations
+
+
+def _repair_exposure_band(
+    asset_values: np.ndarray,
+    debt: float,
+    cash: float,
+    policy: ExposurePolicy,
+    breached: np.ndarray,
+    transaction_cost_bps: float,
+) -> tuple[np.ndarray, float, float, float, float]:
+    """Repair only breached equity-relative target exposures back to target."""
+
+    mask = np.asarray(breached, dtype=bool)
+    if mask.shape != asset_values.shape:
+        raise ValueError("exposure-band repair mask must match portfolio assets")
+    if not bool(mask.any()) or policy.fixed_debt:
+        return asset_values, debt, cash, 0.0, 0.0
+    equity = _state_equity(asset_values, cash, debt)
+    if equity <= _EPSILON:
+        return np.zeros_like(asset_values), 0.0, max(equity, 0.0), 0.0, 0.0
+
+    current_assets = asset_values.copy()
+    preserved_cash = max(cash, 0.0)
+
+    def target_builder(net_equity: float) -> tuple[np.ndarray, float, float]:
+        target_assets = current_assets.copy()
+        target_assets[mask] = policy.target_exposures[mask] * net_equity
+        target_debt = max(float(target_assets.sum()) + preserved_cash - net_equity, 0.0)
+        return target_assets, target_debt, preserved_cash
 
     return _solve_trade_target(
         asset_values,

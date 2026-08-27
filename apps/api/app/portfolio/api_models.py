@@ -15,6 +15,8 @@ from apps.api.app.portfolio.models import (
     CashflowFrequency,
     CashflowTiming,
     CashflowType,
+    ExposureMaintenanceConfig,
+    ExposureMaintenanceMode,
     LeverageConfig,
     LeverageType,
     MAX_ASSETS_PER_PORTFOLIO,
@@ -28,7 +30,7 @@ from apps.api.app.portfolio.models import (
 )
 
 PORTFOLIO_API_CONTRACT_VERSION = "portfolio-v3"
-PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-15.1"
+PORTFOLIO_API_SCHEMA_VERSION = "portfolio-v3-2026-08-27.2"
 
 TickerSymbol = Annotated[
     str,
@@ -146,6 +148,19 @@ class LeverageInput(BaseModel):
         )
 
 
+class ExposureMaintenanceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: ExposureMaintenanceMode = ExposureMaintenanceMode.BAND
+    tolerance_percent: float = Field(default=10.0, gt=0.0, le=100.0)
+
+    def to_config(self) -> ExposureMaintenanceConfig:
+        return ExposureMaintenanceConfig(
+            mode=self.mode,
+            tolerance_percent=self.tolerance_percent,
+        )
+
+
 class AnalyticsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -175,6 +190,9 @@ class PortfolioRequest(BaseModel):
     cashflow: CashflowInput = Field(default_factory=CashflowInput)
     rebalancing: RebalanceInput = Field(default_factory=RebalanceInput)
     leverage: LeverageInput = Field(default_factory=LeverageInput)
+    exposure_maintenance: ExposureMaintenanceInput = Field(
+        default_factory=ExposureMaintenanceInput
+    )
     analytics: AnalyticsInput = Field(default_factory=AnalyticsInput)
     output_frequency: OutputFrequency = OutputFrequency.DAILY
     include_events: bool = True
@@ -241,6 +259,7 @@ class PortfolioRequest(BaseModel):
             cashflow=self.cashflow.to_config(),
             rebalancing=self.rebalancing.to_config(),
             leverage=self.leverage.to_config(),
+            exposure_maintenance=self.exposure_maintenance.to_config(),
             risk_free_rate=self.analytics.risk_free_rate_percent / 100.0,
         )
 
