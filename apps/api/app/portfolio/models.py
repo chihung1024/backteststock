@@ -45,6 +45,12 @@ class LeverageType(StrEnum):
     FIXED_DEBT = "fixed_debt"
 
 
+class ExposureMaintenanceMode(StrEnum):
+    NONE = "none"
+    BAND = "band"
+    DAILY = "daily"
+
+
 @dataclass(frozen=True, slots=True)
 class AssetWeight:
     symbol: str
@@ -215,6 +221,18 @@ class LeverageConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ExposureMaintenanceConfig:
+    mode: ExposureMaintenanceMode = ExposureMaintenanceMode.BAND
+    tolerance_percent: float = 10.0
+
+    def __post_init__(self) -> None:
+        tolerance = float(self.tolerance_percent)
+        if not math.isfinite(tolerance) or tolerance <= 0.0 or tolerance > 100.0:
+            raise ValueError("exposure maintenance tolerance must be in (0, 100]")
+        object.__setattr__(self, "tolerance_percent", tolerance)
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     initial_amount: float = 10_000.0
     reinvest_distributions: bool = True
@@ -222,6 +240,9 @@ class SimulationConfig:
     cashflow: CashflowConfig = field(default_factory=CashflowConfig)
     rebalancing: RebalanceConfig = field(default_factory=RebalanceConfig)
     leverage: LeverageConfig = field(default_factory=LeverageConfig)
+    exposure_maintenance: ExposureMaintenanceConfig = field(
+        default_factory=ExposureMaintenanceConfig
+    )
     risk_free_rate: float = 0.0
 
     def __post_init__(self) -> None:

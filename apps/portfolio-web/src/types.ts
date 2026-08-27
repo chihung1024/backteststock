@@ -35,6 +35,11 @@ export interface RebalanceSettings {
   thresholdPercent: number | null;
 }
 
+export interface ExposureMaintenanceSettings {
+  mode: "none" | "band" | "daily";
+  tolerancePercent: number;
+}
+
 export interface LeverageSettings {
   type: "none" | "fixed_ratio" | "fixed_debt";
   ratio: number;
@@ -65,6 +70,7 @@ export interface WorkspaceModel {
   cashflow: CashflowSettings;
   rebalancing: RebalanceSettings;
   leverage: LeverageSettings;
+  exposureMaintenance: ExposureMaintenanceSettings;
   analytics: AnalyticsSettings;
   outputFrequency: "daily" | "weekly" | "monthly";
   includeEvents: boolean;
@@ -107,6 +113,10 @@ export interface PortfolioApiRequest {
     debt_amount: number;
     annual_interest_rate_percent: number;
     maintenance_margin_percent: number;
+  };
+  exposure_maintenance: {
+    mode: ExposureMaintenanceSettings["mode"];
+    tolerance_percent: number;
   };
   analytics: {
     factor_analysis: boolean;
