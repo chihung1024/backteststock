@@ -30,15 +30,16 @@ Production backend origin：`https://stockbacktest.vercel.app`
 Frozen runtime 主要目錄：
 
 ```text
-api/             Vercel production entrypoints / compatibility runtime
-apps/api/app/    data / portfolio / research / quant / refinery runtime
-migrations/      D1 schema reconstruction history
-public/          frozen production browser assets
-scripts/         runtime-imported code only
-worker/          Cloudflare production runtime + Universe scheduler
+api/                 Vercel production entrypoints / compatibility runtime
+apps/api/app/        data / portfolio / research / quant / refinery runtime
+apps/portfolio-web/  Portfolio production browser source authority（維護/重建用途）
+migrations/          D1 schema reconstruction history
+public/              frozen production browser assets
+scripts/             runtime-imported code only
+worker/              Cloudflare production runtime + Universe scheduler
 ```
 
-Active tree 已移除開發測試、部署 workflow、smoke tooling、前端 source toolchain、backup branches 與暫存 artifacts；歷史與重建資訊只保留於 Git history / Release。
+Active tree 仍維持功能凍結；只恢復 `apps/portfolio-web/` 作為目前 Portfolio production bundle 的可維護 source authority，避免直接修改 minified artifact。其他已退役的開發測試、部署 workflow、smoke tooling、backup branches 與暫存 artifacts 不因本次 production defect recovery 而恢復；歷史與重建資訊仍以 Git history / Release 為準。
 
 ## 凍結原則
 
@@ -69,4 +70,4 @@ Universe membership 由 Cloudflare Worker Cron 直接取得四個既有來源，
 
 Active repository 不再以 backup branch 保存歷史；歷史 PR / Issue / commit 與上述 Release/tag 是復原來源。
 
-若未來重新啟動開發，應先從 `archive/pre-sunset-2026-08-19` 或 Git history 重建開發工具與驗證環境，再變更 production runtime。
+若未來重新啟動開發，應先從 `archive/pre-sunset-2026-08-19` 或 Git history 重建其餘開發工具與驗證環境，再變更 production runtime。

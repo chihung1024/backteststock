@@ -1,5 +1,20 @@
 {
   "name": "backteststock",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build:portfolio": "vite build --config apps/portfolio-web/vite.config.ts",
+    "check:portfolio": "tsc -p apps/portfolio-web/tsconfig.json --noEmit && npm run build:portfolio"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "6.0.4",
+    "typescript": "5.9.2",
+    "vite": "8.1.5"
+  }
 }

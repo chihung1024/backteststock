@@ -1,0 +1,247 @@
+.wf-result-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.wf-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.wf-result-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 34px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.wf-result-meta strong {
+  color: var(--text);
+}
+
+.wf-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.wf-chart-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wf-chart-card .chart-frame {
+  margin: 0.75rem 0 0;
+}
+
+.wf-chart-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wf-benchmark-boundary {
+  margin: 0;
+}
+
+.wf-evidence-section-heading {
+  margin-top: 0.25rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid var(--border);
+}
+
+.wf-evidence-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.wf-evidence-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+.wf-evidence-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 0.8fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.wf-evidence-flow > div {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-elevated);
+}
+
+.wf-evidence-flow > div > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.wf-evidence-flow strong,
+.wf-evidence-flow small {
+  overflow-wrap: anywhere;
+}
+
+.wf-evidence-flow strong {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.wf-evidence-flow small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.wf-evidence-flow > i {
+  align-self: center;
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 850;
+}
+
+.wf-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.9rem 0 0;
+}
+
+.wf-provenance-grid > div {
+  min-width: 0;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.wf-provenance-grid dt {
+  margin: 0 0 0.25rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+}
+
+.wf-provenance-grid dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.wf-evidence-details,
+.wf-job-contracts {
+  margin-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.wf-evidence-details summary,
+.wf-job-contracts summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 750;
+}
+
+.wf-provenance-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding-bottom: 0.2rem;
+}
+
+.wf-provenance-detail-grid p {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem;
+  border-radius: 9px;
+  background: var(--bg-elevated);
+}
+
+.wf-provenance-detail-grid strong {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.wf-provenance-detail-grid span {
+  color: var(--text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .wf-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-provenance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .wf-evidence-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-evidence-flow > i {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .wf-provenance-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .wf-result-card {
+    gap: 0.8rem;
+  }
+
+  .wf-result-meta,
+  .wf-result-meta span {
+    width: 100%;
+  }
+
+  .wf-provenance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-evidence-card {
+    padding: 0.8rem;
+  }
+
+  .wf-chart-card .chart-frame {
+    overflow-x: auto;
+  }
+
+  .wf-chart-card svg {
+    min-width: 620px;
+  }
+}
