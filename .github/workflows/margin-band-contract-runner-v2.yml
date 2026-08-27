@@ -1,0 +1,60 @@
+name: Margin Band Contract Runner V2
+
+on:
+  push:
+    branches:
+      - fix/portfolio-margin-band-20260827
+    paths:
+      - ".github/workflows/margin-band-contract-runner-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-check-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/portfolio-margin-band-20260827
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply source patch from one-shot specification
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          text = Path('.github/workflows/margin-band-contract-once.yml').read_text()
+          blocks = re.findall(r"python - <<'PY'\n(.*?)\n\s*PY", text, flags=re.S)
+          if len(blocks) != 2:
+              raise SystemExit(f'expected 2 embedded Python blocks, got {len(blocks)}')
+          exec(compile(textwrap.dedent(blocks[0]), '<margin-band-patch>', 'exec'))
+          PY
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+      - name: Verify quantitative invariants from one-shot specification
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          text = Path('.github/workflows/margin-band-contract-once.yml').read_text()
+          blocks = re.findall(r"python - <<'PY'\n(.*?)\n\s*PY", text, flags=re.S)
+          exec(compile(textwrap.dedent(blocks[1]), '<margin-band-invariants>', 'exec'))
+          PY
+      - name: Typecheck and build Portfolio frontend
+        run: |
+          npm install --no-package-lock
+          npm run check:portfolio
+      - name: Remove one-shot runners and commit verified application changes
+        run: |
+          git config user.name "chihung1024"
+          git config user.email "104315542+chihung1024@users.noreply.github.com"
+          git rm .github/workflows/margin-band-contract-once.yml .github/workflows/margin-band-contract-runner-v2.yml
+          git add -A
+          git commit -m "fix: model margin financing with exposure bands"
+          git push origin HEAD:fix/portfolio-margin-band-20260827
