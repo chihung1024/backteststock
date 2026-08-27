@@ -22,8 +22,8 @@ from apps.api.app.portfolio.models import (
     validate_portfolio_batch,
 )
 
-PORTFOLIO_SERVICE_CONTRACT_VERSION = "portfolio-service-twd-2026-08-11.2"
-COMPARISON_WINDOW_POLICY = "common-runnable-portfolios-v1"
+PORTFOLIO_SERVICE_CONTRACT_VERSION = "portfolio-service-twd-2026-08-27.1"
+COMPARISON_WINDOW_POLICY = "common-comparison-universe-v2"
 EXECUTION_CLOCK_AUDIT_POLICY = "valuation-calendar-native-observation-audit-v1"
 
 
@@ -37,7 +37,7 @@ class PortfolioRunResult:
 
 @dataclass(frozen=True, slots=True)
 class PortfolioComparisonContext:
-    """Authoritative effective sample for one comparable multi-portfolio batch."""
+    """Authoritative effective sample for one comparable portfolio batch."""
 
     policy: str
     start: pd.Timestamp
@@ -62,13 +62,15 @@ class PortfolioBatchResult:
 
 
 class PortfolioLedgerService:
-    """Run valid sibling portfolios on one comparable window when applicable.
+    """Run every comparable series on one authoritative effective window.
 
-    A single runnable portfolio retains its full internally aligned history. When
-    two or more sibling portfolios are runnable, the service first determines
-    each portfolio's own valid window, then uses the intersection across every
-    runnable sibling. Each ledger is freshly initialized at that common start;
-    results are never post-hoc clipped to create the appearance of comparability.
+    A single runnable portfolio without a benchmark retains its full internally
+    aligned history. Whenever an available benchmark is requested, or when two
+    or more sibling portfolios are runnable, the service uses the intersection
+    across every runnable portfolio's aligned constituent window and the
+    benchmark's audited window when present. Every portfolio ledger and the
+    benchmark are freshly initialized at that common start; results are never
+    post-hoc clipped to create the appearance of comparability.
     """
 
     def run(
@@ -84,6 +86,7 @@ class PortfolioLedgerService:
         normalized_benchmark = _normalize_symbol(benchmark) if benchmark else None
         benchmark_history: TWDAssetHistory | None = None
         benchmark_returns: pd.Series | None = None
+        benchmark_window: tuple[pd.Timestamp, pd.Timestamp] | None = None
         batch_warnings: list[str] = []
         if normalized_benchmark:
             benchmark_history = histories.get(normalized_benchmark)
@@ -93,7 +96,15 @@ class PortfolioLedgerService:
                     f"benchmark {normalized_benchmark} unavailable; beta and alpha omitted: {detail}"
                 )
             else:
-                benchmark_returns = benchmark_history.daily_returns
+                try:
+                    benchmark_window = _history_effective_window(benchmark_history)
+                except ValueError as exc:
+                    batch_warnings.append(
+                        f"benchmark {normalized_benchmark} unavailable; beta and alpha omitted: {exc}"
+                    )
+                    benchmark_history = None
+                else:
+                    benchmark_returns = benchmark_history.daily_returns
 
         failures: list[PortfolioFailure] = []
         runnable: list[tuple[PortfolioSpec, pd.Timestamp, pd.Timestamp]] = []
@@ -134,13 +145,26 @@ class PortfolioLedgerService:
 
         comparison_context: PortfolioComparisonContext | None = None
         simulation_histories: Mapping[str, TWDAssetHistory] = histories
-        if len(runnable) >= 2:
-            comparison_start = max(item[1] for item in runnable)
-            comparison_end = min(item[2] for item in runnable)
+        needs_common_window = len(runnable) >= 2 or (
+            bool(runnable) and benchmark_window is not None
+        )
+        if needs_common_window:
+            comparison_starts = [item[1] for item in runnable]
+            comparison_ends = [item[2] for item in runnable]
+            if benchmark_window is not None:
+                comparison_starts.append(benchmark_window[0])
+                comparison_ends.append(benchmark_window[1])
+            comparison_start = max(comparison_starts)
+            comparison_end = min(comparison_ends)
             if comparison_start >= comparison_end:
+                participants = (
+                    "runnable portfolios and benchmark"
+                    if benchmark_window is not None
+                    else "runnable portfolios"
+                )
                 detail = (
-                    "runnable portfolios do not share two overlapping valuation dates; "
-                    "multi-portfolio comparison requires one common effective window"
+                    f"{participants} do not share two overlapping valuation dates; "
+                    "comparison requires one common effective window"
                 )
                 failures.extend(
                     PortfolioFailure(
@@ -189,11 +213,16 @@ class PortfolioLedgerService:
                         benchmark_returns = None
                     else:
                         benchmark_returns = benchmark_history.daily_returns
+                comparison_scope = (
+                    "all runnable portfolio constituents plus benchmark"
+                    if benchmark_window is not None
+                    else "all runnable portfolio constituents"
+                )
                 batch_warnings.append(
-                    "multi-portfolio comparison recomputed from common window "
+                    "comparison recomputed from one common window "
                     f"{comparison_context.start.date().isoformat()} -> "
-                    f"{comparison_context.end.date().isoformat()} "
-                    f"({comparison_context.policy})"
+                    f"{comparison_context.end.date().isoformat()} across "
+                    f"{comparison_scope} ({comparison_context.policy})"
                 )
 
         results: list[PortfolioRunResult] = []
@@ -314,16 +343,21 @@ def _execution_clock_audit_warning(
     )
 
 
+def _history_effective_window(
+    history: TWDAssetHistory,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    levels = pd.to_numeric(history.adjusted_close_twd, errors="coerce").dropna().sort_index()
+    if len(levels) < 2:
+        raise ValueError("audited history has fewer than two usable valuation dates")
+    return pd.Timestamp(levels.index[0]), pd.Timestamp(levels.index[-1])
+
+
 def _require_history_coverage(
     history: TWDAssetHistory,
     start: pd.Timestamp,
     end: pd.Timestamp,
 ) -> None:
-    levels = pd.to_numeric(history.adjusted_close_twd, errors="coerce").dropna().sort_index()
-    if levels.empty:
-        raise ValueError("audited history has no usable valuation levels")
-    first = pd.Timestamp(levels.index[0])
-    last = pd.Timestamp(levels.index[-1])
+    first, last = _history_effective_window(history)
     if first > start or last < end:
         raise ValueError(
             "audited history does not cover exact common comparison interval "
