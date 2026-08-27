@@ -33,9 +33,10 @@ class TWDValuation:
     after their own first valid observation.  This gives callers the exact
     factors behind every displayed TWD value.
 
-    ``native_observation_mask`` is audit-only provenance.  It records which
-    valuation-calendar rows came from a real native-market price observation
-    before any FX-calendar forward fill.  It does not alter valuation returns.
+    ``native_observation_mask`` records which valuation-calendar rows came from
+    a real native-market price observation before any FX-calendar forward fill.
+    Valuation returns remain on the union calendar; portfolio execution can use
+    this provenance to avoid trading a constituent on a carried-forward quote.
     """
 
     source_currency: str

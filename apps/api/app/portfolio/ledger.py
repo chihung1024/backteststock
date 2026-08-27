@@ -21,7 +21,7 @@ from apps.api.app.portfolio.models import (
     WEIGHT_TOLERANCE,
 )
 
-PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-15.1"
+PORTFOLIO_LEDGER_CONTRACT_VERSION = "portfolio-ledger-twd-2026-08-27.1"
 _EPSILON = 1e-12
 _TRADE_SOLVER_TOLERANCE = 1e-10
 _TRADE_SOLVER_MAX_ITERATIONS = 64
@@ -142,6 +142,7 @@ def _derive_exposure_ratio(
     result.loc[valid] = aligned_exposure.loc[valid] / aligned_equity.loc[valid]
     return result
 
+
 def align_portfolio_components(
     histories: Mapping[str, TWDAssetHistory],
     symbols: tuple[str, ...],
@@ -215,6 +216,7 @@ def simulate_portfolio_ledger(
     policy = _exposure_policy(weights, config.leverage)
     aligned = align_portfolio_components(histories, symbols)
     index = aligned.total_returns.index
+    execution_eligible = _common_execution_eligibility(index, histories, symbols)
 
     asset_values, debt, cash = _target_state(
         config.initial_amount,
@@ -298,6 +300,7 @@ def simulate_portfolio_ledger(
         index,
         config.rebalancing.frequency.value,
         beginning=False,
+        eligible=execution_eligible,
     )
 
     for position in range(1, len(index)):
@@ -438,7 +441,10 @@ def simulate_portfolio_ledger(
                 config.rebalancing.frequency != RebalanceFrequency.NONE
             )
             threshold = False
-            if config.rebalancing.threshold_percent is not None:
+            if (
+                config.rebalancing.threshold_percent is not None
+                and execution_eligible[position]
+            ):
                 threshold = _threshold_breached(
                     asset_values,
                     debt,
@@ -479,10 +485,11 @@ def simulate_portfolio_ledger(
                             "target_cash_ratio": policy.target_cash_ratio,
                             "debt_before": debt_before,
                             "target_debt": debt,
+                            "execution_clock": "common_native_market_observation",
                         },
                     )
                 )
-            elif policy.daily_reset_ratio is not None:
+            elif policy.daily_reset_ratio is not None and execution_eligible[position]:
                 gross_before = _gross_exposure(asset_values)
                 debt_before = debt
                 (
@@ -514,6 +521,7 @@ def simulate_portfolio_ledger(
                                 "traded_notional": traded_notional,
                                 "transaction_cost": cost,
                                 "asset_allocation_preserved": True,
+                                "execution_clock": "common_native_market_observation",
                             },
                         )
                     )
@@ -965,11 +973,45 @@ def _cap_withdrawal(requested: float, equity: float) -> tuple[float, bool]:
     return actual, actual != requested
 
 
+def _common_execution_eligibility(
+    index: pd.DatetimeIndex,
+    histories: Mapping[str, TWDAssetHistory],
+    symbols: tuple[str, ...],
+) -> np.ndarray:
+    """Return dates where every constituent has a fresh native-market quote.
+
+    TWD valuation remains on the union price/FX calendar.  This mask is used
+    only for trade execution.  Legacy/synthetic histories without provenance
+    preserve the historical behavior by treating every valuation date as
+    executable.
+    """
+
+    eligible = np.ones(len(index), dtype=bool)
+    for symbol in symbols:
+        history = histories.get(symbol)
+        native_mask = (
+            getattr(history.valuation, "native_observation_mask", None)
+            if history is not None
+            else None
+        )
+        if not isinstance(native_mask, pd.Series):
+            return np.ones(len(index), dtype=bool)
+        observed = (
+            native_mask.reindex(index)
+            .fillna(False)
+            .astype(bool)
+            .to_numpy(dtype=bool)
+        )
+        eligible &= observed
+    return eligible
+
+
 def _period_event_mask(
     index: pd.DatetimeIndex,
     frequency: str,
     *,
     beginning: bool,
+    eligible: np.ndarray | None = None,
 ) -> np.ndarray:
     mask = np.zeros(len(index), dtype=bool)
     if frequency == "none" or len(index) < 2:
@@ -988,7 +1030,30 @@ def _period_event_mask(
         mask[1:] = keys[1:] != keys[:-1]
     else:
         mask[:-1] = keys[:-1] != keys[1:]
-    return mask
+
+    if eligible is None:
+        return mask
+    execution = np.asarray(eligible, dtype=bool)
+    if execution.shape != mask.shape:
+        raise ValueError("execution eligibility mask must match valuation calendar")
+
+    shifted = np.zeros(len(index), dtype=bool)
+    positions = np.arange(len(index))
+    for event_position in np.flatnonzero(mask):
+        same_period = keys == keys[event_position]
+        if beginning:
+            candidates = positions[
+                same_period & execution & (positions >= event_position)
+            ]
+            if len(candidates):
+                shifted[int(candidates[0])] = True
+        else:
+            candidates = positions[
+                same_period & execution & (positions <= event_position)
+            ]
+            if len(candidates):
+                shifted[int(candidates[-1])] = True
+    return shifted
 
 
 def _record_allocations(
